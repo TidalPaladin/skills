@@ -1,0 +1,4 @@
+interface:
+  display_name: "CLI Design"
+  short_description: "Design consistent, composable CLI UX"
+  default_prompt: "Use $cli-design to design or refine this CLI output, flags, and behavior conventions."
