@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git & GitHub Workflow"
+  short_description: "Safe Git/GitHub commit, PR, and review workflow"
+  default_prompt: "Use $git-github-workflow to handle this git/GitHub task safely, including commits, branches, PRs, and review feedback."
