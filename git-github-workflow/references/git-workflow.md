@@ -21,6 +21,8 @@ EOF
 
 **Before committing:** `git status`, `git diff`, and `git log` are run to understand the current state, review staged changes, and match the repository's existing commit message style.
 
+**Before pushing:** Run repository-relevant code quality checks and unit tests, and only push when they pass. If a check cannot run locally, document why and what CI job or downstream validation is expected to cover it.
+
 ## Branch Management
 
 - Check current branch state and tracking status before any operations
@@ -102,6 +104,7 @@ Generated with <tool name> (Codex, Claude Code, etc.)
 **Closing keywords:** When a PR addresses a GitHub issue, include a closing keyword in the PR body (e.g. `Closes #42`, `Fixes #15`) so the issue is automatically closed when the PR merges.
 
 **Pushing and creating:**
+- Before pushing, rerun any relevant code quality checks and unit tests for the final branch state.
 - Push with `-u` flag to set upstream tracking
 - Create a new branch if needed
 - Use `gh pr create --draft` with the title and body passed via HEREDOC — always create as a draft unless otherwise specified
