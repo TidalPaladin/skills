@@ -24,6 +24,16 @@ EOF
 ## Branch Management
 
 - Check current branch state and tracking status before any operations
+- Before creating a new branch or worktree, verify the local base branch is not behind `origin/<base>`:
+
+```bash
+git fetch origin
+git switch <base>
+git rev-list --left-right --count origin/<base>...<base>
+```
+
+- Treat the first number as "behind" and the second as "ahead"; only continue when behind is `0` (up to date or ahead)
+- If behind is non-zero, fast-forward the base branch first (for example: `git pull --ff-only`)
 - Never run destructive commands without explicit user approval:
   - `push --force`
   - `reset --hard`
@@ -49,8 +59,8 @@ Common scenarios:
 # Create a worktree for an existing branch
 git worktree add /tmp/project-hotfix hotfix/issue-42
 
-# Create a worktree with a new branch
-git worktree add /tmp/project-review -b review/pr-15
+# Create a worktree with a new branch from a verified base branch
+git worktree add /tmp/project-review -b review/pr-15 <base>
 
 # List active worktrees
 git worktree list
