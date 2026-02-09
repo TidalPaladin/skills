@@ -1,0 +1,4 @@
+interface:
+  display_name: "Doc Update"
+  short_description: "Update and validate project documentation from code truth"
+  default_prompt: "Use $doc-update to explore the project, account for working changes, and update/validate AGENTS.md, README.md, and related documentation."
