@@ -49,7 +49,7 @@ This file defines my personal/global engineering standards.
 
 ## Testing scope
 - Require unit tests for core logic.
-- When fixing a bug, add a regression test that reproduces it; ideally write the test first, verify it fails, then implement the fix and verify it passes.
+- When implementing a fix (from code review feedback or any other bug report), first add and run a regression test that reproduces the issue and verify it fails before changing the main code; after the fix, rerun the regression test and verify it passes.
 - Add integration tests for cross-module behavior and code paths that involve I/O, network, database, or filesystem interaction.
 - Ensure critical paths include failure-mode and edge-case tests, not only happy-path tests.
 - Fix or quarantine flaky tests immediately; do not ignore intermittent failures.

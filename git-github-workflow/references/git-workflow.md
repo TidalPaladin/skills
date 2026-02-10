@@ -23,6 +23,12 @@ EOF
 
 **Before pushing:** Run repository-relevant code quality checks and unit tests, and only push when they pass. If a check cannot run locally, document why and what CI job or downstream validation is expected to cover it.
 
+## Fix Implementation Order
+
+- For any fix, whether prompted by a code review comment or by a bug found through another path, first add a regression test that reproduces the issue.
+- Run that new regression test and confirm it fails before changing the main code.
+- After implementing the fix, rerun the regression test and relevant quality checks, and confirm they pass before pushing.
+
 ## Branch Management
 
 - Check current branch state and tracking status before any operations
