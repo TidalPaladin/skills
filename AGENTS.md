@@ -14,7 +14,7 @@ This file defines my personal/global engineering standards.
 - Keep added guidance specific, actionable, and minimal so it improves future execution without creating noise.
 
 ## General coding standards
-- Avoid magic numbers and unnamed hardcoded values. Use named constants instead.
+- Avoid magic numbers and unnamed hardcoded values in code and unit tests; use named constants, and in unit tests prefer constants from the code under test when available.
 - Prefer using Rust or Python. Rust is preferred to Python for sufficiently complex code.
 - Keep functions simple, reusable, and as general as possible.
 - Keep code concise and intuitive.
