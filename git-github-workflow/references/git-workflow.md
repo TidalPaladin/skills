@@ -88,14 +88,36 @@ git diff origin/<base-branch>...HEAD
 - Body uses this format:
 
 ```
-## Summary
-- <1-3 bullet points describing the changes>
+## Motivation
+<a few sentences on why this change is needed>
+
+## Solution
+<a few sentences on how the problem was solved at a high level>
+
+## Changes
+- <a few bullet points describing the changes in concrete detail>
 
 ## Test plan
+<a few sentences or bullets describing unit/integration coverage for changed pathways and regression checks>
 - [ ] <testing checklist items>
+
+<If the number of tests is large (5+), optionally include this collapsed section:>
+<details>
+<summary>Detailed test coverage (optional expand)</summary>
+
+- `test_name_1`: <what behavior/path it validates>
+- `test_name_2`: <what behavior/path it validates>
+</details>
+
+## Deferred Changes (Optional)
+<only critical follow-up work needed to close glaring holes in this PR; exclude minor next steps, polish, and nice-to-haves>
 
 Generated with <tool name> (Codex, Claude Code, etc.)
 ```
+
+When there are fewer than 5 relevant tests, the collapsed test-details section can be omitted.
+
+The PR body should provide traceability: if a regression occurs, the Motivation, Solution, Changes, and Test plan sections should help identify likely root-cause areas quickly.
 
 **Usage examples:** When appropriate, include a brief usage snippet in the PR body showing how to exercise the change, along with sample program output. Keep these concise — a few lines of invocation and output is enough to demonstrate the feature or fix without bloating the PR description.
 
