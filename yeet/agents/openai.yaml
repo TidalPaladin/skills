@@ -1,0 +1,4 @@
+interface:
+  display_name: "Yeet Workflow Alias"
+  short_description: "Alias for git-github-workflow commit/push/PR flow"
+  default_prompt: "Use $yeet to run the $git-github-workflow flow, with modifiers like 'commit only' or 'no pr' when needed."
