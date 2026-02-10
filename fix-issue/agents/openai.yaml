@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fix Issue Workflow"
+  short_description: "Reproduce issues, fix them, and publish a closing PR"
+  default_prompt: "Use $fix-issue to read an issue, reproduce bugs, implement fixes, and open a PR that closes the issue."
