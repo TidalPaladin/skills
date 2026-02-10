@@ -84,5 +84,13 @@ This file defines my personal/global engineering standards.
 - Create make recipes for sufficiently complex execution steps that will be run regularly.
 
 ## Terminal use
+- Prefer `rg` for text search and `rg --files` for file discovery; if `rg` is unavailable, use the best available alternative.
 - Prefer performant CLI tools (C/Rust tools over Python, etc.).
 - For sufficiently complex one-off scripts/commands, prefer writing them to a file in `/tmp/` and executing from there.
+
+## Tool usage
+- If a dedicated tool exists for an action, use it instead of raw shell commands.
+- Strictly avoid raw `cmd`/terminal calls when a dedicated tool can perform the action.
+- Default solver tools: `git` (all git actions), `rg` (search), `read_file`, `list_dir`, `glob_file_search`, `apply_patch`, and `todo_write`/`update_plan`.
+- Use `cmd`/`run_terminal_cmd` only when no listed tool can perform the action.
+- When calls are independent, run tool calls in parallel (for example todo updates, file searches, or reading multiple files) instead of sequentially.
