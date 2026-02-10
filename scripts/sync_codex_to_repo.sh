@@ -3,7 +3,9 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Sync this git repository into ~/.codex/ with rsync.
+Sync this repository into ~/.codex/ with rsync:
+- AGENTS.md -> ~/.codex/AGENTS.md
+- skill directories -> ~/.codex/skills/
 
 Usage:
   scripts/sync_codex_to_repo.sh [--apply] [--dry-run] [--delete]
@@ -53,32 +55,40 @@ if [[ -z "$repo_root" ]]; then
 fi
 
 source_dir="${repo_root}/"
-destination_dir="${HOME}/.codex/"
-if [[ ! -d "$destination_dir" ]]; then
-  mkdir -p "$destination_dir"
-fi
+destination_root="${HOME}/.codex/"
+destination_skills="${destination_root}skills/"
+mkdir -p "$destination_root" "$destination_skills"
 
-rsync_flags=(
+agents_flags=(
+  --archive
+  --human-readable
+  --itemize-changes
+)
+
+skills_flags=(
   --archive
   --human-readable
   --itemize-changes
   --exclude='.git/'
   --exclude='/scripts/'
-  --include='/AGENTS.md'
   --include='/*/'
   --include='/*/**'
   --exclude='/*'
 )
 
 if [[ "$delete_extra" == true ]]; then
-  rsync_flags+=(--delete)
+  skills_flags+=(--delete)
 fi
 
 if [[ "$dry_run" == true ]]; then
-  rsync_flags+=(--dry-run)
-  echo "Dry run: previewing sync from $source_dir to $destination_dir"
+  agents_flags+=(--dry-run)
+  skills_flags+=(--dry-run)
+  echo "Dry run: previewing AGENTS.md sync to ${destination_root}AGENTS.md"
+  echo "Dry run: previewing skills sync from $source_dir to $destination_skills"
 else
-  echo "Applying sync from $source_dir to $destination_dir"
+  echo "Applying AGENTS.md sync to ${destination_root}AGENTS.md"
+  echo "Applying skills sync from $source_dir to $destination_skills"
 fi
 
-rsync "${rsync_flags[@]}" "$source_dir" "$destination_dir"
+rsync "${agents_flags[@]}" "${repo_root}/AGENTS.md" "${destination_root}AGENTS.md"
+rsync "${skills_flags[@]}" "$source_dir" "$destination_skills"
