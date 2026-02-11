@@ -1,0 +1,4 @@
+interface:
+  display_name: "CircleCI Job Results"
+  short_description: "Fetch CircleCI workflow and job statuses safely"
+  default_prompt: "Use $circleci-job-results to read CircleCI job results, using $token-file-auth for secure token loading."
