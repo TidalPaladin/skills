@@ -18,14 +18,14 @@ Options:
   --pipeline-id <id>     Fetch workflow and job results for a pipeline
   --project-slug <slug>  Project slug, for example gh/my-org/my-repo
   --job-number <number>  CircleCI job number within the project
-  --token-name <name>    Secret file name under ~/.codex/.env (default: circleci)
+  --token-name <name>    Secret file name under ~/.codex/env (default: circleci)
   --format <text|json>   Output format (default: text)
   -h, --help             Show this help text
 
 Environment:
   CIRCLECI_CURL_BIN      Override curl binary for testing
   CIRCLECI_JQ_BIN        Override jq binary for testing
-  TOKEN_FILE_AUTH_BASE_DIR  Override token directory for testing
+  TOKEN_FILE_AUTH_BASE_DIR  Override token directory for testing (default: ~/.codex/env)
 EOF
 }
 

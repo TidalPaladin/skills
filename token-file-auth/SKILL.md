@@ -1,18 +1,19 @@
 ---
 name: token-file-auth
-description: Load API tokens from per-secret files under ~/.codex/.env in a safe, reusable way without sourcing shell code or printing secret values. Use when another skill needs credentials from local secret files.
+description: Load API tokens from per-secret files under ~/.codex/env in a safe, reusable way without sourcing shell code or printing secret values. Use when another skill needs credentials from local secret files.
 ---
 
 # Token File Auth
 
 ## Overview
 
-Use this skill to load secrets from `~/.codex/.env/<secret_name>` without exposing tokens in logs or conversation output.
+Use this skill to load secrets from `~/.codex/env/<secret_name>` without exposing tokens in logs or conversation output.
+`~/.codex/.env` is intentionally avoided because it can interfere with Codex startup.
 
 ## Invocation Contract
 
 1. Invoke with a secret name, for example `$token-file-auth circleci`.
-2. Read only from `~/.codex/.env/<secret_name>` (or `TOKEN_FILE_AUTH_BASE_DIR` when explicitly set).
+2. Read only from `~/.codex/env/<secret_name>` (or `TOKEN_FILE_AUTH_BASE_DIR` when explicitly set).
 3. Do not use `source` on secret files.
 4. Do not print token values.
 
@@ -40,8 +41,8 @@ Use this skill to load secrets from `~/.codex/.env/<secret_name>` without exposi
 If a token file is missing, create it with secure permissions:
 
 ```bash
-mkdir -p ~/.codex/.env
-chmod 700 ~/.codex/.env
-printf 'YOUR_TOKEN_HERE\n' > ~/.codex/.env/<service>
-chmod 600 ~/.codex/.env/<service>
+mkdir -p ~/.codex/env
+chmod 700 ~/.codex/env
+printf 'YOUR_TOKEN_HERE\n' > ~/.codex/env/<service>
+chmod 600 ~/.codex/env/<service>
 ```

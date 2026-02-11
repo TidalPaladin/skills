@@ -5,6 +5,7 @@ TOKEN_FILE_AUTH_EXIT_USAGE=2
 TOKEN_FILE_AUTH_DEFAULT_SECRET_NAME="circleci"
 TOKEN_FILE_AUTH_DIR_MODE="700"
 TOKEN_FILE_AUTH_FILE_MODE="600"
+TOKEN_FILE_AUTH_DEFAULT_BASE_DIR_REL=".codex/env"
 
 token_file_auth_usage() {
   cat <<'EOF'
@@ -13,17 +14,28 @@ Usage:
   token_file_auth.sh --self-test [--name <secret_name>]
 
 Options:
-  --name <secret_name>  Secret file name under ~/.codex/.env/
+  --name <secret_name>  Secret file name under ~/.codex/env/
   --self-test           Validate real token loading and local safety checks
   -h, --help            Show this help text
 
 Environment:
-  TOKEN_FILE_AUTH_BASE_DIR  Override default secret directory (~/.codex/.env)
+  TOKEN_FILE_AUTH_BASE_DIR  Override default secret directory (~/.codex/env)
+
+Note:
+  ~/.codex/.env is intentionally avoided because it can interfere with Codex startup.
 EOF
 }
 
+token_file_auth_default_base_dir() {
+  printf '%s/%s' "${HOME}" "${TOKEN_FILE_AUTH_DEFAULT_BASE_DIR_REL}"
+}
+
 token_file_auth_base_dir() {
-  printf '%s' "${TOKEN_FILE_AUTH_BASE_DIR:-${HOME}/.codex/.env}"
+  if [[ -n "${TOKEN_FILE_AUTH_BASE_DIR:-}" ]]; then
+    printf '%s' "${TOKEN_FILE_AUTH_BASE_DIR}"
+    return 0
+  fi
+  token_file_auth_default_base_dir
 }
 
 token_file_auth_error() {

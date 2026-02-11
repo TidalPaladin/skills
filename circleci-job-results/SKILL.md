@@ -14,7 +14,8 @@ Start by invoking `$token-file-auth circleci`, then execute CircleCI API reads.
 
 1. Use token workflow:
    - Invoke `$token-file-auth circleci`.
-   - Load token from `~/.codex/.env/circleci` via script helper.
+   - Load token from `~/.codex/env/circleci` via script helper.
+   - Use `~/.codex/env` (not `~/.codex/.env`) because `~/.codex/.env` can interfere with Codex startup.
 2. Supported query modes:
    - Auth smoke test (`--auth-smoke-test`)
    - Pipeline workflow + jobs (`--pipeline-id <id>`)
@@ -76,11 +77,11 @@ For additional API recipes (recent pipelines by repository, workflow/job chainin
 
 ## Troubleshooting
 
-If `~/.codex/.env/circleci` is missing, create it with secure permissions:
+If `~/.codex/env/circleci` is missing, create it with secure permissions:
 
 ```bash
-mkdir -p ~/.codex/.env
-chmod 700 ~/.codex/.env
-printf 'YOUR_CIRCLECI_TOKEN\n' > ~/.codex/.env/circleci
-chmod 600 ~/.codex/.env/circleci
+mkdir -p ~/.codex/env
+chmod 700 ~/.codex/env
+printf 'YOUR_CIRCLECI_TOKEN\n' > ~/.codex/env/circleci
+chmod 600 ~/.codex/env/circleci
 ```

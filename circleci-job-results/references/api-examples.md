@@ -2,9 +2,11 @@
 
 These examples assume:
 
-1. `~/.codex/.env/circleci` exists and contains one token line.
+1. `~/.codex/env/circleci` exists and contains one token line.
 2. `jq` and `curl` are installed.
 3. You run commands from this repository root.
+
+Use `~/.codex/env` (not `~/.codex/.env`) because `~/.codex/.env` can interfere with Codex startup.
 
 ## Load Token Safely (No Secret Output)
 

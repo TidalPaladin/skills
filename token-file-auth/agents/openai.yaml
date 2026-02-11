@@ -1,4 +1,4 @@
 interface:
   display_name: "Token File Auth"
-  short_description: "Load local tokens from ~/.codex/.env safely"
-  default_prompt: "Use $token-file-auth to load a named token from ~/.codex/.env without printing secret values."
+  short_description: "Load local tokens from ~/.codex/env safely"
+  default_prompt: "Use $token-file-auth to load a named token from ~/.codex/env without printing secret values."
