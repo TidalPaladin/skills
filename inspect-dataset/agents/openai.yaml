@@ -1,0 +1,4 @@
+interface:
+  display_name: "Inspect Dataset"
+  short_description: "Locate dataset roots and inspect CSV/Parquet structure"
+  default_prompt: "Use $inspect-dataset to locate the active dataset path from training config and inspect CSV/Parquet files before editing parser or manipulation code."
