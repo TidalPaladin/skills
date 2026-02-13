@@ -12,6 +12,8 @@ Read `references/git-workflow.md` first and treat it as the source of truth for 
 
 ## Invocation Contract
 
+When this skill performs GitHub operations, prefer the `codex_app` GitHub MCP when it is available. Only fall back to `gh` CLI when MCP tooling is unavailable or cannot execute.
+
 When this skill is explicitly invoked with a `$` skill reference (for example `$git-github-workflow` or `$skill`) and no additional task context, treat that as a request to run the default publish flow:
 1. Commit task-relevant changes.
 2. Push the branch.
@@ -32,20 +34,22 @@ If modifiers conflict, prefer the most restrictive interpretation and explicitly
 ## Operating Procedure
 
 1. Determine target flow from the invocation contract and explicit user instructions before running commands.
-2. Inspect current repository state before mutating commands (`git status`, branch tracking, recent history).
-3. Ensure the base branch is up to date with or ahead of `origin/<base>` before creating a new branch or worktree.
-4. Stage only task-relevant changes and write concise imperative commit messages.
-5. Prefer non-destructive operations and require explicit approval for destructive history/file operations.
-6. Sync remotes before PR work and summarize branch changes against the remote base branch.
-7. Run repository-relevant code quality checks and unit tests before pushing changes; if a check cannot run locally, document why and note expected CI coverage.
-8. Create draft PRs with clear summary and test plan, apply appropriate repository labels when possible, and include usage snippets when useful.
-9. Read all review channels (review comments, reviews, top-level PR comments) before responding.
-10. Address feedback in new commits by default and preserve review context unless rewrite is explicitly requested.
-11. Resolve conversations only when feedback is implemented; otherwise reply with rationale and leave unresolved.
-12. Apply rebase/squash policy from the reference guide based on branch publication and review state.
-13. Use recovery workflows (`git reflog`, recovery branch, `git cherry-pick`) instead of destructive resets when undoing mistakes.
+2. For GitHub operations, use the `codex_app` GitHub MCP first; use `gh` CLI only if MCP is unavailable or blocked, and note the reason for fallback.
+3. Inspect current repository state before mutating commands (`git status`, branch tracking, recent history).
+4. Ensure the base branch is up to date with or ahead of `origin/<base>` before creating a new branch or worktree.
+5. Stage only task-relevant changes and write concise imperative commit messages.
+6. Prefer non-destructive operations and require explicit approval for destructive history/file operations.
+7. Sync remotes before PR work and summarize branch changes against the remote base branch.
+8. Run repository-relevant code quality checks and unit tests before pushing changes; if a check cannot run locally, document why and note expected CI coverage.
+9. Create draft PRs with clear summary and test plan, apply appropriate repository labels when possible, and include usage snippets when useful.
+10. Read all review channels (review comments, reviews, top-level PR comments) before responding.
+11. Address feedback in new commits by default and preserve review context unless rewrite is explicitly requested.
+12. Resolve conversations only when feedback is implemented; otherwise reply with rationale and leave unresolved.
+13. Apply rebase/squash policy from the reference guide based on branch publication and review state.
+14. Use recovery workflows (`git reflog`, recovery branch, `git cherry-pick`) instead of destructive resets when undoing mistakes.
 
 ## Reference
 
 - Primary guide: `references/git-workflow.md`
+- For GitHub operations, default to `codex_app` GitHub MCP and use `gh` only as a documented fallback.
 - If guidance conflicts, follow repository-level instructions first, then explicit user instructions.
