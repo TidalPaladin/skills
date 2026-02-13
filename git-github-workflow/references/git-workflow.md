@@ -107,6 +107,14 @@ git diff origin/<base-branch>...HEAD
 <a few sentences or bullets describing unit/integration coverage for changed pathways and regression checks>
 - [ ] <testing checklist items>
 
+## Test suite changes (Required)
+- [ ] List unit tests that were removed and explain why.
+- [ ] List unit tests that were significantly altered and explain what behavior changed.
+- [ ] If coverage intent changed, include replacement tests or replacement strategy.
+- [ ] If no unit tests were removed or significantly altered, write: `No unit test removals or significant test changes in this PR.`
+
+**Definition of “significantly altered”:** a test is significantly altered when assertions, setup, or coverage intent change in a way that materially changes what behavior the test protects. Cosmetic edits (formatting, variable names, or message text) are not sufficient.
+
 <If the number of tests is large (5+), optionally include this collapsed section:>
 <details>
 <summary>Detailed test coverage (optional expand)</summary>
@@ -136,6 +144,8 @@ The PR body should provide traceability: if a regression occurs, the Motivation,
 - Push with `-u` flag to set upstream tracking
 - Create a new branch if needed
 - Use `gh pr create --draft` with the title and body passed via HEREDOC — always create as a draft unless otherwise specified
+- For PRs that remove or significantly alter unit tests, ensure the PR body includes `## Test suite changes (Required)` with explicit removed/altered test names and rationale.
+- When pushing to an existing PR, add or update the PR body, or post a PR comment, with the same required test-suite traceability details before or with the push, including any removed or significantly altered tests.
 
 **PR labeling:** When possible, add repository-standard labels that improve triage (for example: `bug`, `enhancement`, `documentation`, `dependencies`, `breaking-change`, `needs-tests`).
 
