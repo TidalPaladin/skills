@@ -71,6 +71,8 @@ skills_flags=(
   --itemize-changes
   --exclude='.git/'
   --exclude='/scripts/'
+  --exclude='/ruff_cache/'
+  --exclude='/.ruff_cache/'
   --include='/*/'
   --include='/*/**'
   --exclude='/*'
