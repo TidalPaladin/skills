@@ -134,6 +134,7 @@ Generated with <tool name> (Codex, Claude Code, etc.)
 When there are fewer than 5 relevant tests, the collapsed test-details section can be omitted.
 
 The PR body should provide traceability: if a regression occurs, the Motivation, Solution, Changes, and Test plan sections should help identify likely root-cause areas quickly.
+When creating or updating the PR body, describe the **complete set of changes in the branch relative to the target base branch** (`git diff origin/<base-branch>...HEAD`), not just the last conversational change. If multiple fixes, refactors, docs updates, test updates, or risk-reducing cleanups were made during the session, include the full picture so reviewers can infer intent and impact across the entire patch set.
 
 **Usage examples:** When appropriate, include a brief usage snippet in the PR body showing how to exercise the change, along with sample program output. Keep these concise — a few lines of invocation and output is enough to demonstrate the feature or fix without bloating the PR description.
 
