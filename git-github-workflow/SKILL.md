@@ -40,7 +40,8 @@ If modifiers conflict, prefer the most restrictive interpretation and explicitly
 5. Stage only task-relevant changes and write concise imperative commit messages.
 6. Prefer non-destructive operations and require explicit approval for destructive history/file operations.
 7. Sync remotes before PR work and summarize branch changes against the remote base branch.
-8. Run repository-relevant code quality checks and unit tests before pushing changes; if a check cannot run locally, document why and note expected CI coverage.
+8. Run repository-relevant code quality checks and unit tests before pushing changes; if the repository defines quality targets in a Makefile (for example, `make lint`, `make test`, `make check`, `make quality`), use those targets before equivalent one-off commands.
+   If a check cannot run locally, document why and note expected CI coverage.
 9. Create draft PRs with clear summary and test plan, apply appropriate repository labels when possible, and include usage snippets when useful.
 10. Read all review channels (review comments, reviews, top-level PR comments) before responding.
 11. Address feedback in new commits by default and preserve review context unless rewrite is explicitly requested.

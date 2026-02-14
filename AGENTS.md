@@ -33,6 +33,7 @@ This file defines my personal/global engineering standards.
 ## Definition of done
 - Consider work complete only when formatting, linting, type checking (where applicable), and tests pass locally.
 - Run the project-standard quality gates before handoff.
+- Prefer running project-defined Makefile quality targets (for example, `make lint`, `make test`, `make check`) over one-off command invocations when those targets exist.
 - Keep CI and local quality commands aligned to avoid “works locally but fails in CI” drift.
 
 ## Dependency and version policy

@@ -22,6 +22,7 @@ EOF
 **Before committing:** `git status`, `git diff`, and `git log` are run to understand the current state, review staged changes, and match the repository's existing commit message style.
 
 **Before pushing:** Run repository-relevant code quality checks and unit tests, and only push when they pass. If a check cannot run locally, document why and what CI job or downstream validation is expected to cover it.
+If the repository defines quality targets in a Makefile (for example, `make lint`, `make test`, `make check`, `make quality`), use those targets before equivalent one-off commands.
 
 ## Fix Implementation Order
 
@@ -141,6 +142,7 @@ The PR body should provide traceability: if a regression occurs, the Motivation,
 
 **Pushing and creating:**
 - Before pushing, rerun any relevant code quality checks and unit tests for the final branch state.
+- Prefer Makefile-defined quality targets when available.
 - Push with `-u` flag to set upstream tracking
 - Create a new branch if needed
 - Use `gh pr create --draft` with the title and body passed via HEREDOC — always create as a draft unless otherwise specified
