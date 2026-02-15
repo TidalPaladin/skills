@@ -11,6 +11,7 @@ This file defines my personal/global engineering standards.
 ## Continuous improvement
 - If you struggle with a problem, hit a recurring issue, or encounter a tricky gotcha, consider adding a project-level skill or updating that project's `AGENTS.md` with future-facing guidance.
 - Update a project's `AGENTS.md` whenever making significant architectural/process changes or when existing guidance is stale, incomplete, or no longer accurate.
+- If a workflow grows to many repeated tool calls (for example, more than 8) and you discover a more concise approach that achieves the same result, then update the project's `AGENTS.md` with that optimization so future runs are more efficient.
 - Keep added guidance specific, actionable, and minimal so it improves future execution without creating noise.
 
 ## General coding standards
