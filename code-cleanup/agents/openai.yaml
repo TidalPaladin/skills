@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Cleanup"
+  short_description: "Improve readability, conciseness, and maintainability while preserving behavior."
+  default_prompt: "Use $code-cleanup to prioritize requested targets, then changed files, then discretionary cleanup targets. Focus on style and maintainability; request confirmation before any behavior-changing refactor."
