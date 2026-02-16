@@ -17,25 +17,30 @@ Accept issue context from any of these forms:
 2. Issue URL.
 3. Pasted issue text.
 
-If the invocation does not contain enough issue context to proceed, ask one focused clarifying question and continue.
+If no issue context is provided, assume the target is the current working-tree changes (if any).
+If there are no working changes, review the codebase for a bug to fix:
+1. Choose a likely bug candidate and proceed as a `bug` issue.
+2. If no actionable bug is found, report that directly and stop.
+
+Do not ask for issue context in this case; proceed with the above default behavior.
 
 ## Workflow
 
 1. Invoke `$git-github-workflow` and follow its repository safety guidance for all git/GitHub operations.
-2. Read the issue reference from the user command and summarize the concrete acceptance target in one short internal checkpoint before editing code.
+2. Read the issue reference from user input when provided; otherwise infer the target from working-tree context or your selected bug candidate and summarize the concrete acceptance target in one short internal checkpoint before editing code.
 3. Classify the issue:
    - `bug`: behavior is incorrect relative to current contract.
    - `change-request`: behavior change or enhancement without a defect claim.
 4. For `bug` issues, verify reproducibility before implementing:
-   - Prefer a regression test that fails against current code.
-   - If a test is not practical, capture deterministic reproduction steps and observed incorrect behavior.
-   - If the bug cannot be reproduced after reasonable attempts, stop and ask the user how to proceed.
+   - Create a regression test that reproduces the bug and fails against current code before implementing any fix.
+   - If a regression test cannot be added after reasonable attempts, stop and ask the user how to proceed.
+   - For codebase-initiated bug hunting, still require a new failing regression test before any implementation.
 5. Implement the minimal fix for the scoped issue.
 6. Verify completion:
    - Run the regression test (or reproduction steps) to confirm the fix.
    - Run relevant project quality gates (formatting, lint, type checks, tests) consistent with repository standards.
 7. Publish with `$git-github-workflow` default publish flow (commit, push, draft PR) unless the user requested a different mode.
-8. In the PR description, reference the issue with closing language (for example `Closes #123`).
+8. If an issue reference exists, include closing language in the PR description (for example `Closes #123`).
 
 ## Autonomy Policy
 
@@ -48,7 +53,7 @@ Only interrupt for user input when:
 ## Output Contract
 
 Return a concise execution summary:
-1. Issue reference used.
+1. Issue reference used (or inferred target context).
 2. Reproduction evidence (failing regression test or deterministic repro steps).
 3. Fix summary and verification results.
-4. PR link and explicit closing reference to the original issue.
+4. PR link and, when applicable, explicit closing reference to the original issue.
