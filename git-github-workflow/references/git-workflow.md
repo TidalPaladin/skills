@@ -97,6 +97,8 @@ git diff origin/<base-branch>...HEAD
 ```
 ## Motivation
 <a few sentences on why this change is needed>
+`Motivation` should describe the end-user/runtime problem being solved (impact and urgency), not branch, sequencing, or process context.
+If scope isolation was important for delivery, include that under `## Changes`.
 
 ## Solution
 <a few sentences on how the problem was solved at a high level>
