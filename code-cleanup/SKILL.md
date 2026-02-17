@@ -100,3 +100,14 @@ If exact LOC was not measured, provide an estimate and method note.
 - If a path looks missing, verify mountpoint/typo before assuming it is absent.
 - If requested changes appear to require functional change, defer and request explicit approval.
 - If no strong candidate can be identified, report that to the user and do nothing.
+
+## Deslop Guidance
+
+When cleaning up AI-generated or over-defended code, prioritize removing noise while keeping behavior stable:
+
+1. Remove comments that add no durable signal, are verbose/obvious, or are stylistically inconsistent with the file.
+2. Remove unnecessary defensive checks and exception handling when the caller/codepath is already validated or trusted.
+3. Inline variables and small helper lambdas/functions that are declared and used once immediately after declaration.
+4. Remove redundant casts/types/signature noise and checks that duplicate guarantees already enforced by callers.
+5. Eliminate style inconsistencies with the surrounding file, including over-typed locals/annotations where the file does not use them.
+6. Do not apply any cleanup that conflicts with repository `AGENTS.md` requirements.
