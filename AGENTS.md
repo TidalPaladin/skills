@@ -8,6 +8,26 @@ This file defines my personal/global engineering standards.
 - Prefer simple lists and tables for readability.
 - If a user-provided filepath does not exist, check whether the path is under an unmounted mountpoint and whether the path may contain a typo before concluding it is missing.
 
+## Code review
+
+Use this sequence when reviewing a change:
+
+1. Confirm the change’s underlying goal.
+   - Summarize the intended problem being solved and the expected behavioral outcome.
+   - Identify assumptions the change appears to make.
+2. Evaluate what the change does and why it helps.
+   - Explain how the implementation maps to the goal.
+   - Call out concrete benefits or improvements achieved.
+3. Identify risks and pitfalls.
+   - Focus on correctness, reliability, complexity, and maintainability issues.
+   - Skip backward-compatibility checks unless explicitly requested.
+4. Check for missing pieces.
+   - Note obvious edge cases, validation gaps, observability gaps, or test blind spots.
+5. Propose high-level design simplifications.
+   - Suggest ways to reduce conceptual complexity, improve structure, or better match architecture.
+6. Propose implementation simplifications.
+   - Suggest concrete, low-risk ways to simplify code, reduce branching/duplication, and improve clarity.
+
 ## Continuous improvement
 - If you struggle with a problem, hit a recurring issue, or encounter a tricky gotcha, consider adding a project-level skill or updating that project's `AGENTS.md` with future-facing guidance.
 - Update a project's `AGENTS.md` whenever making significant architectural/process changes or when existing guidance is stale, incomplete, or no longer accurate.
