@@ -1,0 +1,4 @@
+interface:
+  display_name: "Add Test"
+  short_description: "Improve test coverage by adding meaningful unit tests for high-risk behavior."
+  default_prompt: "Use $add-test to prioritize requested targets, then changed files, then discretionary high-risk coverage targets. Focus on bug prevention and non-trivial regression tests."

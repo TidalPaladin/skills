@@ -99,3 +99,4 @@ If exact LOC was not measured, provide an estimate and method note.
 - If a user target seems wrong, ask for confirmation before broadening scope.
 - If a path looks missing, verify mountpoint/typo before assuming it is absent.
 - If requested changes appear to require functional change, defer and request explicit approval.
+- If no strong candidate can be identified, report that to the user and do nothing.
