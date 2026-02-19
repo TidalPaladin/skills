@@ -44,10 +44,11 @@ If modifiers conflict, prefer the most restrictive interpretation and explicitly
    If a check cannot run locally, document why and note expected CI coverage.
 9. Create draft PRs with clear summary and test plan, apply appropriate repository labels when possible, and include usage snippets when useful.
 10. Read all review channels (review comments, reviews, top-level PR comments) before responding.
-11. Address feedback in new commits by default and preserve review context unless rewrite is explicitly requested.
-12. Resolve conversations only when feedback is implemented; otherwise reply with rationale and leave unresolved.
-13. Apply rebase/squash policy from the reference guide based on branch publication and review state.
-14. Use recovery workflows (`git reflog`, recovery branch, `git cherry-pick`) instead of destructive resets when undoing mistakes.
+11. Prefer replying to the original review comment thread when addressing feedback; keep replies brief (short paragraph) and explicitly state how the feedback was handled.
+12. Address feedback in new commits by default and preserve review context unless rewrite is explicitly requested.
+13. Resolve conversations only when feedback is implemented; otherwise reply with rationale and leave unresolved.
+14. Apply rebase/squash policy from the reference guide based on branch publication and review state.
+15. Use recovery workflows (`git reflog`, recovery branch, `git cherry-pick`) instead of destructive resets when undoing mistakes.
 
 ## Reference
 

@@ -197,13 +197,14 @@ gh pr view {number} --comments
 - Read and understand each comment in context
 - Make the requested changes in the codebase
 - Commit fixes as **new commits** (never amend previous commits unless explicitly asked), since amending after a hook failure or during review can destroy prior work
+- When addressing feedback, reply in the original review comment thread (not as a new top-level PR comment). Keep replies short: one concise paragraph stating what changed and how it addresses the comment.
 
 ## Resolving Conversations
 
 - Group related fixes into a single commit where appropriate
 - New commits are always preferred over amends to preserve review history
-- **If implementing the reviewer's suggestion:** make the change, reply to the comment indicating which commit addresses it (optionally with a thumbs up), and mark the conversation as resolved
-- **If declining the reviewer's suggestion:** reply with a comment explaining why, and leave the conversation unresolved so the reviewer can follow up
+- **If implementing the reviewer's suggestion:** make the change, reply in the original thread with a short paragraph indicating which commit addresses it (optionally with a thumbs up), and mark the conversation as resolved
+- **If declining the reviewer's suggestion:** reply in the original thread with a short paragraph explaining why, and leave the conversation unresolved so the reviewer can follow up
 
 ## Recovery & Safety Nets
 
