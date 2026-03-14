@@ -36,19 +36,20 @@ If modifiers conflict, prefer the most restrictive interpretation and explicitly
 1. Determine target flow from the invocation contract and explicit user instructions before running commands.
 2. For GitHub operations, use the `codex_app` GitHub MCP first; use `gh` CLI only if MCP is unavailable or blocked, and note the reason for fallback.
 3. Inspect current repository state before mutating commands (`git status`, branch tracking, recent history).
-4. Ensure the base branch is up to date with or ahead of `origin/<base>` before creating a new branch or worktree.
-5. Stage only task-relevant changes and write concise imperative commit messages.
-6. Prefer non-destructive operations and require explicit approval for destructive history/file operations.
-7. Sync remotes before PR work and summarize branch changes against the remote base branch.
-8. Run repository-relevant code quality checks and unit tests before pushing changes; if the repository defines quality targets in a Makefile (for example, `make lint`, `make test`, `make check`, `make quality`), use those targets before equivalent one-off commands.
+4. Never commit or push directly to `main` or `master` unless explicitly authorized by the user for the current task.
+5. Ensure the base branch is up to date with or ahead of `origin/<base>` before creating a new branch or worktree.
+6. Stage only task-relevant changes and write concise imperative commit messages.
+7. Prefer non-destructive operations and require explicit approval for destructive history/file operations.
+8. Sync remotes before PR work and summarize branch changes against the remote base branch.
+9. Run repository-relevant code quality checks and unit tests before pushing changes; if the repository defines quality targets in a Makefile (for example, `make lint`, `make test`, `make check`, `make quality`), use those targets before equivalent one-off commands.
    If a check cannot run locally, document why and note expected CI coverage.
-9. Create draft PRs with clear summary and test plan, apply appropriate repository labels when possible, and include usage snippets when useful.
-10. Read all review channels (review comments, reviews, top-level PR comments) before responding.
-11. Prefer replying to the original review comment thread when addressing feedback; keep replies brief (short paragraph) and explicitly state how the feedback was handled.
-12. Address feedback in new commits by default and preserve review context unless rewrite is explicitly requested.
-13. Resolve conversations only when feedback is implemented; otherwise reply with rationale and leave unresolved.
-14. Apply rebase/squash policy from the reference guide based on branch publication and review state.
-15. Use recovery workflows (`git reflog`, recovery branch, `git cherry-pick`) instead of destructive resets when undoing mistakes.
+10. Create draft PRs with clear summary and test plan, apply appropriate repository labels when possible, and include usage snippets when useful.
+11. Read all review channels (review comments, reviews, top-level PR comments) before responding.
+12. Prefer replying to the original review comment thread when addressing feedback; keep replies brief (short paragraph) and explicitly state how the feedback was handled.
+13. Address feedback in new commits by default and preserve review context unless rewrite is explicitly requested.
+14. Resolve conversations only when feedback is implemented; otherwise reply with rationale and leave unresolved.
+15. Apply rebase/squash policy from the reference guide based on branch publication and review state.
+16. Use recovery workflows (`git reflog`, recovery branch, `git cherry-pick`) instead of destructive resets when undoing mistakes.
 
 ## Reference
 

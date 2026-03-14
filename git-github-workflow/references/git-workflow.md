@@ -33,6 +33,8 @@ If the repository defines quality targets in a Makefile (for example, `make lint
 ## Branch Management
 
 - Check current branch state and tracking status before any operations
+- Never commit directly to `main` or `master` unless the user explicitly authorizes it for the current task
+- Never push directly to `main` or `master` unless the user explicitly authorizes it for the current task
 - Before creating a new branch or worktree, verify the local base branch is not behind `origin/<base>`:
 
 ```bash
