@@ -29,7 +29,7 @@ When choosing targets at discretion:
 
 ## Editing Rules
 
-1. Remove every em dash. Use a period, comma, semicolon, colon, parentheses, or a rewritten sentence.
+1. Remove every em dash outside safe zones. Use a period, comma, semicolon, colon, parentheses, or a rewritten sentence.
 2. Replace vague claims with specific, checkable facts. If the needed fact is missing, either ask for it or cut the claim.
 3. Remove filler openers, empty transitions, and intensifiers that do not add evidence.
 4. Use plain verbs and concrete nouns. Prefer the simplest word that preserves the technical meaning.
@@ -69,7 +69,7 @@ If a banned pattern appears in a safe zone, leave it alone and mention the reaso
    - Cut unsupported claims rather than making up support.
    - Mark any facts that need source verification instead of inventing citations.
 5. Run a final self-check:
-   - Search for em dashes and remove all matches.
+   - Search for em dashes and remove all matches outside safe zones.
    - Recheck headings for descriptive wording.
    - Confirm every changed claim remains attributable to the available source text.
    - Read the result for natural phrasing.

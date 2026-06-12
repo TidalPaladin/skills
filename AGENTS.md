@@ -11,7 +11,7 @@ This file defines my personal/global engineering standards.
 ## Prose quality
 - Use `$emend` for strict prose cleanup or review.
 - Prefer concrete, checkable facts over vague claims of importance or impact.
-- Avoid em dashes, filler openers, empty intensifiers, dramatic headings, and generic marketing phrasing.
+- Avoid em dashes outside verbatim text, filler openers, empty intensifiers, dramatic headings, and generic marketing phrasing.
 - Use plain verbs and concrete nouns. Check `$emend`'s reference list when cleaning long-form prose.
 - Attribute only what a source or person actually said or did.
 - When contrasting two things, name the part, date, version, mechanism, policy, or supply-chain change that makes the difference real.
