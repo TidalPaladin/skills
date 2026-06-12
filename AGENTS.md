@@ -8,6 +8,14 @@ This file defines my personal/global engineering standards.
 - Prefer simple lists and tables for readability.
 - If a user-provided filepath does not exist, check whether the path is under an unmounted mountpoint and whether the path may contain a typo before concluding it is missing.
 
+## Prose quality
+- Use `$emend` for strict prose cleanup or review.
+- Prefer concrete, checkable facts over vague claims of importance or impact.
+- Avoid em dashes outside verbatim text, filler openers, empty intensifiers, dramatic headings, and generic marketing phrasing.
+- Use plain verbs and concrete nouns. Check `$emend`'s reference list when cleaning long-form prose.
+- Attribute only what a source or person actually said or did.
+- When contrasting two things, name the part, date, version, mechanism, policy, or supply-chain change that makes the difference real.
+
 ## Code review
 
 Use this sequence when reviewing a change:
