@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Maintenance"
+  short_description: "Plan and perform repository dependency maintenance"
+  default_prompt: "Use $repo-maintenance to inspect this repository, plan dependency and security updates, and ask before accepting breaking changes."
