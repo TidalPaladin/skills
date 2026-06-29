@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deep Code Cleanup"
+  short_description: "Iterative whole-diff cleanup passes"
+  default_prompt: "Use $deep-code-cleanup to perform an iterative cleanup of the current branch diff."
