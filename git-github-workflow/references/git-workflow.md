@@ -82,6 +82,19 @@ git worktree remove /tmp/project-hotfix
 
 Using `/tmp/` for worktree paths is a good option for short-lived tasks (reviews, quick hotfixes). For long-running branches, large build artifacts, or any work that must survive reboot, prefer a persistent directory (for example, `../worktrees/`). Each worktree is a separate checkout with its own working directory, so builds, venvs, and editor state in the main tree are unaffected.
 
+## GitHub App / Connector Boundary
+
+Use local `git` for checkout-local work: branch inspection, branch creation, staging, committing, and pushing.
+Use the Codex GitHub app/connector tools for GitHub-side work: repository and issue lookup, PR creation and updates, labels, top-level comments, review comments, review threads, reactions, merge/automerge actions, and workflow metadata when available.
+
+The GitHub plugin is the installable package. The GitHub app/connector tools are the live Codex macOS app interface for GitHub data and actions. Prefer those tools because Codex can track the PRs, comments, commits, and app-backed actions in the desktop app.
+
+If the GitHub app/connector tools are not available, use tool discovery or plugin-install tooling when available to find or request the GitHub plugin/app. If the app still is not available, stop and tell the user to install, enable, or authorize the GitHub plugin/app in the Codex macOS app, then rerun the workflow. Do not silently switch to CLI.
+
+Use `gh` only when the user explicitly requested CLI fallback or after reporting the exact app-tool capability gap and receiving explicit consent.
+
+**Availability check:** Before the first GitHub-side operation, inspect the active tools for a callable GitHub app namespace such as `mcp__codex_apps__github`, or tools covering repository lookup, PR fetch/create/update, issue lookup, labels, comments, reviews, review threads, reactions, merge/automerge, or workflow metadata. If no GitHub app tools are active and `tool_search` is available, search for `GitHub pull request repository connector` and use the returned GitHub tools when they become callable. If app tools remain unavailable and plugin-install tools are available, use `list_available_plugins_to_install` and `request_plugin_install` only for an exact GitHub plugin or connector match. Continue only when the GitHub app tools are callable; otherwise stop with install/enable/authorize instructions. Do not treat `gh auth status` or successful `gh` commands as evidence that the Codex GitHub app/connector is available.
+
 ## Pull Request Creation
 
 **Preparation:** Before creating a PR, sync remotes and analyze the full commit history on the branch (all commits since diverging from the base branch, not just the latest):
@@ -151,62 +164,53 @@ When creating or updating the PR body, describe the **complete set of changes in
 - Prefer Makefile-defined quality targets when available.
 - Push with `-u` flag to set upstream tracking
 - Create a new branch if needed
-- Use `gh pr create --draft` with the title and body passed via HEREDOC — always create as a draft unless otherwise specified
+- After the branch exists remotely, use the GitHub app/connector PR creation tool. Derive:
+  - `repository_full_name` from the `origin` remote URL or app-backed repository lookup.
+  - `head_branch` from `git branch --show-current`.
+  - `base_branch` from explicit user instructions, app-backed repository metadata, or the remote default branch.
+- Always create PRs as draft unless otherwise specified.
+- If the branch is pushed from a fork, the target repository differs from the push remote, or another cross-repository case is not representable by the app tool, report that app-tool gap and ask before using CLI fallback.
 - For PRs that remove or significantly alter unit tests, ensure the PR body includes `## Test suite changes (Required)` with explicit removed/altered test names and rationale. If no unit tests were removed/altered and coverage intent did not change, this section can be omitted.
-- When pushing to an existing PR, add or update the PR body, or post a PR comment, with the same required test-suite traceability details before or with the push, including any removed or significantly altered tests.
+- When pushing to an existing PR, use GitHub app/connector tools to update the PR body or post a PR comment with the same required test-suite traceability details before or with the push, including any removed or significantly altered tests.
 
 **PR labeling:** When possible, add repository-standard labels that improve triage (for example: `bug`, `enhancement`, `documentation`, `dependencies`, `breaking-change`, `needs-tests`).
 
-```bash
-# See available labels in the repository
-gh label list --limit 200
-
-# Add labels at PR creation time
-gh pr create --draft --title "<title>" --body-file /tmp/pr-body.md \
-  --label "bug" --label "needs-tests"
-
-# Add labels to an existing PR
-gh pr edit <number> --add-label "bug" --add-label "needs-tests"
-
-# Remove an incorrect label
-gh pr edit <number> --remove-label "needs-tests"
-
-# Inspect labels currently applied to a PR
-gh pr view <number> --json labels --jq '.labels[].name'
-```
-
-Prefer existing labels over creating new ones unless explicitly requested.
+Use GitHub app/connector label tools to inspect, add, and remove PR labels. Prefer existing labels over creating new ones unless explicitly requested. If the app cannot list repository labels, infer conservative labels from existing PRs/issues when already visible through app data, or skip labeling and state that labels were unavailable.
 
 ## Reading & Responding to PR Reviews
 
-**Fetching review comments:**
+**Fetching review context:** Use GitHub app/connector tools to fetch PR metadata, changed files or patches, review submissions, inline review comments, review threads with resolution state, and top-level PR conversation comments. Prefer thread-aware app tools when available. Do not treat flat comments as a complete representation of unresolved review-thread state when the task depends on line anchors or resolution status.
 
-```bash
-# List PR comments
-gh api repos/{owner}/{repo}/pulls/{number}/comments
-
-# List PR reviews
-gh api repos/{owner}/{repo}/pulls/{number}/reviews
-
-# List top-level PR conversation comments
-gh api repos/{owner}/{repo}/issues/{number}/comments
-
-# Combined view of timeline comments (quick review pass)
-gh pr view {number} --comments
-```
+If the GitHub app exposes only flat comments and the task depends on unresolved thread state, line anchors, or resolution status, report that app-tool gap and ask before using CLI fallback.
 
 **Handling feedback:**
 - Read and understand each comment in context
 - Make the requested changes in the codebase
 - Commit fixes as **new commits** (never amend previous commits unless explicitly asked), since amending after a hook failure or during review can destroy prior work
-- When addressing feedback, reply in the original review comment thread (not as a new top-level PR comment). Keep replies short: one concise paragraph stating what changed and how it addresses the comment.
+- When addressing feedback, use GitHub app/connector tools to reply in the original review comment thread, not as a new top-level PR comment. Keep replies short: one concise paragraph stating what changed and how it addresses the comment.
 
 ## Resolving Conversations
 
 - Group related fixes into a single commit where appropriate
 - New commits are always preferred over amends to preserve review history
-- **If implementing the reviewer's suggestion:** make the change, reply in the original thread with a short paragraph indicating which commit addresses it (optionally with a thumbs up), and mark the conversation as resolved
-- **If declining the reviewer's suggestion:** reply in the original thread with a short paragraph explaining why, and leave the conversation unresolved so the reviewer can follow up
+- **If implementing the reviewer's suggestion:** make the change, reply in the original thread with a short paragraph indicating which commit addresses it, and mark the conversation as resolved through the GitHub app when possible.
+- **If declining the reviewer's suggestion:** reply in the original thread with a short paragraph explaining why, and leave the conversation unresolved so the reviewer can follow up.
+
+## Explicit CLI Fallback
+
+Use CLI fallback only when the user explicitly requested it, or after you have reported the exact GitHub app/connector capability gap and received explicit consent. State the operation, the app-tool gap, and the command you will run before using fallback.
+
+Fallback-only examples:
+
+```bash
+# Create a draft PR only after app PR creation is unavailable and fallback is approved.
+gh pr create --draft --title "<title>" --body-file /tmp/pr-body.md
+
+# Fetch review-thread data only after app thread data is unavailable and fallback is approved.
+gh api graphql -f query='...'
+```
+
+After using CLI fallback, summarize which GitHub-side actions used CLI instead of app tools so Codex app linkage gaps are visible.
 
 ## Recovery & Safety Nets
 
