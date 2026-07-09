@@ -1,14 +1,14 @@
 ---
 name: fix-issue
-description: Resolve repository issues end to end from an issue number, issue URL, or pasted issue text, including reproduction, fix, verification, and PR publication. Use when the user asks to fix a bug or implement a change request tied to a tracked issue and expects minimal back-and-forth with autonomous execution.
+description: Resolve repository issues end to end from an issue number, issue URL, or pasted issue text, including reproduction, fix, and verification. Use when the user asks to fix a bug or implement a change request tied to a tracked issue and expects minimal back-and-forth with autonomous execution. Do not commit, push, or open a PR unless the user explicitly requests those git/GitHub actions.
 ---
 
 # Fix Issue Workflow
 
 ## Overview
 
-Use this skill to take an issue from intake to draft PR with validated changes.
-Start by invoking `$git-github-workflow`, then execute the issue resolution workflow below.
+Use this skill to take an issue from intake to validated local changes.
+Use `$git-github-workflow` for repository safety checks and any explicitly requested git/GitHub operations, then execute the issue resolution workflow below.
 
 ## Invocation Contract
 
@@ -26,7 +26,7 @@ Do not ask for issue context in this case; proceed with the above default behavi
 
 ## Workflow
 
-1. Invoke `$git-github-workflow` and follow its repository safety guidance for all git/GitHub operations.
+1. Invoke `$git-github-workflow` for repository safety guidance, but do not run its default publish flow unless the user explicitly requested commit, push, or PR creation.
 2. Read the issue reference from user input when provided; otherwise infer the target from working-tree context or your selected bug candidate and summarize the concrete acceptance target in one short internal checkpoint before editing code.
 3. Classify the issue:
    - `bug`: behavior is incorrect relative to current contract.
@@ -39,8 +39,8 @@ Do not ask for issue context in this case; proceed with the above default behavi
 6. Verify completion:
    - Run the regression test (or reproduction steps) to confirm the fix.
    - Run relevant project quality gates (formatting, lint, type checks, tests) consistent with repository standards.
-7. Publish with `$git-github-workflow` default publish flow (commit, push, draft PR) unless the user requested a different mode.
-8. If an issue reference exists, include closing language in the PR description (for example `Closes #123`).
+7. Leave changes uncommitted by default after verification. Do not automatically commit, push, open a PR, or stage files unless the user explicitly requested that action.
+8. If the user explicitly requests PR creation and an issue reference exists, include closing language in the PR description (for example `Closes #123`).
 
 ## Autonomy Policy
 
@@ -56,4 +56,4 @@ Return a concise execution summary:
 1. Issue reference used (or inferred target context).
 2. Reproduction evidence (failing regression test or deterministic repro steps).
 3. Fix summary and verification results.
-4. PR link and, when applicable, explicit closing reference to the original issue.
+4. Git/GitHub actions performed, if any, and note when changes were intentionally left uncommitted.
