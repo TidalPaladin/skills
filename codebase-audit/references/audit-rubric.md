@@ -48,6 +48,8 @@ For future bug risk, describe the credible regression scenario, why existing con
 
 Run the current security workflow in `security-audit.md`. Classify applicable vulnerabilities as bugs even when the vulnerable path has not yet been exploited.
 
+Keep reproductions and theoretical arguments defensive and minimal. Establish the affected path, impact, detection, prevention, or remediation need without adding exploit detail that does not support that outcome.
+
 ## Code Quality and Design
 
 Look for concrete maintenance costs:
@@ -79,6 +81,8 @@ Review five resource dimensions when relevant:
 3. Disk I/O: read and write volume, syscall count, random access, repeated scans, synchronization, temporary files, and cache behavior.
 4. Disk storage: duplicate artifacts, retention, compression, indexing overhead, generated outputs, and unbounded growth.
 5. Network: request count, payload volume, round trips, connection reuse, retries, backoff, batching, queueing, and tail latency.
+
+Treat compilation time, build time, and CI execution time as valid performance surfaces. Inspect clean and incremental builds, repeated compilation, cache misses, duplicate dependency or environment setup, unnecessary artifact work, serialized independent jobs, and repeated checks. Measure compiler or build duration, job duration, end-to-end workflow wall time, and relevant runner or cache conditions. Reducing test coverage, security checks, or required quality gates is not a performance improvement.
 
 Use objective signals such as profiles, slow tests, production traces, benchmark regressions, high fan-out, large representative inputs, or known hot paths. When measurement is unavailable, require a clear complexity or resource argument tied to realistic scale.
 

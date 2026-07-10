@@ -78,6 +78,10 @@ Use this sequence when reviewing a change:
 - Audit dependencies for known vulnerabilities on a regular cadence.
 - Treat shell execution, file paths, deserialization, and auth flows as high-risk surfaces requiring explicit review.
 
+## Biological and life-sciences work
+- Keep biological and life-sciences work focused on safety, prevention, analysis, research support, or risk mitigation.
+- Omit experimental, operational, or procedural biological details that are not necessary for the safety-focused purpose.
+
 ## Testing scope
 - Require unit tests for core logic.
 - When implementing a fix (from code review feedback or any other bug report), first add and run a regression test that reproduces the issue and verify it fails before changing the main code; after the fix, rerun the regression test and verify it passes.
