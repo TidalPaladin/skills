@@ -75,6 +75,8 @@ For a security advisory:
 
 Treat security-driven public API, runtime, schema, or documented-workflow breakage as approval-gated unless the issue already authorizes it.
 
+Keep security validation defensive and contained. Prefer scanner evidence, safe regression fixtures, and isolated tests. Use only the exploit detail needed to confirm applicability or remediation, and omit operational payloads or instructions that do not support that outcome.
+
 For a missing security-audit pipeline, choose one or more maintained repository-appropriate scanners, expose a reproducible local command, cover every applicable dependency and artifact surface, run the checks for relevant changes and on a schedule, and make findings visible and actionable. Validate both a clean run and the failure or reporting path without introducing a real vulnerable dependency.
 
 ## Performance Work
@@ -88,8 +90,11 @@ Capture the applicable metrics with the same workload and environment before and
 - Disk bytes, operations, access pattern, temporary storage, and synchronization.
 - Persistent storage growth, compression, duplication, or retention.
 - Network requests, payload bytes, retries, connections, and queue or round-trip latency.
+- Clean and incremental compilation or build duration, CI job duration, and end-to-end workflow wall time.
 
 Use representative inputs, warm-up, and stable environment assumptions. If several designs are plausible, compare them under the same harness. Preserve correctness and public behavior unless the issue says otherwise.
+
+For build or CI optimization, hold required tests, security checks, quality gates, and output artifacts constant. Treat skipped validation or reduced coverage as a behavior change, not a performance gain.
 
 Ship an optimization only when the result exceeds observed noise or provides a justified resource reduction. If no meaningful gain exists, keep useful benchmark coverage only when benchmark coverage is itself part of the issue; otherwise record the evidence and block the optimization.
 

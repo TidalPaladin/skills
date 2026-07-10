@@ -23,6 +23,8 @@ Audit the complete current checkout by default, including relevant committed, st
 
 Never modify source code while auditing. Do not include a concrete fix, refactor design, dependency-update procedure, or patch outline in an issue draft. A performance issue may define a concrete benchmark because measurement design is part of establishing the finding.
 
+Keep bug and vulnerability work defensive. Include only the technical detail needed to identify, prevent, validate, or remediate the issue. Omit exploit instructions, payloads, weaponization, evasion, persistence, or other operational details that are not necessary for the defensive outcome.
+
 ## Mode Behavior
 
 ### Plan Mode

@@ -87,6 +87,8 @@ For future bug risk, say explicitly that no current defect was reproduced. Descr
 
 Add advisory IDs, affected package and dependency path, current and vulnerable versions, known patched range, applicability, severity, check date, scanner provenance, and primary-source links. Keep remediation mechanics out of the issue.
 
+Keep security evidence defensive. Include only the preconditions and reproduction detail needed to establish applicability, impact, prevention, or remediation. Omit payloads and operational exploitation details that do not serve that purpose.
+
 For a missing standing security-audit pipeline, name the dependency and artifact surfaces inspected, existing scripts and CI workflows, trigger or schedule coverage, reporting behavior, and the gaps that allow new advisories to go undetected. State when the point-in-time scan is clean. Do not prescribe a scanner unless repository policy already selects one.
 
 ### Quality
@@ -101,6 +103,7 @@ Add baseline evidence or the theoretical resource argument. When proposing a ben
 
 - Representative workload and input sizes.
 - Throughput, latency, memory, disk, storage, or network metrics.
+- Clean or incremental compilation and build duration, CI job duration, or end-to-end workflow wall time when relevant.
 - Warm-up, sample count, variance or confidence method, and environment controls.
 - Regression threshold or comparison that would confirm the concern.
 

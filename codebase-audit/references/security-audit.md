@@ -2,6 +2,12 @@
 
 Security data changes continuously. Run current scanners and consult official advisory sources on every audit invocation. Do not rely on model memory.
 
+## Defensive Scope
+
+Focus the audit on identifying affected code and dependencies, preventing exposure, validating safeguards, and supporting remediation. Prefer advisory evidence, scanners, static analysis, safe fixtures, and isolated tests over exercising an exploit.
+
+Record only the preconditions, affected path, impact, detection evidence, and remediation facts needed for the defensive outcome. Omit proof-of-concept payloads, weaponization, evasion, persistence, exfiltration, targeting, or step-by-step exploitation details that are not required to establish or remediate the finding.
+
 ## Inventory
 
 Inspect all applicable surfaces:
@@ -70,5 +76,7 @@ Do not claim a vulnerability is unexploitable unless every advisory precondition
 Draft a bug issue for every affected or materially potentially affected vulnerability. Start the title with the CVE or strongest available advisory ID. Include the affected dependency path, current version, vulnerable range, known patched version, applicability evidence, severity, sources, and scanner provenance.
 
 Present patched versions as advisory facts, not as an implementation plan. Do not prescribe the update mechanism, dependency replacement, or code changes in the audit issue.
+
+Use the least operational reproduction that can establish applicability or confirm remediation. Describe exploitability at the level needed to prioritize defensive work, and omit unrelated exploit mechanics.
 
 Report development-only findings separately when they still execute in CI, release, documentation, or contributor workflows. Report incomplete scanner coverage in the audit summary even when it does not justify its own issue.
