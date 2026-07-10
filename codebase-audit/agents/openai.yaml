@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codebase Audit"
+  short_description: "Audit codebases and draft high-value issues"
+  default_prompt: "Use $codebase-audit to audit this repository and draft prioritized GitHub issues without filing them."
