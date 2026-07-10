@@ -75,6 +75,8 @@ For a security advisory:
 
 Treat security-driven public API, runtime, schema, or documented-workflow breakage as approval-gated unless the issue already authorizes it.
 
+For a missing security-audit pipeline, choose one or more maintained repository-appropriate scanners, expose a reproducible local command, cover every applicable dependency and artifact surface, run the checks for relevant changes and on a schedule, and make findings visible and actionable. Validate both a clean run and the failure or reporting path without introducing a real vulnerable dependency.
+
 ## Performance Work
 
 Create or extend a repeatable benchmark before optimizing. Use the repository's established framework; otherwise use Criterion for Rust, `pytest-benchmark` or `pyperf` for Python, Benchmark.js or a repeatable Node runner for JavaScript, `testing.B` for Go, or JMH for Java.
@@ -100,6 +102,8 @@ Add characterization tests before changing weakly covered behavior. Keep public 
 Prefer direct control flow, clear domain names, immutable values, named constants, narrow errors, and existing project utilities. Remove real duplication and clarify responsibility boundaries. Avoid broad restyling, speculative abstraction, one-caller frameworks, dependency additions, and unrelated generated churn.
 
 When the issue describes a systemic design smell, confirm the repeated evidence before changing architecture. Keep the pull-request boundary reviewable and defer unrelated local cleanup.
+
+For a missing quality-gate finding, use repository-native formatters, linters or quality checks, compilers, and static type checkers where practical. Provide one documented local entry point, run non-mutating checks in CI, include relevant production and test code, and confirm that a representative violation fails the gate. Keep local and CI commands aligned.
 
 ## Enhancement Work
 

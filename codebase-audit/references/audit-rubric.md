@@ -59,9 +59,14 @@ Look for concrete maintenance costs:
 - Broad exception handling, inconsistent logging, weak error context, unsafe user-facing errors, and unnecessary defensive checks that hide caller mistakes.
 - Tight coupling, cyclic knowledge, hard-to-test boundaries, or small changes that require coordinated edits across unrelated files.
 - Brittle assertions, excessive mocking, unclear fixtures, nondeterministic tests, untested edge cases, and tests that duplicate implementation details.
+- Missing repository-owned formatting, lint or code-quality, and static type-checking gates for languages and paths where those checks are applicable.
 - Inconsistent local style that makes behavior harder to understand, excluding harmless formatting preferences.
 
 Treat repeated local smells as one design finding when they share an architectural cause. State the responsibility, coupling, or policy-boundary problem and its effects. Do not prescribe a replacement architecture, helper layout, or refactor sequence.
+
+Treat the absence of all applicable formatting, lint or code-quality, and static type-checking pipelines as a finding even when the sampled code is clean. An adequate gate has a documented repository-owned local command, runs in check-only mode in CI, covers relevant production and test code, and fails visibly when violations occur. Static type checking is applicable when the language provides a practical compiler or established checker for the repository's code.
+
+When only some gate families or paths are missing, admit a finding if the uncovered code creates a material maintenance or defect-detection gap. Consolidate missing gates with the same CI and contributor-workflow root cause rather than filing one issue per tool.
 
 Prefer findings that reduce cognitive load, defect risk, change amplification, or test difficulty. Do not request behavior changes under a quality label unless the current behavior is itself the problem.
 

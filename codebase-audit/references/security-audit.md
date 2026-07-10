@@ -26,6 +26,20 @@ Prefer repository-configured security checks. Otherwise use read-only ecosystem 
 
 Do not install global tools without approval. A missing scanner, failed command, unsupported lockfile, or network failure is an incomplete surface, not a clean result.
 
+## Standing Audit Pipeline
+
+Evaluate the repository's ongoing security checks separately from the point-in-time audit. An adequate CVE or advisory pipeline:
+
+- Uses a maintained scanner or advisory source with current data.
+- Covers applicable direct and transitive lockfiles, shipped dependency groups, containers, system packages, actions, submodules, and vendored code.
+- Provides a documented repository-owned local command that contributors can reproduce.
+- Runs in CI for relevant changes and on a schedule so newly published advisories are detected without a code change.
+- Produces a visible failure or tracked report for applicable findings and keeps suppressions documented with evidence.
+
+If no adequate standing pipeline exists, draft a finding even when the current scan reports no vulnerabilities. Use `quality` as the primary vector with `security` and `dependencies` as secondary labels when available. Keep a confirmed vulnerable dependency as a separate `bug` finding; fixing one advisory does not resolve the missing-pipeline finding.
+
+For a partial pipeline, record uncovered surfaces and admit a finding when the gap can allow relevant vulnerabilities to reach shipped, CI, build, or contributor workflows without detection.
+
 ## Source and Provenance
 
 For every scanner or manual advisory check, record:

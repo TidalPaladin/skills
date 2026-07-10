@@ -87,9 +87,13 @@ For future bug risk, say explicitly that no current defect was reproduced. Descr
 
 Add advisory IDs, affected package and dependency path, current and vulnerable versions, known patched range, applicability, severity, check date, scanner provenance, and primary-source links. Keep remediation mechanics out of the issue.
 
+For a missing standing security-audit pipeline, name the dependency and artifact surfaces inspected, existing scripts and CI workflows, trigger or schedule coverage, reporting behavior, and the gaps that allow new advisories to go undetected. State when the point-in-time scan is clean. Do not prescribe a scanner unless repository policy already selects one.
+
 ### Quality
 
 Name each concrete occurrence, the shared responsibility or coupling problem when systemic, the resulting change cost or defect risk, and public behavior that must remain stable. Do not prescribe a refactor structure.
+
+For missing quality gates, name the manifests, scripts, CI workflows, and documented commands checked; identify which applicable formatting, lint or code-quality, and static type-checking families or paths are uncovered; and describe the reproducible local and CI outcome required. Do not prescribe a specific tool unless repository policy already selects it.
 
 ### Performance
 

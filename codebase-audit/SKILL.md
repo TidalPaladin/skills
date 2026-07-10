@@ -47,10 +47,11 @@ Before recording findings:
 
 1. Inspect repository status, branch, remotes, and the full working tree.
 2. Inventory languages, manifests, lockfiles, toolchains, containers, submodules, CI workflows, release files, and repository quality gates.
-3. Identify public APIs, command-line interfaces, schemas, file formats, persistence boundaries, network boundaries, concurrency, unsafe inputs, and other high-risk paths.
-4. Map production modules to unit, integration, failure-mode, benchmark, and documentation coverage.
-5. Inventory README variants, root and nested `AGENTS.md` files, contributor guidance, changelogs, docs indexes, and other key Markdown files.
-6. Inspect upstream open and closed issues when GitHub access is available so known work is not rediscovered.
+3. Inventory local and CI pipelines for current security advisories, formatting, lint or code-quality checks, and static type checking.
+4. Identify public APIs, command-line interfaces, schemas, file formats, persistence boundaries, network boundaries, concurrency, unsafe inputs, and other high-risk paths.
+5. Map production modules to unit, integration, failure-mode, benchmark, and documentation coverage.
+6. Inventory README variants, root and nested `AGENTS.md` files, contributor guidance, changelogs, docs indexes, and other key Markdown files.
+7. Inspect upstream open and closed issues when GitHub access is available so known work is not rediscovered.
 
 Prefer repository-defined checks. Run tests, linters, type checks, benchmarks, or scanners when they can confirm or reject a candidate without modifying tracked files. Record commands and failures.
 
@@ -58,13 +59,15 @@ Prefer repository-defined checks. Run tests, linters, type checks, benchmarks, o
 
 1. Apply every section of `references/audit-rubric.md` to the mapped repository.
 2. Run the current advisory workflow in `references/security-audit.md` on every invocation, including Plan Mode.
-3. Record candidates with exact files, symbols, commands, outputs, or documentation claims.
-4. Validate bug candidates with a minimal reproduction. When reproduction is impractical, provide a strong theoretical argument that follows a reachable path and names the violated invariant or failure condition.
-5. Treat fragile code or missing critical tests as a bug-risk finding only when a concrete failure mode and meaningful impact are credible.
-6. Validate performance candidates with measurements when feasible. Otherwise require a clear algorithmic or resource-based justification. Identify missing benchmark coverage only for consequential paths.
-7. Consolidate findings that share one root cause. Reject subjective style preferences, speculative features, minor documentation polish, and unmeasured micro-optimizations.
-8. Apply the priority, labeling, and issue format rules in `references/issue-format.md`.
-9. Duplicate-check candidates against open and closed upstream issues immediately before presenting them.
+3. Draft a finding when no adequate standing CVE or security-advisory pipeline exists, even when the point-in-time audit is clean.
+4. Draft a quality finding when applicable formatting, lint or code-quality, and static type-checking pipelines are absent. Consolidate related missing gates into one root-cause issue.
+5. Record candidates with exact files, symbols, commands, outputs, or documentation claims.
+6. Validate bug candidates with a minimal reproduction. When reproduction is impractical, provide a strong theoretical argument that follows a reachable path and names the violated invariant or failure condition.
+7. Treat fragile code or missing critical tests as a bug-risk finding only when a concrete failure mode and meaningful impact are credible.
+8. Validate performance candidates with measurements when feasible. Otherwise require a clear algorithmic or resource-based justification. Identify missing benchmark coverage only for consequential paths.
+9. Consolidate findings that share one root cause. Reject subjective style preferences, speculative features, minor documentation polish, and unmeasured micro-optimizations.
+10. Apply the priority, labeling, and issue format rules in `references/issue-format.md`.
+11. Duplicate-check candidates against open and closed upstream issues immediately before presenting them.
 
 Assign one primary vector to every issue: `bug`, `quality`, `performance`, `enhancement`, or `documentation`. Add secondary classifications such as `security`, `dependencies`, or `needs-tests` only when supported.
 
