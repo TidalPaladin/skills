@@ -33,7 +33,7 @@ Assign exactly one primary vector:
 
 Map these names to existing repository labels when equivalent labels use different wording. Add existing secondary labels such as `security`, `dependencies`, `needs-tests`, platform, component, or language labels only when evidence supports them.
 
-If category or priority labels are unavailable and cannot be created, prefix the title with both values, for example `[P2][Performance] Reduce repeated index scans`. Begin vulnerability titles with the strongest advisory ID, for example `CVE-2026-1234: Reject vulnerable parser inputs`.
+If category or priority labels are unavailable and cannot be created, prefix the title with both values, for example `[P2][Performance] Reduce repeated index scans`. Begin known public CVE titles with the CVE ID, for example `CVE-2026-1234: Address the affected parser version`.
 
 Keep titles specific, outcome-oriented, and under the repository's normal title length. Do not put a proposed implementation in the title.
 
@@ -83,11 +83,11 @@ Add:
 
 For future bug risk, say explicitly that no current defect was reproduced. Describe the credible regression path and missing control or test.
 
-### Security Advisory
+### Known Public CVE
 
-Add advisory IDs, affected package and dependency path, current and vulnerable versions, known patched range, applicability, severity, check date, scanner provenance, and primary-source links. Keep remediation mechanics out of the issue.
+Add the CVE ID, correlated advisory IDs, affected package and dependency path, current and vulnerable versions, known patched range, applicability, severity, check date, scanner provenance, and primary-source links. Keep remediation mechanics out of the issue.
 
-Keep security evidence defensive. Include only the preconditions and reproduction detail needed to establish applicability, impact, prevention, or remediation. Omit payloads and operational exploitation details that do not serve that purpose.
+Establish applicability from public CVE conditions, versions, dependency resolution, and safe checks. Do not reproduce the exploit or include payloads and operational exploitation details.
 
 For a missing standing security-audit pipeline, name the dependency and artifact surfaces inspected, existing scripts and CI workflows, trigger or schedule coverage, reporting behavior, and the gaps that allow new advisories to go undetected. State when the point-in-time scan is clean. Do not prescribe a scanner unless repository policy already selects one.
 

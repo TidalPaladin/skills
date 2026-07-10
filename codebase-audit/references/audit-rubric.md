@@ -32,11 +32,11 @@ Reject pure style preferences, single-use abstraction requests, speculative exte
 
 Look for:
 
-- Incorrect results, crashes, hangs, corruption, unsafe defaults, security failures, and contract violations.
-- Boundary errors in parsing, validation, indexing, ordering, state transitions, retries, time, randomness, persistence, concurrency, authentication, filesystem access, shell execution, and deserialization.
-- Errors that are swallowed, stripped of necessary context, misclassified, leaked to users, or logged with secrets.
+- Incorrect results, crashes, hangs, corruption, unsafe defaults, and contract violations.
+- Boundary errors in parsing, validation, indexing, ordering, state transitions, retries, time, randomness, persistence, concurrency, filesystem access, and deserialization.
+- Errors that are swallowed, stripped of necessary context, misclassified, or exposed to users without actionable context.
 - Partial writes, missing rollback, non-idempotent retries, race conditions, deadlocks, resource leaks, and cleanup that fails after an intermediate error.
-- Input validation gaps at trust boundaries and assumptions not enforced by callers or types.
+- Input validation gaps that violate documented correctness contracts and assumptions not enforced by callers or types.
 - Critical branches with no failure-mode, negative, or regression tests.
 - Fragile code where a small routine change could bypass an important invariant.
 
@@ -46,9 +46,11 @@ For a theoretical bug, trace the reachable path from input or state to failure. 
 
 For future bug risk, describe the credible regression scenario, why existing controls would miss it, and the test or invariant coverage needed. Do not imply the defect already occurs.
 
-Run the current security workflow in `security-audit.md`. Classify applicable vulnerabilities as bugs even when the vulnerable path has not yet been exploited.
+Do not use this bug pass to search for novel vulnerabilities, authentication or authorization weaknesses, injection paths, exploit primitives, or other cybersecurity findings. Broader cybersecurity analysis requires an explicit request in the skill invocation.
 
-Keep reproductions and theoretical arguments defensive and minimal. Establish the affected path, impact, detection, prevention, or remediation need without adding exploit detail that does not support that outcome.
+Run the known public CVE workflow in `security-audit.md`. Classify an applicable public CVE as a bug even when no exploit has been observed.
+
+Keep public CVE applicability evidence defensive and minimal. Establish the affected version, documented conditions, impact, detection, prevention, or remediation need without reproducing the exploit.
 
 ## Code Quality and Design
 

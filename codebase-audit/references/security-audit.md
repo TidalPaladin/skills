@@ -1,12 +1,14 @@
-# Current Security Advisory Check
+# Known Public CVE Check
 
-Security data changes continuously. Run current scanners and consult official advisory sources on every audit invocation. Do not rely on model memory.
+Public CVE data changes continuously. Run current scanners and consult official CVE or vendor sources on every audit invocation. Do not rely on model memory.
 
-## Defensive Scope
+## Cybersecurity Scope
 
-Focus the audit on identifying affected code and dependencies, preventing exposure, validating safeguards, and supporting remediation. Prefer advisory evidence, scanners, static analysis, safe fixtures, and isolated tests over exercising an exploit.
+Cybersecurity analysis is out of scope by default. The permitted default work is to determine whether known public CVEs affect repository dependencies, runtimes, containers, actions, vendored components, or documented configurations.
 
-Record only the preconditions, affected path, impact, detection evidence, and remediation facts needed for the defensive outcome. Omit proof-of-concept payloads, weaponization, evasion, persistence, exfiltration, targeting, or step-by-step exploitation details that are not required to establish or remediate the finding.
+Use public CVE records, vendor advisories, manifests, lockfiles, version metadata, and scanner results. Inspect source only when needed to determine whether a public CVE's documented affected feature or configuration is in use. Do not search for novel vulnerabilities, perform threat modeling or adversarial probing, run exploit-focused fuzzing, construct payloads, or reproduce exploits unless the user explicitly requests broader cybersecurity analysis in the skill invocation.
+
+If broader cybersecurity analysis is explicitly requested, keep it defensive and limited to the stated purpose. Omit weaponization, evasion, persistence, exfiltration, targeting, or other operational details that are not necessary for identification, prevention, validation, or remediation.
 
 ## Inventory
 
@@ -32,9 +34,11 @@ Prefer repository-configured security checks. Otherwise use read-only ecosystem 
 
 Do not install global tools without approval. A missing scanner, failed command, unsupported lockfile, or network failure is an incomplete surface, not a clean result.
 
+Limit default findings to advisories with a public CVE ID. Retain GHSA, RustSec, OSV, registry, or vendor identifiers only when they refer to the same CVE and improve traceability.
+
 ## Standing Audit Pipeline
 
-Evaluate the repository's ongoing security checks separately from the point-in-time audit. An adequate CVE or advisory pipeline:
+Evaluate the repository's ongoing checks separately from the point-in-time audit. An adequate public-CVE pipeline:
 
 - Uses a maintained scanner or advisory source with current data.
 - Covers applicable direct and transitive lockfiles, shipped dependency groups, containers, system packages, actions, submodules, and vendored code.
@@ -48,7 +52,7 @@ For a partial pipeline, record uncovered surfaces and admit a finding when the g
 
 ## Source and Provenance
 
-For every scanner or manual advisory check, record:
+For every scanner or manual public-CVE check, record:
 
 - Command or source URL.
 - Check date.
@@ -57,11 +61,11 @@ For every scanner or manual advisory check, record:
 - Included dependency groups.
 - Exit status and whether a nonzero result means findings or tool failure.
 
-Use primary sources: vendor advisories, GitHub Advisory Database entries, NVD records, RustSec advisories, OSV records, or official registry notices. Cite the page that establishes the affected range and patched version. Keep CVE, GHSA, RustSec, OSV, and vendor identifiers when multiple IDs describe the same vulnerability.
+Use primary public sources: CVE records, NVD records, vendor advisories, GitHub Advisory Database entries, or official registry notices. Cite the page that establishes the CVE ID, affected range, and patched version. Keep GHSA, RustSec, OSV, registry, and vendor identifiers only when they map to the same CVE.
 
 ## Applicability
 
-For each reported advisory, capture:
+For each reported public CVE, capture:
 
 - Package, ecosystem, installed version, dependency path, and runtime or development surface.
 - Severity reported by the source.
@@ -69,14 +73,14 @@ For each reported advisory, capture:
 - Whether the repository exercises the affected feature or path when this can be verified.
 - Evidence supporting one status: `affected`, `potentially affected`, `development-only`, `not applicable`, `false positive`, or `unknown`.
 
-Do not claim a vulnerability is unexploitable unless every advisory precondition can be checked against repository behavior. Merge duplicate scanner reports while retaining all useful identifiers and sources.
+Classify applicability using the CVE's documented version, feature, and configuration conditions. If applicability cannot be determined without broader cybersecurity analysis, use `unknown` rather than expanding the audit. Merge duplicate scanner reports for the same CVE while retaining useful correlated identifiers and sources.
 
 ## Audit Findings
 
-Draft a bug issue for every affected or materially potentially affected vulnerability. Start the title with the CVE or strongest available advisory ID. Include the affected dependency path, current version, vulnerable range, known patched version, applicability evidence, severity, sources, and scanner provenance.
+Draft a bug issue for every affected or materially potentially affected known public CVE. Start the title with the CVE ID. Include the affected dependency path, current version, vulnerable range, known patched version, applicability evidence, severity, sources, and scanner provenance.
 
 Present patched versions as advisory facts, not as an implementation plan. Do not prescribe the update mechanism, dependency replacement, or code changes in the audit issue.
 
-Use the least operational reproduction that can establish applicability or confirm remediation. Describe exploitability at the level needed to prioritize defensive work, and omit unrelated exploit mechanics.
+Do not reproduce the exploit. Confirm applicability and remediation through versions, documented feature or configuration conditions, scanner output, dependency resolution, and safe regression checks.
 
 Report development-only findings separately when they still execute in CI, release, documentation, or contributor workflows. Report incomplete scanner coverage in the audit summary even when it does not justify its own issue.
