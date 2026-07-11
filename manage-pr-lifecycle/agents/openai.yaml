@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manage PR Lifecycle"
+  short_description: "Refresh pull requests toward merge readiness"
+  default_prompt: "Use $manage-pr-lifecycle to refresh the referenced pull requests through one lifecycle iteration without merging them."

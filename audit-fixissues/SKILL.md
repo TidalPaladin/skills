@@ -1,15 +1,15 @@
 ---
 name: audit-fixissues
-description: Prioritize issues produced by a codebase audit, prepare concrete remediation plans, implement authorized fixes, and steward one pull request per issue until it is approved and merge-ready without merging it. Use after an audit or with selected issue URLs, numbers, or pasted findings when Codex needs to plan fixes, execute approved work, address issue and review feedback, resolve conflicts and CI failures, or maintain dependent pull requests.
+description: Prioritize issues produced by a codebase audit, prepare concrete remediation plans, implement authorized fixes, and open one validated draft pull request per issue for lifecycle handoff. Use after an audit or with selected issue URLs, numbers, or pasted findings when Codex needs to plan fixes or execute approved work without beginning pull-request review or merge-readiness management.
 ---
 
 # Audit Issue Remediation
 
 ## Overview
 
-Turn an approved audit backlog into solution plans and, when authorized, validated pull requests. Continue implementation runs through review and branch maintenance until every selected pull request is merge-ready or genuinely blocked. Never merge a pull request.
+Turn an approved audit backlog into solution plans and, when authorized, validated draft pull requests. End implementation after each selected issue maps to a draft pull request or a documented blocker. Leave every pull request in draft and do not request reviews or attempt to merge it.
 
-Read `references/remediation-playbook.md` completely before planning or implementing an issue. Use `$git-github-workflow` for repository safety, branch publication, GitHub app boundaries, review handling, and recovery. Do not invoke its default publish flow until implementation is authorized.
+Read `references/remediation-playbook.md` completely before planning or implementing an issue. Use `$git-github-workflow` for repository safety, branch publication, GitHub app boundaries, and recovery. Do not invoke its default publish flow until implementation is authorized.
 
 ## Issue Intake
 
@@ -22,7 +22,7 @@ Accept:
 
 Explicit inclusions, exclusions, and ordering instructions override defaults. If no issue set can be identified, ask for it rather than selecting arbitrary repository backlog.
 
-For GitHub issues, read the current body, edits, labels, state, and every issue comment before triage. Re-read them before planning, before implementation, and during pull-request stewardship. Incorporate actionable corrections and requirements. Stop that issue for user direction when comments introduce incompatible requirements or material scope expansion, then continue with independent issues.
+For GitHub issues, read the current body, edits, labels, state, and every issue comment before triage, planning, and implementation. Incorporate actionable corrections and requirements. Stop that issue for user direction when comments introduce incompatible requirements or material scope expansion, then continue with independent issues.
 
 ## Prioritization
 
@@ -50,24 +50,27 @@ Do not treat an implementation request in the same initial invocation as permiss
 
 ### Later Authorized Implementation
 
-A later explicit user request may authorize implementation outside Goal Mode. Implement only the selected issues and continue through pull-request stewardship until each pull request is merge-ready or the issue is genuinely blocked.
+A later explicit user request may authorize implementation outside Goal Mode. Implement only the selected issues and continue until each issue has a validated draft pull request or is genuinely blocked.
 
 ### Goal Mode
 
-Triage, plan internally, implement, publish, and steward every selected issue without stopping at the planning checkpoint. Continue until each issue maps to a merge-ready pull request or a documented blocker. Skip blocked issues and keep working through independent ones.
+Triage, plan internally, implement, and publish every selected issue without stopping at the planning checkpoint. Halt after each issue maps to a validated draft pull request or a documented blocker. Skip blocked issues and keep working through independent ones.
 
-Waiting for a check, reviewer, or target-branch update is not a blocker. Use the available monitoring mechanism and recheck when state changes.
+Do not wait for reviews or post-publication CI after opening the draft. Those activities belong to `$manage-pr-lifecycle`.
 
 ## Authorization Boundary
 
-An authorized implementation run includes repository edits, tests, task-specific branches and commits, pushes, draft pull requests, existing labels, pull-request comments, review-thread replies and resolution for implemented feedback, ready-for-review transitions, and safe base retargeting.
+An authorized implementation run includes repository edits, tests, task-specific branches and commits, pushes, draft pull requests, existing labels, and pull-request body updates required for accurate publication.
 
 It does not authorize:
 
-- Merging pull requests.
-- Filing new issues.
+- Promoting a draft to ready for review.
+- Requesting a human or automated review.
+- Posting `@codex review`.
+- Replying to or resolving pull-request review threads.
+- Enabling auto-merge or merging pull requests.
+- Filing new issues or closing issues.
 - Creating custom labels.
-- Closing issues.
 - Adding automatic issue-closing keywords.
 - Rebasing or force-pushing a published branch.
 - Replacing or closing a pull request solely to repair a dependency stack.
@@ -97,10 +100,10 @@ For every fix:
 2. Add the required failing regression, characterization, acceptance test, or performance baseline before the main change.
 3. Implement the smallest complete change that satisfies the issue.
 4. Run focused checks, then repository-standard formatting, linting, type checks, tests, security scans, and benchmarks for the changed surfaces.
-5. Review the complete branch diff against its target branch.
-6. Commit and push through `$git-github-workflow`.
-7. Open a draft pull request with full motivation, solution, change, test, risk, and issue traceability.
-8. Continue into stewardship. Do not stop merely because the draft exists.
+5. Synchronize the intended target branch and review the complete branch diff against it.
+6. Use `$git-github-workflow` to commit, push, and open one draft pull request with full motivation, solution, change, test, risk, and issue traceability.
+7. Verify the pull request is open and still a draft.
+8. Stop work on its lifecycle and hand it to `$manage-pr-lifecycle`.
 
 If an issue cannot be reproduced, measured, safely implemented, or validated, record the blocker and continue with the remaining issues.
 
@@ -115,41 +118,22 @@ Keep issue branches independent and prefer `main` or `master` as their base.
 - Remove task-created worktrees after their branch no longer needs an isolated checkout.
 - Do not create one persistent worktree per issue by default.
 
-A pull request may target another pull-request branch when the child is independently reviewable, depends on the parent, and combining them would obscure review. Keep stacks shallow and rare. Process the parent first and keep the child synchronized with parent updates.
+A pull request may target another pull-request branch when the child is independently reviewable, depends on the parent, and combining them would obscure review. Keep stacks shallow and rare. Process the parent first and keep the child synchronized before publication.
 
-Before creating a stack, inspect the repository's merge strategy. Avoid stacks that will require history rewriting after a squash merge. When a safe retarget is impossible, stop for approval before rebasing, force-pushing, replacing, or closing the child pull request.
+Before creating a stack, inspect the repository's merge strategy. Avoid stacks that will require history rewriting after a squash merge. When safe publication is impossible, stop for approval before rebasing, force-pushing, replacing, or closing the child pull request.
 
-## Pull-Request Stewardship
+## Draft Pull-Request Handoff
 
-Revisit open pull requests one at a time in priority and dependency order. Complete the current branch's review, CI, and target-sync pass before checking out another branch when practical.
+Before handing off a draft, verify:
 
-For each open pull request, repeat:
+- The branch was synchronized with its intended base immediately before final validation.
+- Local required checks passed and results are recorded in the pull-request body.
+- The body describes the complete branch diff, risks, tests, benchmark or security evidence, and issue traceability.
+- The pull request is open and remains a draft.
+- No reviewer was requested and no `@codex review` comment was posted.
+- No merge, auto-merge, ready-for-review, issue-closing, or review-thread action occurred.
 
-1. Re-read linked issue comments for new evidence or changed requirements.
-2. Fetch pull-request metadata, target-branch state, changed files, checks, reviews, thread-aware review comments, top-level comments, and mergeability through the GitHub app or connector.
-3. Address actionable in-scope findings with tests and new commits. Reply in the original thread and resolve it only after the feedback is fully implemented. Explain declined suggestions and leave those threads unresolved.
-4. Fetch the current target branch. For a published branch, merge target updates into the issue branch when needed to preserve review history and resolve conflicts. Do not rebase or force-push without approval.
-5. Diagnose relevant CI failures, implement fixes, rerun local quality gates, and push a follow-up commit.
-6. Update the pull-request body when the complete branch diff, tests, risks, benchmark results, or issue traceability changes.
-7. Mark the draft ready for review after implementation and initial validation are complete.
-8. Recheck after reviews, checks, or target updates until the merge-ready gate passes.
-
-When a stacked parent lands, retarget and revalidate the child against `main` or `master` only when this can be done without unsafe history rewriting.
-
-## Merge-Ready Gate
-
-A pull request is merge-ready only when:
-
-- It is not a draft.
-- All required checks pass.
-- All required approvals are present, or the repository requires none.
-- No actionable review thread remains unresolved.
-- The branch has no merge conflicts.
-- The pull request targets the intended branch.
-- The branch reflects required target updates under repository policy.
-- The pull-request body describes the complete diff and current validation.
-
-Never merge the pull request. Missing authorization, credentials, external infrastructure, irreconcilable requirements, an unprovable finding, or required history rewriting without approval is a genuine blocker.
+Do not interpret post-publication CI, reviews, or target updates as work for this skill. Hand the pull request to `$manage-pr-lifecycle` for later iterations.
 
 ## Output Contract
 
@@ -157,10 +141,9 @@ Return:
 
 1. Ordered issue list and dependency relationships.
 2. Plans posted to GitHub and paste-ready plans returned locally.
-3. For each implemented issue: branch, pull request, target branch, commits, and validation.
-4. New issue and review findings addressed, declined, or blocked.
-5. Conflicts resolved, CI failures fixed, approvals, unresolved threads, and merge-ready state.
-6. Security results, test coverage changes, and measured performance or resource deltas.
-7. Every blocker and the exact approval, evidence, credential, or external change needed.
+3. For each implemented issue: branch, draft pull request, target branch, commits, and validation.
+4. Security results, test coverage changes, and measured performance or resource deltas.
+5. Every blocker and the exact approval, evidence, credential, or external change needed.
+6. A paste-ready `$manage-pr-lifecycle` invocation containing the draft pull-request targets and any user-specified reviewer mapping.
 
-Map every selected issue to one merge-ready pull request or one blocker. State that no pull request was merged.
+Map every selected issue to one validated draft pull request or one blocker. State that every opened pull request remains a draft, no reviews were requested, and no pull request was merged.
