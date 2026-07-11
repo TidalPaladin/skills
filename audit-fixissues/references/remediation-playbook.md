@@ -9,7 +9,7 @@
 - Quality work
 - Enhancement work
 - Documentation work
-- Review and target-branch updates
+- Draft pull-request publication
 - Dependency stacks
 - Completion report
 
@@ -48,8 +48,8 @@ Make the plan decision-complete. Do not claim the plan has been implemented. For
 6. Run the focused baseline again, then all repository checks required for the changed surfaces.
 7. Inspect the full diff against the intended base and check for secrets, generated churn, stale docs, and accidental API changes.
 8. Commit only issue-related paths and publish one draft pull request.
-9. Re-read issue comments, reviews, review threads, top-level comments, checks, and mergeability.
-10. Address feedback and target updates with new commits until the merge-ready gate passes.
+9. Verify that the pull request is open, remains a draft, and accurately records the complete change and validation.
+10. Stop lifecycle work and hand the draft to `$manage-pr-lifecycle`.
 
 ## Bug and Security Work
 
@@ -122,24 +122,13 @@ Identify the canonical code, configuration, generated help, CI job, or policy fo
 
 Check README files, effective root and nested `AGENTS.md` files, contributor docs, docs indexes, examples, and affected references for contradictions. Run documented commands when feasible. Mark any unverified command with its reason and residual risk.
 
-## Review and Target-Branch Updates
+## Draft Pull-Request Publication
 
-At the start of every stewardship pass, fetch:
+Synchronize the intended target branch before final validation. For a published dependency branch, preserve history and do not rebase or force-push without approval.
 
-- New linked-issue comments and edits.
-- Pull-request review submissions.
-- Inline comments and thread resolution state.
-- Top-level pull-request comments.
-- Required checks and failure logs.
-- Target-branch head and mergeability.
+Create the pull request as a draft through the GitHub app or connector. Include the complete branch diff, issue traceability, validation results, risks, security evidence, benchmark results, and test-suite changes required by `$git-github-workflow`.
 
-For accepted feedback, add or update the regression first when the comment describes a bug. Make the change in a new commit, reply in the original thread with the commit or result, and resolve the thread only after the feedback is fully addressed.
-
-For declined feedback, give a concrete repository or scope reason and leave the thread unresolved. Treat unresolved actionable feedback or incompatible requirements as a blocker.
-
-For published branches, preserve review context. Fetch the target and merge it into the issue branch when branch protection, conflicts, or target changes require synchronization. Resolve conflicts against current requirements, rerun affected tests and full quality gates, and push a new commit. Rebase or force-push only with explicit approval.
-
-Mark the draft ready after implementation and initial checks pass. Continue monitoring until required approvals and checks are complete and no conflict or actionable thread remains.
+After creation, verify only that the pull request is open, targets the intended base, and remains a draft. Do not wait for CI, promote the draft, request a review, post `@codex review`, reply to or resolve review threads, enable auto-merge, or merge. Hand the draft to `$manage-pr-lifecycle`.
 
 ## Dependency Stacks
 
@@ -152,15 +141,13 @@ Use `main` or `master` as the base unless all of these conditions hold:
 
 Keep stacks one level deep by default. Set the child base to the parent branch and state the dependency in both pull requests. Update the child when the parent changes.
 
-After the parent lands, inspect the child's diff against `main` or `master` before retargeting. If squash merging makes parent commits reappear, do not rewrite, force-push, replace, or close the child without approval.
+Leave post-publication parent updates and retargeting to `$manage-pr-lifecycle`. If the expected merge strategy makes the initial stack unsafe to publish without later history rewriting, block publication and request approval.
 
 ## Completion Report
 
 For each issue, report:
 
-| Issue | Category and priority | Branch | PR and base | Issue comments addressed | Review state | CI | Merge conflicts | Result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Issue | Category and priority | Branch | Draft PR and base | Validation | Result |
+| --- | --- | --- | --- | --- | --- |
 
-Use `merge-ready` only when the pull request is non-draft, required approvals and checks are complete, actionable threads are resolved, the branch has no conflicts, and the pull-request body matches the current diff.
-
-List test changes, security evidence, benchmark deltas, target-branch updates, and blockers after the table. End by stating that no pull request was merged.
+List test changes, security evidence, benchmark deltas, and blockers after the table. Provide a paste-ready `$manage-pr-lifecycle` handoff for every draft. End by stating that all opened pull requests remain drafts, no reviews were requested, and no pull request was merged.
