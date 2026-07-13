@@ -129,3 +129,10 @@ Use this sequence when reviewing a change:
 - Default solver tools: `git` (all git actions), `rg` (search), `read_file`, `list_dir`, `glob_file_search`, `apply_patch`, and `todo_write`/`update_plan`.
 - Use `cmd`/`run_terminal_cmd` only when no listed tool can perform the action.
 - When calls are independent, run tool calls in parallel (for example todo updates, file searches, or reading multiple files) instead of sequentially.
+
+## Codex agent definitions
+
+- In `/home/chase/skills`, store project-scoped custom agents as standalone TOML files under `.codex/agents/` and keep shared project agent limits in `.codex/config.toml`.
+- Use `scripts/sync_codex_to_repo.sh` to preview or apply AGENTS.md, skill, and custom-agent updates to `${CODEX_HOME:-$HOME/.codex}`. The default is a non-mutating dry run.
+- Run `scripts/test_sync_codex_to_repo.sh` and strict Codex configuration validation after changing agent definitions or sync behavior.
+- When invoking `pr_lifecycle_reporter`, assign exactly one pull request to each instance, establish fixed lifecycle order and large-queue CI context before fan-out, and preserve its local read-only permission mode. Process additional targets in waves of at most eight reporter instances. After all waves finish, consolidate lifecycle rows by assigned queue position rather than worker completion order.
