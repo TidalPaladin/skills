@@ -1,0 +1,6 @@
+interface:
+  display_name: "Review Fix Loop"
+  short_description: "Iterative review and fix cycles"
+  default_prompt: "Use $review-fix-loop in Goal Mode to review and fix the current changes, stopping after a clean review or the iteration limit."
+policy:
+  allow_implicit_invocation: false
