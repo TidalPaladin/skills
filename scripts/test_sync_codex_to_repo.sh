@@ -7,6 +7,11 @@ readonly AGENT_VALIDATOR="${REPO_ROOT}/scripts/validate_codex_agents.py"
 readonly AGENT_SOURCE="${REPO_ROOT}/.codex/agents/pr-lifecycle-reporter.toml"
 readonly PROJECT_CONFIG="${REPO_ROOT}/.codex/config.toml"
 readonly ROOT_GUIDANCE="${REPO_ROOT}/AGENTS.md"
+readonly GIT_WORKFLOW="${REPO_ROOT}/git-github-workflow/references/git-workflow.md"
+readonly AUDIT_SKILL="${REPO_ROOT}/audit-fixissues/SKILL.md"
+readonly AUDIT_PLAYBOOK="${REPO_ROOT}/audit-fixissues/references/remediation-playbook.md"
+readonly LIFECYCLE_SKILL="${REPO_ROOT}/manage-pr-lifecycle/SKILL.md"
+readonly LIFECYCLE_PLAYBOOK="${REPO_ROOT}/manage-pr-lifecycle/references/lifecycle-playbook.md"
 readonly TEST_ROOT="$(mktemp -d)"
 
 cleanup() {
@@ -99,6 +104,38 @@ test_agent_source_contract() {
   assert_contains "$ROOT_GUIDANCE" 'waves of at most eight reporter instances'
   assert_contains "$ROOT_GUIDANCE" 'establish fixed lifecycle order before fan-out'
   assert_contains "$ROOT_GUIDANCE" 'consolidate lifecycle rows by assigned queue position'
+}
+
+test_pull_request_contracts() {
+  assert_file_exists "$AUDIT_SKILL"
+  assert_file_exists "$AUDIT_PLAYBOOK"
+  assert_file_exists "$GIT_WORKFLOW"
+  assert_file_exists "$LIFECYCLE_SKILL"
+  assert_file_exists "$LIFECYCLE_PLAYBOOK"
+
+  assert_contains "$AUDIT_SKILL" 'required closing keyword'
+  assert_contains "$AUDIT_SKILL" '`## Motivation`, `## Solution`, `## Changes`, and `## Test plan`'
+  assert_contains "$GIT_WORKFLOW" '## Test suite changes (Required when test coverage changed)'
+  assert_contains "$AUDIT_SKILL" '`## Test suite changes (Required when test coverage changed)`'
+  assert_contains "$AUDIT_PLAYBOOK" '`## Test suite changes (Required when test coverage changed)`'
+  assert_contains "$AUDIT_PLAYBOOK" 'Fetch the created pull request again and verify its complete body'
+  assert_not_contains "$AUDIT_SKILL" 'Adding automatic issue-closing keywords.'
+  assert_not_contains "$AUDIT_SKILL" 'Addresses #N'
+
+  assert_contains "$LIFECYCLE_SKILL" 'merged into the repository default branch'
+  assert_contains "$LIFECYCLE_SKILL" 'state reason `completed`'
+  assert_contains "$LIFECYCLE_SKILL" '`## Motivation`, `## Solution`, `## Changes`, and `## Test plan`'
+  assert_contains "$LIFECYCLE_SKILL" '`## Test suite changes (Required when test coverage changed)`'
+  assert_contains "$LIFECYCLE_PLAYBOOK" '`## Test suite changes (Required when test coverage changed)`'
+  assert_contains "$LIFECYCLE_PLAYBOOK" '`pull_request` field'
+  assert_contains "$LIFECYCLE_PLAYBOOK" 'never send an issue-state update for it'
+  assert_contains "$LIFECYCLE_PLAYBOOK" 'Re-fetch every issue changed during the iteration'
+  assert_contains "$LIFECYCLE_PLAYBOOK" '| Issue closure |'
+
+  assert_contains "$AGENT_SOURCE" 'closing-linked issue'
+  assert_contains "$AGENT_SOURCE" '`pull_request` field'
+  assert_contains "$AGENT_SOURCE" 'Issue closure'
+  assert_contains "$ROOT_GUIDANCE" 'closing-linked issue state'
 }
 
 test_root_alias_codex_home_is_rejected() {
@@ -379,6 +416,7 @@ test_invalid_source_agents_are_rejected_before_sync() {
 }
 
 test_agent_source_contract
+test_pull_request_contracts
 test_root_alias_codex_home_is_rejected
 test_missing_codex_home_dry_run_succeeds_without_writes
 test_dry_run_is_non_mutating

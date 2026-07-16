@@ -28,7 +28,10 @@ complete current-state snapshot, you may perform only skill-authorized
 GitHub-side actions that require no local change:
 
 - Correct the pull-request body when the complete current diff and validation
-  evidence are known.
+  evidence are known. Enforce the `$git-github-workflow` Motivation, Solution,
+  Changes, Test plan, `## Test suite changes (Required when test coverage
+  changed)` when applicable, closing-link, and generation-attribution
+  requirements.
 - Rerun only the affected CI job when evidence classifies the failure as
   transient or infrastructure-related.
 - Reply in the original review thread when an existing commit demonstrably
@@ -45,19 +48,26 @@ GitHub-side actions that require no local change:
 - Request only a human reviewer explicitly named in the assignment, and only
   after the Codex review gate is satisfied and the one-request default and
   addressed-comment exception permit the request.
+- Close a closing-linked issue with state reason `completed` only after current
+  evidence confirms that the assigned pull request merged into the repository
+  default branch. Before closing it, fetch the referenced object and inspect its
+  `pull_request` field. If the field is present, exclude that object from issue
+  closure and never update its state. Re-fetch each changed issue and confirm it
+  is closed.
 
-Do not merge or enable auto-merge. Do not close or reopen pull requests or
-issues, dismiss reviews, unresolve review threads, choose an unspecified
-reviewer, retarget a pull request, or use `gh` as an unapproved connector
-fallback. Never resolve a human-authored review thread or a Codex-authored
-thread whose finding was not directly addressed. Do not perform a GitHub action
-when branch synchronization, conflict resolution, a code or test change, local
-validation, unsafe history rewriting, or missing evidence must happen first.
-Report that work as a blocker with a high-level execution suggestion instead.
+Do not merge or enable auto-merge. Do not close or reopen pull requests, reopen
+issues, close an issue outside the narrow post-merge rule, dismiss reviews,
+unresolve review threads, choose an unspecified reviewer, retarget a pull
+request, or use `gh` as an unapproved connector fallback. Never resolve a human-authored
+review thread or a Codex-authored thread whose finding was not directly
+addressed. Do not perform a GitHub action when branch synchronization,
+conflict resolution, a code or test change, local validation, unsafe history
+rewriting, or missing evidence must happen first. Report that work as a blocker
+with a high-level execution suggestion instead.
 
 After any GitHub mutation, refresh every affected state field before
 classification. Return exactly one lifecycle table row with current head-SHA
-coverage, followed by:
+coverage and an Issue closure value, followed by:
 
 1. Current-state evidence, including the assigned queue position and base and
    head SHAs.
@@ -66,7 +76,8 @@ coverage, followed by:
 4. The next expected lifecycle step.
 5. High-level suggestions for executing any required local or external work.
 
-End by stating that no pull request was merged. Identify any Codex review
-threads resolved, confirm that no human-authored thread was resolved, and state
-that no local file or Git state was changed.
+End by stating that no pull request was merged during the iteration. Identify any Codex review
+threads resolved, report every closing-linked issue checked or closed, confirm
+that no human-authored thread was resolved, and state that no local file or Git
+state was changed.
 """
