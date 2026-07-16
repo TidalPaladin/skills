@@ -38,6 +38,14 @@ assert_contains() {
     fail "expected $file to contain: $expected"
 }
 
+assert_not_contains() {
+  local file="$1"
+  local unexpected="$2"
+  if rg --fixed-strings --quiet -- "$unexpected" "$file"; then
+    fail "expected $file not to contain: $unexpected"
+  fi
+}
+
 assert_count() {
   local expected_count="$1"
   local pattern="$2"
@@ -76,7 +84,20 @@ test_agent_source_contract() {
   assert_contains "$PROJECT_CONFIG" 'max_threads = 8'
   assert_contains "$PROJECT_CONFIG" 'max_depth = 1'
   assert_contains "$AGENT_SOURCE" 'assigned queue position'
+  assert_contains "$AGENT_SOURCE" 'changes since the latest'
+  assert_contains "$AGENT_SOURCE" 'completed public Codex review are sufficiently significant'
+  assert_contains "$AGENT_SOURCE" 'Resolve a Codex-authored review thread'
+  assert_contains "$AGENT_SOURCE" 'Never resolve a human-authored'
+  assert_contains "$AGENT_SOURCE" 'Identify any Codex review'
+  assert_contains "$AGENT_SOURCE" 'one-request default and'
+  assert_contains "$AGENT_SOURCE" 'addressed-comment exception permit the request'
+  assert_not_contains "$AGENT_SOURCE" 'active CI target for queues'
+  assert_not_contains "$AGENT_SOURCE" 'large-queue CI context'
+  assert_not_contains "$AGENT_SOURCE" 'queue rules permit the rerun'
+  assert_not_contains "$AGENT_SOURCE" 'resolve or unresolve review threads'
+  assert_not_contains "$ROOT_GUIDANCE" 'large-queue CI context'
   assert_contains "$ROOT_GUIDANCE" 'waves of at most eight reporter instances'
+  assert_contains "$ROOT_GUIDANCE" 'establish fixed lifecycle order before fan-out'
   assert_contains "$ROOT_GUIDANCE" 'consolidate lifecycle rows by assigned queue position'
 }
 
