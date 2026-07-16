@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Codex review result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "findings"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["clean", "findings"]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "body",
+          "priority",
+          "confidence",
+          "file",
+          "line_start",
+          "line_end"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["P0", "P1", "P2", "P3"]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "line_start": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "line_end": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}
