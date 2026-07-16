@@ -9,7 +9,7 @@ description: Prioritize issues produced by a codebase audit, prepare concrete re
 
 Turn an approved audit backlog into solution plans and, when authorized, validated draft pull requests. End implementation after each selected issue maps to a draft pull request or a documented blocker. Leave every pull request in draft and do not request reviews or attempt to merge it.
 
-Read `references/remediation-playbook.md` completely before planning or implementing an issue. Use `$git-github-workflow` for repository safety, branch publication, GitHub app boundaries, and recovery. Do not invoke its default publish flow until implementation is authorized.
+Read `references/remediation-playbook.md` completely before planning or implementing an issue. Use `$git-github-workflow` for repository safety, branch publication, GitHub app boundaries, and recovery. Read its `references/git-workflow.md` before publication and treat its pull-request body format as required. Do not invoke its default publish flow until implementation is authorized.
 
 ## Issue Intake
 
@@ -71,11 +71,10 @@ It does not authorize:
 - Enabling auto-merge or merging pull requests.
 - Filing new issues or closing issues.
 - Creating custom labels.
-- Adding automatic issue-closing keywords.
 - Rebasing or force-pushing a published branch.
 - Replacing or closing a pull request solely to repair a dependency stack.
 
-Obtain separate approval for those actions. Link pull requests with `Addresses #N` unless closing semantics are approved.
+Obtain separate approval for those actions. Every issue-backed pull request must include a required closing keyword in its body. Use `Closes #N` for an issue in the pull-request repository and `Closes OWNER/REPOSITORY#N` for an issue in another repository. Do not close the issue directly during remediation.
 
 ## Solution Planning
 
@@ -101,8 +100,8 @@ For every fix:
 3. Implement the smallest complete change that satisfies the issue.
 4. Run focused checks, then repository-standard formatting, linting, type checks, tests, security scans, and benchmarks for the changed surfaces.
 5. Synchronize the intended target branch and review the complete branch diff against it.
-6. Use `$git-github-workflow` to commit, push, and open one draft pull request with full motivation, solution, change, test, risk, and issue traceability.
-7. Verify the pull request is open and still a draft.
+6. Use `$git-github-workflow` to commit, push, and open one draft pull request whose body follows its complete format and describes the full branch diff.
+7. Fetch the created pull request again and verify it is open, remains a draft, contains the required closing keyword, and has `## Motivation`, `## Solution`, `## Changes`, and `## Test plan` sections with the required conditional test-suite disclosure and generation attribution.
 8. Stop work on its lifecycle and hand it to `$manage-pr-lifecycle`.
 
 If an issue cannot be reproduced, measured, safely implemented, or validated, record the blocker and continue with the remaining issues.
@@ -128,10 +127,12 @@ Before handing off a draft, verify:
 
 - The branch was synchronized with its intended base immediately before final validation.
 - Local required checks passed and results are recorded in the pull-request body.
-- The body describes the complete branch diff, risks, tests, benchmark or security evidence, and issue traceability.
+- The body follows the `$git-github-workflow` format, including `## Motivation`, `## Solution`, `## Changes`, and `## Test plan`, plus `## Test suite changes (Required when test coverage changed)` when its condition applies.
+- The body describes the complete branch diff, risks, tests, benchmark or security evidence, and issue traceability, and ends with the required generation attribution.
+- The body contains a closing keyword for the original issue using the correct same-repository or cross-repository syntax.
 - The pull request is open and remains a draft.
 - No reviewer was requested and no `@codex review` comment was posted.
-- No merge, auto-merge, ready-for-review, issue-closing, or review-thread action occurred.
+- No merge, auto-merge, ready-for-review, direct issue closure, or review-thread action occurred.
 
 Do not interpret post-publication CI, reviews, or target updates as work for this skill. Hand the pull request to `$manage-pr-lifecycle` for later iterations.
 
@@ -146,4 +147,4 @@ Return:
 5. Every blocker and the exact approval, evidence, credential, or external change needed.
 6. A paste-ready `$manage-pr-lifecycle` invocation containing the draft pull-request targets and any user-specified reviewer mapping.
 
-Map every selected issue to one validated draft pull request or one blocker. State that every opened pull request remains a draft, no reviews were requested, and no pull request was merged.
+Map every selected issue to one validated draft pull request or one blocker. State that every opened pull request remains a draft, follows the required body format, contains its closing keyword, has no requested reviews, and was not merged.

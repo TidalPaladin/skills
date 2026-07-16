@@ -47,8 +47,8 @@ Make the plan decision-complete. Do not claim the plan has been implemented. For
 5. Implement the smallest complete solution without unrelated cleanup.
 6. Run the focused baseline again, then all repository checks required for the changed surfaces.
 7. Inspect the full diff against the intended base and check for secrets, generated churn, stale docs, and accidental API changes.
-8. Commit only issue-related paths and publish one draft pull request.
-9. Verify that the pull request is open, remains a draft, and accurately records the complete change and validation.
+8. Commit only issue-related paths and publish one draft pull request using the `$git-github-workflow` body format.
+9. Fetch the created pull request again and verify its complete body, closing keyword, open state, and draft state.
 10. Stop lifecycle work and hand the draft to `$manage-pr-lifecycle`.
 
 ## Bug and Security Work
@@ -126,7 +126,18 @@ Check README files, effective root and nested `AGENTS.md` files, contributor doc
 
 Synchronize the intended target branch before final validation. For a published dependency branch, preserve history and do not rebase or force-push without approval.
 
-Create the pull request as a draft through the GitHub app or connector. Include the complete branch diff, issue traceability, validation results, risks, security evidence, benchmark results, and test-suite changes required by `$git-github-workflow`.
+Read the Pull Request Creation section of `$git-github-workflow` before drafting the body. Create the pull request as a draft through the GitHub app or connector and follow that format in full:
+
+- Use `## Motivation`, `## Solution`, `## Changes`, and `## Test plan` in that order.
+- Describe the end-user or runtime problem under Motivation and the complete branch diff relative to the target under Solution and Changes.
+- Record focused and repository-wide validation under Test plan.
+- Include `## Test suite changes (Required when test coverage changed)` when tests were removed, significantly altered, or changed in coverage intent; otherwise omit it.
+- Include concise usage examples, tables, or diagrams when they materially improve review, and include only critical deferred work.
+- End with the required `Generated with <tool name>` attribution.
+
+Include the issue traceability, risks, security evidence, benchmark results, and test-suite changes required by the branch. Add `Closes #N` for the original same-repository issue or `Closes OWNER/REPOSITORY#N` for a cross-repository issue. A non-default target does not remove this body requirement.
+
+Fetch the created pull request again and verify its complete body. Correct any missing or stale required section, conditional test disclosure, generation attribution, or closing keyword through the GitHub app or connector, then re-fetch the pull request. Treat an uncorrectable body as a blocker rather than handing it to lifecycle management.
 
 After creation, verify only that the pull request is open, targets the intended base, and remains a draft. Do not wait for CI, promote the draft, request a review, post `@codex review`, reply to or resolve review threads, enable auto-merge, or merge. Hand the draft to `$manage-pr-lifecycle`.
 
@@ -150,4 +161,4 @@ For each issue, report:
 | Issue | Category and priority | Branch | Draft PR and base | Validation | Result |
 | --- | --- | --- | --- | --- | --- |
 
-List test changes, security evidence, benchmark deltas, and blockers after the table. Provide a paste-ready `$manage-pr-lifecycle` handoff for every draft. End by stating that all opened pull requests remain drafts, no reviews were requested, and no pull request was merged.
+List test changes, security evidence, benchmark deltas, and blockers after the table. Provide a paste-ready `$manage-pr-lifecycle` handoff for every draft. End by stating that every opened pull request follows the `$git-github-workflow` body format, contains its required closing keyword, remains a draft, has no requested reviews, and was not merged.

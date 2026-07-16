@@ -5,6 +5,8 @@
 - Connector and repository boundaries
 - Target ordering and state snapshot
 - Target relationship and conflicts
+- Pull-request body conformance
+- Closing-linked issue confirmation
 - Review findings
 - CI diagnosis
 - Codex review
@@ -14,7 +16,7 @@
 
 ## Connector and Repository Boundaries
 
-Use local `git` for remotes, checkouts, target synchronization, conflict resolution, commits, worktrees, and pushes. Use the Codex GitHub app or connector for pull-request metadata, changed files, comments, reviews, review threads, ready-for-review transitions, reviewer requests, CI metadata, workflow logs, workflow reruns, and pull-request body updates.
+Use local `git` for remotes, checkouts, target synchronization, conflict resolution, commits, worktrees, and pushes. Use the Codex GitHub app or connector for pull-request metadata, changed files, comments, reviews, review threads, ready-for-review transitions, reviewer requests, CI metadata, workflow logs, workflow reruns, pull-request body updates, and issue-state reads or updates.
 
 Run the `$git-github-workflow` availability check before the first GitHub-side operation. Never silently fall back to `gh`. If a required connector capability is unavailable, report the exact gap and request user direction.
 
@@ -29,6 +31,7 @@ Honor explicit order first. Otherwise identify pull requests whose target is ano
 For every target, fetch:
 
 - Repository, pull-request number, state, draft state, author, title, body, labels, current requested reviewers, and prior review-request history when available.
+- Repository default branch, body conformance with `$git-github-workflow`, closing-keyword references, GitHub Development closing links, and the current state of every closing-linked issue.
 - Target branch, target SHA, head branch, head SHA, fork ownership, and push permission.
 - Mergeability, merge conflicts, branch-protection requirements, and whether the target SHA is an ancestor of the head.
 - Complete changed-file list and patch where needed to understand findings or substantial changes.
@@ -38,7 +41,7 @@ For every target, fetch:
 
 Do not count a review trigger as a completed review. Record the commit or material revision covered by each Codex and human review, and whether each named human was previously requested. Re-fetch all state that may have changed before assigning the final status.
 
-Report merged or closed pull requests as `terminal`. Do not reopen or mutate them.
+Report merged or closed pull requests as `terminal`. Do not reopen or mutate a pull request. For a merged pull request, permit only the closing-linked issue confirmation defined below.
 
 ## Target Relationship and Conflicts
 
@@ -56,6 +59,34 @@ Do not merge the target branch merely because the pull-request branch is behind.
 For a stacked child, use its declared parent branch as the target until the parent lands. After the parent lands, inspect the child diff against the repository default branch. Retarget only when the diff remains correct without rewriting history; otherwise request approval.
 
 Treat missing push permission, unsafe history rewriting, or irreconcilable conflict requirements as blockers. Continue with independent targets.
+
+## Pull-Request Body Conformance
+
+Read the Pull Request Creation section of `$git-github-workflow` and validate the body against the complete current branch diff. Require:
+
+- `## Motivation`, `## Solution`, `## Changes`, and `## Test plan` in that order.
+- Motivation that states the end-user or runtime problem, not delivery sequencing.
+- Solution and Changes that cover the complete branch diff relative to the target.
+- Test plan entries for the focused and repository-wide validation actually run.
+- `## Test suite changes (Required when test coverage changed)` when tests were removed, significantly altered, or changed in coverage intent.
+- The required generation attribution and any closing keyword already associated with the pull request.
+
+Use concise usage examples, tables, or diagrams when they materially improve review. Include only critical deferred work. Correct missing, stale, or malformed content through the GitHub app or connector when the evidence is available, then re-fetch the body. Treat a body that cannot be corrected as a blocker. Do not promote the draft, request review, or classify the pull request as merge-ready until the body conforms.
+
+## Closing-Linked Issue Confirmation
+
+Treat supported closing-keyword references in the pull-request body and GitHub Development closing links as candidate closing-linked issues. Ignore `Addresses`, `Related`, and plain issue mentions.
+
+GitHub's Issues API can return issues and pull requests. Fetch each candidate object and inspect its `pull_request` field before classifying it. When that field is present, exclude the object from Issue closure and never send an issue-state update for it. Apply the remaining checks only to confirmed issues:
+
+1. Report `none` when no confirmed closing-linked issue remains after filtering.
+2. Report `closed` when every linked issue is already closed. Otherwise report `pending` while the pull request is open; an open issue is expected before merge.
+3. Report `deferred` when the pull request was closed without merging or merged into a non-default branch. Do not close the issue before the change lands on the repository default branch.
+4. When the pull request is confirmed merged into the repository default branch, fetch every confirmed closing-linked issue. Report already-closed issues as `closed`.
+5. Close each remaining open issue with state reason `completed` through the GitHub app or connector. Re-fetch every issue changed during the iteration and report it as `closed-by-lifecycle` only after the closed state is confirmed.
+6. Report `blocked` with the exact permission, connector capability, or maintainer action when any required issue cannot be read, closed, or re-fetched. Never reopen an issue.
+
+If several issues are closing-linked, the overall result is `blocked` until every issue is confirmed closed. This narrow corrective action applies even when repository automatic issue closure is disabled.
 
 ## Review Findings
 
@@ -140,6 +171,7 @@ Require all of the following for `merge-ready`:
 - A completed public Codex review covers the current material revision, all findings are addressed, and directly addressed Codex threads are resolved.
 - A current non-bot approval exists and all human findings are addressed.
 - The pull-request body matches the complete current diff, validation, risks, and issue traceability.
+- The pull-request body follows the required `$git-github-workflow` structure and conditional test-suite disclosure.
 - Branch-protection requirements pass.
 
 Human-authored threads may remain unresolved. If their resolution is a branch-protection requirement, classify the pull request as blocked on reviewer or maintainer resolution rather than resolving the thread.
@@ -148,14 +180,14 @@ Human-authored threads may remain unresolved. If their resolution is a branch-pr
 
 Return:
 
-| PR | Base status | CI | Codex review | Human approval | Ready for merge |
-| --- | --- | --- | --- | --- | --- |
+| PR | Base status | CI | Codex review | Human approval | Issue closure | Ready for merge |
+| --- | --- | --- | --- | --- | --- | --- |
 
-Use compact values that identify current SHA coverage and base status, such as `current`, `behind-allowed`, `conflict`, `pass`, `fail`, `running`, `pending`, `approved`, `stale`, `yes`, `no`, `waiting`, `blocked`, or `terminal`.
+Use compact values that identify current SHA coverage and base status, such as `current`, `behind-allowed`, `conflict`, `pass`, `fail`, `running`, `pending`, `approved`, `stale`, `yes`, `no`, `waiting`, `blocked`, or `terminal`. For Issue closure, use only `none`, `pending`, `deferred`, `closed`, `closed-by-lifecycle`, or `blocked`.
 
 After the table:
 
 1. List each blocker and the exact user, reviewer, maintainer, permission, or infrastructure action required.
 2. List the next expected lifecycle step for every non-terminal target.
 3. State which conflicts, review findings, and CI failures were addressed during the iteration.
-4. State that no pull request was merged, identify any Codex threads resolved during the iteration, and confirm that no human-authored thread was resolved.
+4. State that no pull request was merged during the iteration, identify every issue closed or confirmed closed, identify any Codex threads resolved, and confirm that no human-authored thread was resolved.

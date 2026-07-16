@@ -170,7 +170,7 @@ When creating or updating the PR body, describe the **complete set of changes in
   - `base_branch` from explicit user instructions, app-backed repository metadata, or the remote default branch.
 - Always create PRs as draft unless otherwise specified.
 - If the branch is pushed from a fork, the target repository differs from the push remote, or another cross-repository case is not representable by the app tool, report that app-tool gap and ask before using CLI fallback.
-- For PRs that remove or significantly alter unit tests, ensure the PR body includes `## Test suite changes (Required)` with explicit removed/altered test names and rationale. If no unit tests were removed/altered and coverage intent did not change, this section can be omitted.
+- For PRs that remove or significantly alter unit tests, ensure the PR body includes `## Test suite changes (Required when test coverage changed)` with explicit removed or altered test names and rationale. If no unit tests were removed or altered and coverage intent did not change, this section can be omitted.
 - When pushing to an existing PR, use GitHub app/connector tools to update the PR body or post a PR comment with the same required test-suite traceability details before or with the push, including any removed or significantly altered tests.
 
 **PR labeling:** When possible, add repository-standard labels that improve triage (for example: `bug`, `enhancement`, `documentation`, `dependencies`, `breaking-change`, `needs-tests`).
