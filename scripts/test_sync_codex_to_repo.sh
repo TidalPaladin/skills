@@ -4,9 +4,12 @@ set -euo pipefail
 readonly REPO_ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 readonly SYNC_SCRIPT="${REPO_ROOT}/scripts/sync_codex_to_repo.sh"
 readonly AGENT_VALIDATOR="${REPO_ROOT}/scripts/validate_codex_agents.py"
-readonly AGENT_SOURCE="${REPO_ROOT}/.codex/agents/pr-lifecycle-reporter.toml"
+readonly PR_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/pr-lifecycle-reporter.toml"
+readonly CITATION_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/citation-verifier.toml"
 readonly PROJECT_CONFIG="${REPO_ROOT}/.codex/config.toml"
 readonly ROOT_GUIDANCE="${REPO_ROOT}/AGENTS.md"
+readonly CITATION_SKILL="${REPO_ROOT}/citation-verifier/SKILL.md"
+readonly CITATION_INTERFACE="${REPO_ROOT}/citation-verifier/agents/openai.yaml"
 readonly GIT_WORKFLOW="${REPO_ROOT}/git-github-workflow/references/git-workflow.md"
 readonly AUDIT_SKILL="${REPO_ROOT}/audit-fixissues/SKILL.md"
 readonly AUDIT_PLAYBOOK="${REPO_ROOT}/audit-fixissues/references/remediation-playbook.md"
@@ -78,32 +81,58 @@ run_sync() {
 }
 
 test_agent_source_contract() {
-  assert_file_exists "$AGENT_SOURCE"
+  assert_file_exists "$PR_AGENT_SOURCE"
+  assert_file_exists "$CITATION_AGENT_SOURCE"
+  assert_file_exists "$CITATION_SKILL"
+  assert_file_exists "$CITATION_INTERFACE"
+  assert_path_missing "${REPO_ROOT}/citation-verifier/scripts"
   assert_file_exists "$PROJECT_CONFIG"
-  assert_contains "$AGENT_SOURCE" 'name = "pr_lifecycle_reporter"'
-  assert_contains "$AGENT_SOURCE" 'model = "gpt-5.6-luna"'
-  assert_contains "$AGENT_SOURCE" 'model_reasoning_effort = "medium"'
-  assert_contains "$AGENT_SOURCE" 'sandbox_mode = "read-only"'
-  assert_contains "$AGENT_SOURCE" 'approval_policy = "never"'
-  assert_contains "$AGENT_SOURCE" 'developer_instructions = """'
+  assert_contains "$PR_AGENT_SOURCE" 'name = "pr_lifecycle_reporter"'
+  assert_contains "$PR_AGENT_SOURCE" 'model = "gpt-5.6-luna"'
+  assert_contains "$PR_AGENT_SOURCE" 'model_reasoning_effort = "medium"'
+  assert_contains "$PR_AGENT_SOURCE" 'sandbox_mode = "read-only"'
+  assert_contains "$PR_AGENT_SOURCE" 'approval_policy = "never"'
+  assert_contains "$PR_AGENT_SOURCE" 'developer_instructions = """'
+  assert_contains "$CITATION_AGENT_SOURCE" 'name = "citation_verifier"'
+  assert_contains "$CITATION_AGENT_SOURCE" 'model = "gpt-5.6-luna"'
+  assert_contains "$CITATION_AGENT_SOURCE" 'model_reasoning_effort = "medium"'
+  assert_contains "$CITATION_AGENT_SOURCE" 'sandbox_mode = "read-only"'
+  assert_contains "$CITATION_AGENT_SOURCE" 'approval_policy = "never"'
+  assert_contains "$CITATION_AGENT_SOURCE" 'Use $citation-verifier for every assignment'
+  assert_contains "$CITATION_AGENT_SOURCE" 'exactly one citation occurrence'
+  assert_contains "$CITATION_AGENT_SOURCE" 'Do not modify local files, Git state'
+  assert_contains "$CITATION_AGENT_SOURCE" 'Return exactly one citation verification'
+  assert_not_contains "$CITATION_AGENT_SOURCE" 'dissertation'
+  assert_contains "$CITATION_SKILL" 'name: citation-verifier'
+  assert_contains "$CITATION_SKILL" 'Verify one citation occurrence at a time.'
+  assert_contains "$CITATION_SKILL" 'Status: VERIFIED | PARTIAL | INACCURATE | UNVERIFIABLE'
+  assert_not_contains "$CITATION_SKILL" 'dissertation'
+  assert_not_contains "$CITATION_SKILL" 'citation_check_mini.sh'
+  assert_contains "$CITATION_INTERFACE" 'display_name: "Citation Verifier"'
+  assert_contains "$CITATION_INTERFACE" 'short_description: "Verify academic citations against primary sources"'
+  assert_contains "$CITATION_INTERFACE" 'default_prompt: "Use $citation-verifier to verify this claim and its bibliography entry."'
   assert_contains "$PROJECT_CONFIG" 'max_threads = 8'
   assert_contains "$PROJECT_CONFIG" 'max_depth = 1'
-  assert_contains "$AGENT_SOURCE" 'assigned queue position'
-  assert_contains "$AGENT_SOURCE" 'changes since the latest'
-  assert_contains "$AGENT_SOURCE" 'completed public Codex review are sufficiently significant'
-  assert_contains "$AGENT_SOURCE" 'Resolve a Codex-authored review thread'
-  assert_contains "$AGENT_SOURCE" 'Never resolve a human-authored'
-  assert_contains "$AGENT_SOURCE" 'Identify any Codex review'
-  assert_contains "$AGENT_SOURCE" 'one-request default and'
-  assert_contains "$AGENT_SOURCE" 'addressed-comment exception permit the request'
-  assert_not_contains "$AGENT_SOURCE" 'active CI target for queues'
-  assert_not_contains "$AGENT_SOURCE" 'large-queue CI context'
-  assert_not_contains "$AGENT_SOURCE" 'queue rules permit the rerun'
-  assert_not_contains "$AGENT_SOURCE" 'resolve or unresolve review threads'
+  assert_contains "$PR_AGENT_SOURCE" 'assigned queue position'
+  assert_contains "$PR_AGENT_SOURCE" 'changes since the latest'
+  assert_contains "$PR_AGENT_SOURCE" 'completed public Codex review are sufficiently significant'
+  assert_contains "$PR_AGENT_SOURCE" 'Resolve a Codex-authored review thread'
+  assert_contains "$PR_AGENT_SOURCE" 'Never resolve a human-authored'
+  assert_contains "$PR_AGENT_SOURCE" 'Identify any Codex review'
+  assert_contains "$PR_AGENT_SOURCE" 'one-request default and'
+  assert_contains "$PR_AGENT_SOURCE" 'addressed-comment exception permit the request'
+  assert_not_contains "$PR_AGENT_SOURCE" 'active CI target for queues'
+  assert_not_contains "$PR_AGENT_SOURCE" 'large-queue CI context'
+  assert_not_contains "$PR_AGENT_SOURCE" 'queue rules permit the rerun'
+  assert_not_contains "$PR_AGENT_SOURCE" 'resolve or unresolve review threads'
   assert_not_contains "$ROOT_GUIDANCE" 'large-queue CI context'
   assert_contains "$ROOT_GUIDANCE" 'waves of at most eight reporter instances'
   assert_contains "$ROOT_GUIDANCE" 'establish fixed lifecycle order before fan-out'
   assert_contains "$ROOT_GUIDANCE" 'consolidate lifecycle rows by assigned queue position'
+  assert_contains "$ROOT_GUIDANCE" 'For every citation-verification task, the parent agent must invoke `citation_verifier`'
+  assert_contains "$ROOT_GUIDANCE" 'assign exactly one citation occurrence to each instance'
+  assert_contains "$ROOT_GUIDANCE" 'source path, line or unique context, citation key, complete surrounding claim, and bibliography entry'
+  assert_contains "$ROOT_GUIDANCE" 'consolidate citation reports in source order'
 }
 
 test_pull_request_contracts() {
@@ -132,9 +161,9 @@ test_pull_request_contracts() {
   assert_contains "$LIFECYCLE_PLAYBOOK" 'Re-fetch every issue changed during the iteration'
   assert_contains "$LIFECYCLE_PLAYBOOK" '| Issue closure |'
 
-  assert_contains "$AGENT_SOURCE" 'closing-linked issue'
-  assert_contains "$AGENT_SOURCE" '`pull_request` field'
-  assert_contains "$AGENT_SOURCE" 'Issue closure'
+  assert_contains "$PR_AGENT_SOURCE" 'closing-linked issue'
+  assert_contains "$PR_AGENT_SOURCE" '`pull_request` field'
+  assert_contains "$PR_AGENT_SOURCE" 'Issue closure'
   assert_contains "$ROOT_GUIDANCE" 'closing-linked issue state'
 }
 
@@ -160,6 +189,7 @@ test_missing_codex_home_dry_run_succeeds_without_writes() {
 
   assert_path_missing "$codex_home"
   assert_contains "$output" 'pr-lifecycle-reporter.toml'
+  assert_contains "$output" 'citation-verifier.toml'
   assert_contains "$output" 'max_threads = 8'
 }
 
@@ -189,6 +219,7 @@ EOF
   assert_contains "$output" 'max_threads = 4'
   assert_contains "$output" 'max_threads = 8'
   assert_contains "$output" 'pr-lifecycle-reporter.toml'
+  assert_contains "$output" 'citation-verifier.toml'
 }
 
 test_apply_syncs_agents_and_preserves_unrelated_state() {
@@ -214,10 +245,12 @@ EOF
 
   run_sync "$codex_home" --apply --delete >/dev/null
 
-  assert_files_equal "$AGENT_SOURCE" "${codex_home}/agents/pr-lifecycle-reporter.toml"
+  assert_files_equal "$PR_AGENT_SOURCE" "${codex_home}/agents/pr-lifecycle-reporter.toml"
+  assert_files_equal "$CITATION_AGENT_SOURCE" "${codex_home}/agents/citation-verifier.toml"
   assert_file_exists "${codex_home}/agents/personal-agent.toml"
   assert_files_equal "${REPO_ROOT}/AGENTS.md" "${codex_home}/AGENTS.md"
   assert_file_exists "${codex_home}/skills/manage-pr-lifecycle/SKILL.md"
+  assert_files_equal "$CITATION_SKILL" "${codex_home}/skills/citation-verifier/SKILL.md"
   assert_path_missing "${codex_home}/skills/.codex"
   assert_path_missing "${codex_home}/skills/.agents"
   assert_contains "${codex_home}/config.toml" 'model = "gpt-5.6-sol"'

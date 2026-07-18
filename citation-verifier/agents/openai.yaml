@@ -1,0 +1,4 @@
+interface:
+  display_name: "Citation Verifier"
+  short_description: "Verify academic citations against primary sources"
+  default_prompt: "Use $citation-verifier to verify this claim and its bibliography entry."
