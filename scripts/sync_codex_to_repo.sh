@@ -48,12 +48,17 @@ for arg in "$@"; do
   esac
 done
 
-for required_command in codex diff git realpath rsync uv; do
+for required_command in codex diff git rsync uv; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Error: ${required_command} is not installed or not in PATH." >&2
     exit 1
   fi
 done
+
+canonicalize_path() {
+  UV_NO_PROGRESS=1 uv run --no-project --no-cache python -c \
+    'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [[ -z "$repo_root" ]]; then
@@ -72,7 +77,7 @@ if [[ -z "$destination_root" || "$destination_root" != /* ]]; then
   echo "Error: CODEX_HOME must resolve to a non-root absolute path." >&2
   exit 1
 fi
-destination_root="$(realpath --canonicalize-missing -- "$destination_root")"
+destination_root="$(canonicalize_path "$destination_root")"
 if [[ "$destination_root" == / ]]; then
   echo "Error: CODEX_HOME must resolve to a non-root absolute path." >&2
   exit 1
@@ -283,10 +288,10 @@ apply_proposed_config() {
   fi
 
   config_temp="$(mktemp "${destination_root}/.config.toml.XXXXXX")"
-  cp "$proposed_config" "$config_temp"
   if [[ -f "$destination_config" ]]; then
-    chmod --reference="$destination_config" "$config_temp"
+    cp -p "$destination_config" "$config_temp"
   fi
+  cp "$proposed_config" "$config_temp"
   mv -f "$config_temp" "$destination_config"
   config_temp=""
   echo "Applied minimum agent capacity to ${destination_config}"
@@ -364,14 +369,14 @@ rsync "${agents_flags[@]}" "$source_agents" "$rsync_destination_agents"
 
 if [[ "$dry_run" == true ]]; then
   if [[ -f "$destination_config" ]]; then
-    diff --unified \
-      --label "${destination_config}" \
-      --label "${destination_config} (proposed)" \
+    diff -u \
+      -L "${destination_config}" \
+      -L "${destination_config} (proposed)" \
       "$destination_config" "$proposed_config" || true
   else
-    diff --unified \
-      --label /dev/null \
-      --label "${destination_config} (proposed)" \
+    diff -u \
+      -L /dev/null \
+      -L "${destination_config} (proposed)" \
       /dev/null "$proposed_config" || true
   fi
 else
