@@ -2,6 +2,17 @@
 
 Use these patterns after inspecting the target repository. Choose only the workflows and controls supported by repository evidence and confirmed user decisions.
 
+## Contents
+
+- [Workflow Map](#workflow-map)
+- [Split and Combine Rules](#split-and-combine-rules)
+- [Runtime and Resource Controls](#runtime-and-resource-controls)
+- [Dependency Health Workflow](#dependency-health-workflow)
+- [Self-hosted Runner Trust](#self-hosted-runner-trust)
+- [GitHub Actions Security](#github-actions-security)
+- [Scheduling and Cost](#scheduling-and-cost)
+- [Official Sources](#official-sources)
+
 ## Workflow Map
 
 | Workload | Default events | Typical runner | Contents |
@@ -11,6 +22,7 @@ Use these patterns after inspecting the target repository. Choose only the workf
 | Slow Linux | Nightly or weekly, manual dispatch | Linux with the required memory, services, or hardware | Full integration, sanitizers, coverage, large fixtures, installation contracts |
 | Cross-platform | Nightly or weekly, manual dispatch, release tags when required | Native Windows, macOS, or alternate architecture | Platform-specific tests and native artifact checks |
 | CUDA or custom hardware | Nightly or weekly, manual dispatch | Trusted labeled self-hosted runner | Focused accelerator tests and builds that cannot use standard hosted runners |
+| Dependency health | Weekly, manual dispatch | GitHub-hosted Linux by default | Independent security enforcement and deprecation reporting |
 
 Use separate workflow files when cadence, trust, permissions, or operational ownership differs. Jobs with the same cadence can share a workflow while retaining separate runner and failure boundaries.
 
@@ -57,6 +69,24 @@ Use a dependency gate only when downstream work cannot produce useful evidence a
 - Run the platform-specific subset on Windows and macOS when Linux already covers portable behavior. Run the full suite only when platform interactions make the subset unreliable.
 - Avoid broad matrices. Add each dimension only when it represents a supported runtime, release artifact, or known compatibility risk.
 
+## Dependency Health Workflow
+
+Create a separate weekly workflow for dependency health. Do not merge it into another scheduled workflow merely because the cadence matches. Give it no dependency on existing jobs and do not make other jobs depend on it. Add manual dispatch, choose a non-zero UTC minute, and obtain the weekday and time from the user.
+
+Use sibling jobs because security and deprecation findings have different outcomes:
+
+| Condition | `security-audit` | `deprecation-report` |
+|---|---|---|
+| Unsuppressed finding | Fail under the repository's security policy | Report and succeed |
+| Tool, database, network, or parsing failure | Fail as incomplete | Fail as incomplete |
+| No finding | Succeed | Succeed |
+
+- Prefer configured scanners, then ecosystem-native scanners. Cover detected direct, transitive, dev/test/build, runtime, toolchain, container, system-package, GitHub Action, submodule, and vendored-code surfaces without rewriting tracked files.
+- Treat CVE, GHSA, RustSec, OSV, registry, and vendor advisories as security findings. Record the scanner command and version, advisory source or database revision, check date, audited lockfile or artifact, dependency groups, finding identifiers, package paths, severity, and patched version when known. Require evidence plus an owner and expiry or review condition for exceptions.
+- Report deprecated or yanked direct dependencies, unsupported runtimes or toolchains, and deprecation or future-incompatibility warnings supported by the repository. A newer available version alone is outdated, not deprecated. Write findings to the job summary and use a short-retention machine-readable artifact only when maintainers or later tooling will consume it.
+- Use GitHub-hosted Linux, `contents: read`, no secrets, bounded timeouts, and no write operations by default. Do not update dependencies or create issues from this workflow. Discover commands, scanner versions, and action commit SHAs when the skill is invoked.
+- Keep one job per concern when setup is cheap. Split by ecosystem only for a different runner, permission, toolchain, timeout, artifact, or failure owner. Combine ecosystem commands within the same concern when they share checkout and setup and still produce attributable results.
+
 ## Self-hosted Runner Trust
 
 GitHub warns against using self-hosted runners with public repositories because a fork can submit code through a pull request. Treat persistent runner files, credentials, network access, caches, and neighboring workloads as exposed to any code assigned to that runner.
@@ -86,7 +116,7 @@ If fork CI must remain a required check, plan a hosted fallback or stable aggreg
 
 GitHub scheduled workflows use the latest commit on the default branch and may be delayed during high load. Choose a non-zero minute and include `workflow_dispatch` for recovery and testing. Cron uses UTC.
 
-Always ask for a nightly or weekly production-build cadence. Ask separately for slow Linux work, cross-platform work, and custom hardware when present. Combine groups only when their chosen cadence, runner trust, and setup needs match.
+Always ask for a nightly or weekly production-build cadence. Ask separately for slow Linux work, cross-platform work, and custom hardware when present. The dependency-health workflow is always weekly and independent; ask for its weekday and UTC time. Combine other groups only when their chosen cadence, runner trust, and setup needs match.
 
 Standard GitHub-hosted runners are currently free for public repositories. Private repositories receive plan-dependent quotas and can incur charges. Self-hosted execution does not consume hosted-runner minutes, but the owner pays for the machine and maintenance. Verify current pricing before using cost as an allocation reason.
 

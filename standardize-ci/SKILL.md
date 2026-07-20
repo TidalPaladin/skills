@@ -1,6 +1,6 @@
 ---
 name: standardize-ci
-description: Plan new or standardized repository CI without modifying files. Use when Codex needs to initialize, migrate, review, or normalize continuous integration; design GitHub Actions jobs and triggers; allocate cloud, self-hosted, CUDA, Linux, Windows, or macOS runners; split core and language-binding checks; schedule builds; or reduce CI runtime and resource use.
+description: Plan new or standardized repository CI without modifying files. Use when Codex needs to initialize, migrate, review, or normalize continuous integration; design GitHub Actions jobs and triggers; allocate cloud, self-hosted, CUDA, Linux, Windows, or macOS runners; split core and language-binding checks; schedule builds or dependency-health audits; or reduce CI runtime and resource use.
 ---
 
 # Standardize CI
@@ -8,6 +8,8 @@ description: Plan new or standardized repository CI without modifying files. Use
 ## Planning Contract
 
 Keep this skill planning-only in every collaboration mode. Inspect the target, settle the CI policy with the user, and return a decision-complete plan. Do not edit repository files, change repository settings, register runners, dispatch workflows, or publish branches.
+
+Do not add or populate a bundled workflow template. Derive workflow structure, repository commands, runner labels, and action commit SHAs from repository evidence and current upstream data when invoked.
 
 Use GitHub Actions unless the user names another provider. Read `references/github-actions-patterns.md` after inventorying the repository and before allocating jobs.
 
@@ -28,6 +30,7 @@ Inspect before asking questions. Do not ask the user for facts available from fi
 5. Prefer repository-defined quality and test targets over reconstructed commands. Map what each target runs so the plan does not duplicate work.
 6. If read-only GitHub access is available, inspect recent representative runs for job duration, queue time, cache behavior, failures, runner use, and artifact size. Distinguish measured values from estimates.
 7. Determine whether the repository has core code, language bindings, generated code, platform-specific logic, CUDA or other accelerator code, integration services, large fixtures, release artifacts, or installation-contract tests.
+8. Inventory dependency-health surfaces: direct and transitive dependencies, dev/test/build groups, runtimes and toolchains, containers and system packages, GitHub Actions, submodules, and vendored code. Find repository-configured advisory scanners, exception files, deprecated or yanked package checks, runtime support metadata, and deprecation or future-incompatibility warning commands. Do not treat an available newer version as a deprecation.
 
 For Python packages and bindings, reconcile `requires-python`, classifiers, lockfile interpreter constraints, tox/nox configuration, documentation, and existing CI. Treat `requires-python` as the installation compatibility claim. Ask the user only when these sources conflict or do not identify the intended latest stable Python version.
 
@@ -35,7 +38,7 @@ Identify direct runtime libraries that control the project's core computation, p
 
 Create an internal inventory with these fields:
 
-`Task | Command | Current trigger | Runtime evidence | Setup/build cost | OS/architecture | Hardware | Critical dependency range | Secrets/services | Artifact | Failure owner`
+`Task | Command | Current trigger | Runtime evidence | Setup/build cost | OS/architecture | Hardware | Critical dependency range | Secrets/services | Artifact/report | Failure policy and owner`
 
 ## Required User Decisions
 
@@ -47,7 +50,7 @@ Ask after the first inspection pass. In Plan Mode, prefer `request_user_input` w
    - slow or special Linux checks,
    - cross-platform checks,
    - CUDA or custom-hardware checks.
-4. Ask for the UTC execution time for each scheduled group. For weekly work, also ask for the weekday. Recommend a non-zero minute.
+4. Ask for the UTC execution time for each scheduled group. For weekly work, also ask for the weekday. The dependency-health workflow is always weekly, so ask only for its weekday and UTC time. Recommend a non-zero minute.
 5. Ask about target pull-request latency or compute limits only when current run data and repository policy do not reveal an acceptable boundary.
 
 When a public repository will use a self-hosted runner, show the user GitHub's warning that fork pull requests can run dangerous code on the runner. Then confirm one safe policy:
@@ -67,6 +70,11 @@ Apply the following baseline unless repository evidence or a confirmed user choi
 - Add `{python_min, library_max}` or `{python_max, library_min}` only when upstream compatibility data says the pair is supported and repository history, API changes, ABI changes, or resolver behavior gives it a specific test purpose.
 - Do not multiply the Python version matrix across Windows and macOS by default. Use one representative supported Python version for scheduled cross-platform checks unless the release contract requires wheels or native artifacts for each Python version.
 - Add manual dispatch to each workflow.
+- Always add an independent weekly dependency-health workflow when the repository has auditable dependency, toolchain, container, action, submodule, or vendored-code surfaces. Keep it separate from pull-request, production-build, slow-test, platform, and hardware workflows, with no job dependencies in either direction.
+- Create sibling `security-audit` and `deprecation-report` jobs in the dependency-health workflow. Split either job further only when an ecosystem needs a different runner, permission, toolchain, timeout, or failure owner.
+- In `security-audit`, prefer repository-configured scanners and then ecosystem-native scanners using current advisory data. Audit every detected surface that can be checked without mutating tracked files. Fail on scanner, advisory-database, network, or parsing errors and on unsuppressed security findings under the repository's policy. Require evidence, an owner, and an expiry or review condition for each exception. Include non-CVE advisories.
+- In `deprecation-report`, check deprecated or yanked direct dependencies, unsupported runtimes and toolchains, and repository-supported deprecation or future-incompatibility warnings. Deprecation findings must not fail the job. Write them to the job summary and, when useful, a short-retention machine-readable artifact. Fail only when the reporting command cannot complete or its output cannot be interpreted.
+- Run dependency-health jobs on GitHub-hosted Linux by default with `contents: read`, no secrets, bounded timeouts, and no automatic dependency updates, issue creation, or other write operations. Discover exact commands and tool versions when invoked.
 - Always include a nightly or weekly production-build workflow. Build and verify distributable artifacts when the repository defines them; otherwise verify the production or release build without uploading an invented artifact.
 - Put full integration suites, sanitizers, large matrices, installation-contract tests, and other expensive work on the chosen nightly or weekly schedule.
 - When required, put Windows, macOS, non-default architectures, CUDA, and custom hardware on scheduled workflows unless the user explicitly accepts their pull-request cost and the runner trust policy permits it.
@@ -95,6 +103,7 @@ Require the implementation plan to:
 - prevent untrusted code from reaching self-hosted or custom-hardware runners;
 - avoid `pull_request_target` for checking out and executing an untrusted pull-request head;
 - schedule at non-zero minutes and state that scheduled workflows run from the default branch;
+- record the dependency-health scanner command and version, advisory source or database revision, check date, audited lockfile or artifact, included dependency groups, and whether a nonzero exit represented findings or an incomplete scan;
 - set workflow and job timeouts from measured or documented expectations.
 
 For public self-hosted configurations, try to verify repository visibility, current fork guards, Actions permissions, and runner-group restrictions. If any setting cannot be read, state that gap and include a workflow-level same-repository guard. A common guard is:
@@ -118,7 +127,7 @@ Include:
 
    `Workflow/job | Responsibility and commands | Runner | Triggers | Dependencies | Cache/artifacts | Timeout`
 
-3. Exact workflow filenames, job names, default branch, event filters, cron expressions, runner labels, dependencies, commands, cache keys, artifact paths and retention, permissions, concurrency, timeouts, and fork guards.
+3. Exact workflow filenames, job names, default branch, event filters, cron expressions, runner labels, dependencies, commands, cache keys, artifact and report paths and retention, finding and tool-error behavior, permissions, concurrency, timeouts, and fork guards.
 4. File-level implementation changes, including removal or transition of old CI configuration and required checks.
 5. Validation for workflow syntax, repository quality gates, scheduled/manual behavior, artifact installation or smoke tests, platform-specific checks, fork behavior, and branch-protection status.
 6. Assumptions, unavailable evidence, and intentionally deferred jobs.
