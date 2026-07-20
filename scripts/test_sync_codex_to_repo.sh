@@ -65,6 +65,10 @@ assert_count() {
     fail "expected $expected_count matches for $pattern in $file, found ${actual_count:-0}"
 }
 
+file_checksum() {
+  cksum <"$1"
+}
+
 new_codex_home() {
   local name="$1"
   local codex_home="${TEST_ROOT}/${name}/codex-home"
@@ -179,6 +183,26 @@ test_root_alias_codex_home_is_rejected() {
   assert_contains "$output" 'Error: CODEX_HOME must resolve to a non-root absolute path.'
 }
 
+test_sync_does_not_require_gnu_realpath() {
+  local codex_home
+  local fake_bin="${TEST_ROOT}/bsd-realpath/bin"
+  local output="${TEST_ROOT}/bsd-realpath.out"
+  codex_home="$(new_codex_home bsd-realpath)"
+  mkdir -p "$fake_bin"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'echo "realpath: illegal option -- -" >&2' \
+    'exit 1' \
+    >"${fake_bin}/realpath"
+  chmod +x "${fake_bin}/realpath"
+
+  if ! PATH="${fake_bin}:${PATH}" run_sync "$codex_home" --dry-run >"$output" 2>&1; then
+    fail "expected sync not to depend on GNU realpath options"
+  fi
+
+  assert_not_contains "$output" 'realpath: illegal option -- -'
+}
+
 test_missing_codex_home_dry_run_succeeds_without_writes() {
   local codex_home="${TEST_ROOT}/missing-codex-home/codex-home"
   local output="${TEST_ROOT}/missing-codex-home.out"
@@ -208,11 +232,11 @@ max_threads = 4
 [features]
 apps = true
 EOF
-  before_hash="$(sha256sum "${codex_home}/config.toml")"
+  before_hash="$(file_checksum "${codex_home}/config.toml")"
 
   run_sync "$codex_home" --dry-run >"$output"
 
-  [[ "$(sha256sum "${codex_home}/config.toml")" == "$before_hash" ]] ||
+  [[ "$(file_checksum "${codex_home}/config.toml")" == "$before_hash" ]] ||
     fail "dry run changed config.toml"
   assert_path_missing "${codex_home}/agents"
   assert_path_missing "${codex_home}/skills"
@@ -258,9 +282,9 @@ EOF
   assert_contains "${codex_home}/config.toml" 'apps = true'
   assert_count 1 '^max_threads[[:space:]]*=' "${codex_home}/config.toml"
 
-  config_hash="$(sha256sum "${codex_home}/config.toml")"
+  config_hash="$(file_checksum "${codex_home}/config.toml")"
   run_sync "$codex_home" --apply >/dev/null
-  [[ "$(sha256sum "${codex_home}/config.toml")" == "$config_hash" ]] ||
+  [[ "$(file_checksum "${codex_home}/config.toml")" == "$config_hash" ]] ||
     fail "repeated apply changed config.toml"
 }
 
@@ -283,11 +307,11 @@ model = "gpt-5.6-sol"
 [agents]
 max_threads = ${limit}
 EOF
-    before_hash="$(sha256sum "${codex_home}/config.toml")"
+    before_hash="$(file_checksum "${codex_home}/config.toml")"
 
     run_sync "$codex_home" --apply >/dev/null
 
-    [[ "$(sha256sum "${codex_home}/config.toml")" == "$before_hash" ]] ||
+    [[ "$(file_checksum "${codex_home}/config.toml")" == "$before_hash" ]] ||
       fail "apply changed an existing max_threads value of $limit"
   done
 }
@@ -364,13 +388,13 @@ max_threads = 4
 max_threads = 6
 EOF
     fi
-    before_hash="$(sha256sum "${codex_home}/config.toml")"
+    before_hash="$(file_checksum "${codex_home}/config.toml")"
 
     if run_sync "$codex_home" --apply >"$output" 2>&1; then
       fail "expected $name config to be rejected"
     fi
 
-    [[ "$(sha256sum "${codex_home}/config.toml")" == "$before_hash" ]] ||
+    [[ "$(file_checksum "${codex_home}/config.toml")" == "$before_hash" ]] ||
       fail "rejected $name config was modified"
     assert_path_missing "${codex_home}/agents"
     assert_contains "$output" 'Error:'
@@ -386,13 +410,13 @@ test_strict_config_failure_is_rejected_before_sync() {
   cat >"${codex_home}/config.toml" <<'EOF'
 model = [
 EOF
-  config_hash="$(sha256sum "${codex_home}/config.toml")"
+  config_hash="$(file_checksum "${codex_home}/config.toml")"
 
   if run_sync "$codex_home" --apply >"$output" 2>&1; then
     fail "expected malformed global TOML to fail strict validation"
   fi
 
-  [[ "$(sha256sum "${codex_home}/config.toml")" == "$config_hash" ]] ||
+  [[ "$(file_checksum "${codex_home}/config.toml")" == "$config_hash" ]] ||
     fail "strict validation failure changed config.toml"
   assert_path_missing "${codex_home}/agents"
   assert_path_missing "${codex_home}/skills"
@@ -451,6 +475,7 @@ test_invalid_source_agents_are_rejected_before_sync() {
 test_agent_source_contract
 test_pull_request_contracts
 test_root_alias_codex_home_is_rejected
+test_sync_does_not_require_gnu_realpath
 test_missing_codex_home_dry_run_succeeds_without_writes
 test_dry_run_is_non_mutating
 test_apply_syncs_agents_and_preserves_unrelated_state
