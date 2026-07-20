@@ -1,0 +1,4 @@
+interface:
+  display_name: "Standardize CI"
+  short_description: "Plan fast, secure GitHub Actions CI"
+  default_prompt: "Use $standardize-ci to inspect this repository and produce a decision-complete CI standardization plan."
