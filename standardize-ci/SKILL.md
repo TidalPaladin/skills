@@ -65,6 +65,7 @@ Never offer untrusted fork code on a persistent self-hosted runner as an option.
 Apply the following baseline unless repository evidence or a confirmed user choice requires a different design:
 
 - Run fast Linux formatting, linting, type checking, unit tests, and focused integration tests for every pull request to the actual default branch and every push to that branch.
+- Add one final aggregate job named `Required` to the pull-request workflow so branch protection can require a single stable check. Give it `if: ${{ always() }}` and `needs` on every job whose result must block merging, including mutually exclusive self-hosted and hosted-fallback paths. Run it on GitHub-hosted Linux when upstream jobs can be skipped or run on self-hosted infrastructure. Make it fail when a required dependency fails or is cancelled, or when a required path is skipped without an approved successful fallback; otherwise make it succeed. Do not reuse the `Required` name in non-blocking workflows.
 - For a Python package or binding that claims more than one Python minor version, use one Linux matrix job with separate earliest-supported and latest-supported test legs. Pin both minors explicitly. Run runtime tests and native-extension builds on both; run formatting, linting, type checking, and coverage on the latest leg unless they have version-sensitive behavior.
 - For each confirmed mission-critical Python library with a supported version range, add compatible Linux boundary pairs: `{python_min, library_min}` and `{python_max, library_max}`. Apply this rule even when the repository supports one Python minor; in that case, `python_min` and `python_max` are the same version. Pin and verify both installed versions. Resolve each pair from deterministic boundary-specific dependency inputs, reusing the normal lockfile only when it represents that pair. Do not create a full Python-by-library Cartesian matrix by default.
 - Add `{python_min, library_max}` or `{python_max, library_min}` only when upstream compatibility data says the pair is supported and repository history, API changes, ABI changes, or resolver behavior gives it a specific test purpose.
@@ -128,7 +129,7 @@ Include:
    `Workflow/job | Responsibility and commands | Runner | Triggers | Dependencies | Cache/artifacts | Timeout`
 
 3. Exact workflow filenames, job names, default branch, event filters, cron expressions, runner labels, dependencies, commands, cache keys, artifact and report paths and retention, finding and tool-error behavior, permissions, concurrency, timeouts, and fork guards.
-4. File-level implementation changes, including removal or transition of old CI configuration and required checks.
+4. File-level implementation changes, including removal or transition of old CI configuration and required checks. Identify the aggregate `Required` job as the branch-protection check and specify when any replaced check names can be removed.
 5. Validation for workflow syntax, repository quality gates, scheduled/manual behavior, artifact installation or smoke tests, platform-specific checks, fork behavior, and branch-protection status.
 6. Assumptions, unavailable evidence, and intentionally deferred jobs.
 
