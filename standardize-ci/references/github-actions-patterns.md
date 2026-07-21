@@ -26,6 +26,8 @@ Use these patterns after inspecting the target repository. Choose only the workf
 
 Use separate workflow files when cadence, trust, permissions, or operational ownership differs. Jobs with the same cadence can share a workflow while retaining separate runner and failure boundaries.
 
+End the pull-request workflow with one aggregate job whose displayed name is `Required`. List every job that must block merging directly in its `needs`, including mutually exclusive self-hosted and hosted-fallback paths, and use `if: ${{ always() }}` so upstream failures, cancellations, and skips still produce the check that branch protection expects. Run the aggregate job on GitHub-hosted Linux when any dependency uses self-hosted infrastructure or can be skipped. Fail it for a failed or cancelled required dependency and for an unexplained skipped path; accept a skipped path only when an approved fallback succeeded. Configure branch protection against this aggregate CI check instead of its child jobs, and do not create another `Required` job in scheduled or otherwise non-blocking workflows.
+
 ## Split and Combine Rules
 
 Split when at least one boundary is meaningful:
@@ -122,6 +124,9 @@ Standard GitHub-hosted runners are currently free for public repositories. Priva
 
 ## Official Sources
 
+- [About protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)
+- [Troubleshooting required status checks](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks)
+- [Workflow syntax for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
 - [Managing access to self-hosted runners](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/manage-access)
 - [Secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)
 - [Dependency caching reference](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)
