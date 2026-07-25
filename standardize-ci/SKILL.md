@@ -28,9 +28,10 @@ Inspect before asking questions. Do not ask the user for facts available from fi
 3. Read existing workflow files for every configured CI provider. Identify triggers, required-check names, permissions, runner labels, concurrency, caches, artifacts, schedules, and release behavior.
 4. Read manifests, lockfiles, toolchain files, container definitions, Makefiles, task runners, test configuration, binding directories, release scripts, and packaging metadata.
 5. Prefer repository-defined quality and test targets over reconstructed commands. Map what each target runs so the plan does not duplicate work.
-6. If read-only GitHub access is available, inspect recent representative runs for job duration, queue time, cache behavior, failures, runner use, and artifact size. Distinguish measured values from estimates.
-7. Determine whether the repository has core code, language bindings, generated code, platform-specific logic, CUDA or other accelerator code, integration services, large fixtures, release artifacts, or installation-contract tests.
-8. Inventory dependency-health surfaces: direct and transitive dependencies, dev/test/build groups, runtimes and toolchains, containers and system packages, GitHub Actions, submodules, and vendored code. Find repository-configured advisory scanners, exception files, deprecated or yanked package checks, runtime support metadata, and deprecation or future-incompatibility warning commands. Do not treat an available newer version as a deprecation.
+6. Expand each workflow command through Makefiles, task runners, scripts, hooks, and package-manager lifecycle steps. Record every executable, runtime, compiler, utility, and service client that it invokes directly or transitively.
+7. If read-only GitHub access is available, inspect recent representative runs for job duration, queue time, cache behavior, failures, runner use, and artifact size. Distinguish measured values from estimates.
+8. Determine whether the repository has core code, language bindings, generated code, platform-specific logic, CUDA or other accelerator code, integration services, large fixtures, release artifacts, or installation-contract tests.
+9. Inventory dependency-health surfaces: direct and transitive dependencies, dev/test/build groups, runtimes and toolchains, containers and system packages, GitHub Actions, submodules, and vendored code. Find repository-configured advisory scanners, exception files, deprecated or yanked package checks, runtime support metadata, and deprecation or future-incompatibility warning commands. Do not treat an available newer version as a deprecation.
 
 For Python packages and bindings, reconcile `requires-python`, classifiers, lockfile interpreter constraints, tox/nox configuration, documentation, and existing CI. Treat `requires-python` as the installation compatibility claim. Ask the user only when these sources conflict or do not identify the intended latest stable Python version.
 
@@ -38,7 +39,7 @@ Identify direct runtime libraries that control the project's core computation, p
 
 Create an internal inventory with these fields:
 
-`Task | Command | Current trigger | Runtime evidence | Setup/build cost | OS/architecture | Hardware | Critical dependency range | Secrets/services | Artifact/report | Failure policy and owner`
+`Task | Command | Transitive commands | Current trigger | Runtime evidence | Setup/build cost | OS/architecture | Hardware | Host bootstrap or exception | Job-local setup and pin | Preflight | Critical dependency range | Secrets/services | Artifact/report | Failure policy and owner`
 
 ## Required User Decisions
 
@@ -59,6 +60,20 @@ When a public repository will use a self-hosted runner, show the user GitHub's w
 - Otherwise skip self-hosted jobs for fork pull requests and document how maintainers test a trusted copy on a repository branch.
 
 Never offer untrusted fork code on a persistent self-hosted runner as an option.
+
+## Self-Hosted Setup Contract
+
+Define the smallest host bootstrap inventory before allocating work to a self-hosted runner:
+
+- runner agent, operating system, architecture, and declared runner labels;
+- a shell plus the base archive, download, certificate, and checksum tools needed to install dependencies;
+- a container runtime only when a planned job uses containers;
+- hardware drivers or kernel interfaces that cannot be installed safely within a job;
+- network routes and access to named services that the job must reach.
+
+Treat every other direct or transitive command dependency as absent until the job installs it. The plan must give the exact job-local installation command, pinned version or immutable source revision, checksum or signature verification, job-scoped installation and cache paths, version assertion, and early preflight command for each dependency. Cache keys must include the dependency version and relevant lockfile or configuration digest. Setup must be idempotent, and cached or persistent runner files must improve speed only, never determine correctness.
+
+Document each dependency that must remain host-provisioned as a named exception with its reason, owner, supported version range, verification command, and direct failure message. Put all preflight checks before checkout-dependent builds, large downloads, accelerator reservations, or other expensive work.
 
 ## Job Allocation
 
@@ -105,6 +120,7 @@ Require the implementation plan to:
 - avoid `pull_request_target` for checking out and executing an untrusted pull-request head;
 - schedule at non-zero minutes and state that scheduled workflows run from the default branch;
 - record the dependency-health scanner command and version, advisory source or database revision, check date, audited lockfile or artifact, included dependency groups, and whether a nonzero exit represented findings or an incomplete scan;
+- make every self-hosted setup step reproducible from the declared bootstrap inventory, with exact pins, integrity checks, job-scoped paths, versioned cache keys, version assertions, and early preflight failures;
 - set workflow and job timeouts from measured or documented expectations.
 
 For public self-hosted configurations, try to verify repository visibility, current fork guards, Actions permissions, and runner-group restrictions. If any setting cannot be read, state that gap and include a workflow-level same-repository guard. A common guard is:
@@ -117,6 +133,23 @@ if: >-
 
 Keep required checks useful for fork contributions. A skipped self-hosted job must not leave a required check permanently pending; specify a hosted fallback, a stable aggregate check, or a documented branch-protection change.
 
+## Scheduled Workflow Validation
+
+Require a successful `workflow_dispatch` run from the exact branch or tag under review for every new or changed scheduled workflow before merge. The workflow file must already exist on the default branch because GitHub only enables manual dispatch for default-branch workflow files. This is an eligibility gate; GitHub runs the workflow version at the event's associated ref and SHA. A brand-new scheduled workflow therefore needs either a two-stage introduction that first lands a safe dispatchable harness or an existing default-branch manual harness that exercises the scheduled path.
+
+The implementation plan must require the authorized implementation workflow to record the workflow file and its blob SHA at the run head, run ID and URL, event, requested ref, run head SHA, expected jobs, job conclusions, and artifact installation or smoke-test evidence. It must reject a run when its ref or head SHA does not match the revision under review or the workflow blob differs from the reviewed definition. Workflow syntax validation and ordinary pull-request checks do not prove that the scheduled path ran. For a failed run, the plan must require that implementation workflow to inspect the exact failing job and step log, make any authorized in-scope fix, dispatch the replacement revision, and record the replacement run ID.
+
+Select one run-specific post-run validation and failure-notification path before dispatch:
+
+- Prefer a verified GitHub App webhook ingress for `workflow_run.completed`.
+- A default-branch `workflow_run` relay is acceptable when it has least privilege, checks out and executes no untrusted code, and sends only authenticated run identifiers to a trusted ingress.
+- If secure ingress is unavailable, use a local non-model watcher that polls only the registered run ID.
+- If neither path exists, state that automatic wake is unavailable.
+
+The plan must use `$notify-wake` as the authoritative lifecycle contract and extend its watch record with the repository, workflow file and blob SHA, run ID, run attempt, event, ref, head SHA, URL, expected jobs, and required artifact or smoke-test evidence. It must require a trusted non-model verifier to record and compare authenticated provider metadata and predeclared job or step conclusions before applying the attention predicate. The verifier must not download, execute, or interpret untrusted artifacts. Literal `success` closes the watch silently only when the full validation record matches; every non-success conclusion, missing or mismatched evidence field, and evidence item that needs agent inspection requires attention. Deduplicate completion events by repository ID, run ID, run attempt, and completion event. Limit wake input to trusted identifiers, ref and SHA, conclusion, validation-status code, and run URL; the resumed task fetches jobs, logs, artifacts, and other required evidence through the GitHub connector.
+
+Base this plan on GitHub's [`workflow_dispatch` default-branch constraint](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch), [workflow dispatch API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event), [workflow execution model](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows), and [`workflow_run` behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
+
 ## Plan Output
 
 Return exactly one `<proposed_plan>` block after all material decisions are settled. Do not ask whether to proceed.
@@ -126,11 +159,11 @@ Include:
 1. A short summary of the current CI state, confirmed requirements, and intended workflow split.
 2. This job table:
 
-   `Workflow/job | Responsibility and commands | Runner | Triggers | Dependencies | Cache/artifacts | Timeout`
+   `Workflow/job | Responsibility and commands | Runner | Setup and preflight | Triggers | Dependencies | Cache/artifacts | Timeout`
 
-3. Exact workflow filenames, job names, default branch, event filters, cron expressions, runner labels, dependencies, commands, cache keys, artifact and report paths and retention, finding and tool-error behavior, permissions, concurrency, timeouts, and fork guards.
+3. Exact workflow filenames, job names, default branch, event filters, cron expressions, runner labels, host bootstrap inventory and exceptions, job-local setup commands and pins, integrity and version checks, job-scoped paths, versioned cache keys, preflight commands, dependencies, artifact and report paths and retention, finding and tool-error behavior, permissions, concurrency, timeouts, and fork guards.
 4. File-level implementation changes, including removal or transition of old CI configuration and required checks. Identify the aggregate `Required` job as the branch-protection check and specify when any replaced check names can be removed.
-5. Validation for workflow syntax, repository quality gates, scheduled/manual behavior, artifact installation or smoke tests, platform-specific checks, fork behavior, and branch-protection status.
+5. Validation for workflow syntax, repository quality gates, platform-specific checks, fork behavior, and branch-protection status. For each new or changed scheduled workflow, include its exact-ref dispatch procedure, required run evidence, mismatch rejection rule, success-evidence verifier, failure and replacement-run procedure, and selected failure-notification adapter or exact-run non-model watcher. If neither exists, state that automatic continuation is unavailable.
 6. Assumptions, unavailable evidence, and intentionally deferred jobs.
 
 Keep the plan specific to the repository. Use the `dicom-preprocessing` shape as a boundary example, not as a source of commands, runner names, branch names, platforms, or action pins.
