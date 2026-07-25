@@ -1,6 +1,6 @@
 ---
 name: git-github-workflow
-description: End-to-end Git and GitHub workflow for safe repository operations, including staging, commits, branch/worktree management, pull request creation, review handling, conversation resolution, rebase/squash decisions, and recovery steps. Use whenever a user requests any git or GitHub action, or when git/GitHub interaction is required to accomplish another task.
+description: End-to-end Git and GitHub workflow for safe repository operations, including staging, commits, branch/worktree management, pull request creation, GitHub Actions validation, review handling, conversation resolution, rebase/squash decisions, and recovery steps. Use whenever a user requests any git or GitHub action, or when git/GitHub interaction is required to accomplish another task.
 ---
 
 # Git & GitHub Workflow
@@ -13,7 +13,7 @@ Read `references/git-workflow.md` first and treat it as the source of truth for 
 ## Invocation Contract
 
 Use local `git` for checkout-local operations: repository state, branches, staging, commits, and pushes.
-Use the Codex GitHub app/connector tools for GitHub-side operations: issue and PR lookup, PR creation and updates, labels, top-level comments, review comments, review threads, reactions, merge/automerge actions, and workflow metadata when the app exposes it.
+Use the Codex GitHub app/connector tools for GitHub-side operations: issue and PR lookup, PR creation and updates, labels, top-level comments, review comments, review threads, reactions, merge/automerge actions, workflow dispatch when exposed, and workflow run, job, step, and log reads.
 
 The GitHub plugin is the installable package that can provide skills and app mappings. The GitHub app/connector tools are the preferred live interface in the Codex macOS app.
 If GitHub app/connector tools are unavailable, search for a GitHub plugin/app path when tool discovery or plugin-install tools are available. If those tools cannot be made available, stop and tell the user to install, enable, or authorize the GitHub plugin/app in the Codex macOS app, then rerun the workflow.
@@ -23,7 +23,7 @@ Use `gh` only when the user explicitly requested CLI fallback or after reporting
 
 Before the first GitHub-side operation in a task:
 
-1. Inspect the active tools for GitHub app/connector tools. Treat a callable GitHub app namespace, such as `mcp__codex_apps__github`, or GitHub app tools as available, for example tools for repository lookup, PR fetch/create/update, issue lookup, labels, comments, reviews, review threads, reactions, merge/automerge, or workflow metadata.
+1. Inspect the active tools for GitHub app/connector tools. Treat a callable GitHub app namespace, such as `mcp__codex_apps__github`, or GitHub app tools as available, for example tools for repository lookup, PR fetch/create/update, issue lookup, labels, comments, reviews, review threads, reactions, merge/automerge, workflow dispatch, run discovery, jobs, steps, or logs.
 2. If no GitHub app tools are active and `tool_search` is available, search for GitHub app/connector tools with terms like `GitHub pull request repository connector` and use the returned tools when they become callable.
 3. If app tools are still unavailable and plugin-install tools are available, use `list_available_plugins_to_install` and `request_plugin_install` only for an exact GitHub plugin or connector match. After installation, continue only when GitHub app tools are callable in the session.
 4. If no app tools can be made callable, stop and tell the user to install, enable, or authorize the GitHub plugin/app in the Codex macOS app, grant repository access as needed, then rerun the workflow.
@@ -60,14 +60,15 @@ If modifiers conflict, prefer the most restrictive interpretation and explicitly
 9. Sync remotes before PR work and summarize branch changes against the remote base branch.
 10. Run repository-relevant code quality checks and unit tests before pushing changes; if the repository defines quality targets in a Makefile (for example, `make lint`, `make test`, `make check`, `make quality`), use those targets before equivalent one-off commands.
    If a check cannot run locally, document why and note expected CI coverage.
-11. If GitHub app/connector tools are missing, search for or request the GitHub plugin/app when possible; otherwise stop with setup instructions instead of silently switching to CLI.
-12. Create draft PRs with clear summary and test plan through the GitHub app, apply appropriate repository labels when possible, and include usage snippets when useful.
-13. Read all review channels through the GitHub app where available: review comments, reviews, review threads, and top-level PR comments.
-14. Prefer replying to the original review comment thread when addressing feedback; keep replies brief (short paragraph) and explicitly state how the feedback was handled.
-15. Address feedback in new commits by default and preserve review context unless rewrite is explicitly requested.
-16. Resolve conversations only when feedback is implemented; otherwise reply with rationale and leave unresolved.
-17. Apply rebase/squash policy from the reference guide based on branch publication and review state.
-18. Use recovery workflows (`git reflog`, recovery branch, `git cherry-pick`) instead of destructive resets when undoing mistakes.
+11. When GitHub Actions is the repository's CI provider, validate the current pull-request revision and every new or changed scheduled workflow according to `GitHub Actions Validation` in the reference guide. Use `$notify-wake` to register post-run validation and failure-only wake monitoring through an approved secure adapter or exact-run non-model watcher. If neither exists, report that automatic wake is unavailable instead of polling with model turns.
+12. If GitHub app/connector tools are missing, search for or request the GitHub plugin/app when possible; otherwise stop with setup instructions instead of silently switching to CLI.
+13. Create draft PRs with clear summary and test plan through the GitHub app, apply appropriate repository labels when possible, and include usage snippets when useful.
+14. Read all review channels through the GitHub app where available: review comments, reviews, review threads, and top-level PR comments.
+15. Prefer replying to the original review comment thread when addressing feedback; keep replies brief (short paragraph) and explicitly state how the feedback was handled.
+16. Address feedback in new commits by default and preserve review context unless rewrite is explicitly requested.
+17. Resolve conversations only when feedback is implemented; otherwise reply with rationale and leave unresolved.
+18. Apply rebase/squash policy from the reference guide based on branch publication and review state.
+19. Use recovery workflows (`git reflog`, recovery branch, `git cherry-pick`) instead of destructive resets when undoing mistakes.
 
 ## Reference
 

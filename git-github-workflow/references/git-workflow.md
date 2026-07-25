@@ -85,7 +85,7 @@ Using `/tmp/` for worktree paths is a good option for short-lived tasks (reviews
 ## GitHub App / Connector Boundary
 
 Use local `git` for checkout-local work: branch inspection, branch creation, staging, committing, and pushing.
-Use the Codex GitHub app/connector tools for GitHub-side work: repository and issue lookup, PR creation and updates, labels, top-level comments, review comments, review threads, reactions, merge/automerge actions, and workflow metadata when available.
+Use the Codex GitHub app/connector tools for GitHub-side work: repository and issue lookup, PR creation and updates, labels, top-level comments, review comments, review threads, reactions, merge/automerge actions, workflow dispatch when exposed, and workflow run, job, step, and log reads.
 
 The GitHub plugin is the installable package. The GitHub app/connector tools are the live Codex macOS app interface for GitHub data and actions. Prefer those tools because Codex can track the PRs, comments, commits, and app-backed actions in the desktop app.
 
@@ -93,7 +93,7 @@ If the GitHub app/connector tools are not available, use tool discovery or plugi
 
 Use `gh` only when the user explicitly requested CLI fallback or after reporting the exact app-tool capability gap and receiving explicit consent.
 
-**Availability check:** Before the first GitHub-side operation, inspect the active tools for a callable GitHub app namespace such as `mcp__codex_apps__github`, or tools covering repository lookup, PR fetch/create/update, issue lookup, labels, comments, reviews, review threads, reactions, merge/automerge, or workflow metadata. If no GitHub app tools are active and `tool_search` is available, search for `GitHub pull request repository connector` and use the returned GitHub tools when they become callable. If app tools remain unavailable and plugin-install tools are available, use `list_available_plugins_to_install` and `request_plugin_install` only for an exact GitHub plugin or connector match. Continue only when the GitHub app tools are callable; otherwise stop with install/enable/authorize instructions. Do not treat `gh auth status` or successful `gh` commands as evidence that the Codex GitHub app/connector is available.
+**Availability check:** Before the first GitHub-side operation, inspect the active tools for a callable GitHub app namespace such as `mcp__codex_apps__github`, or tools covering repository lookup, PR fetch/create/update, issue lookup, labels, comments, reviews, review threads, reactions, merge/automerge, workflow dispatch, run discovery, jobs, steps, or logs. If no GitHub app tools are active and `tool_search` is available, search for `GitHub pull request repository connector` and use the returned GitHub tools when they become callable. If app tools remain unavailable and plugin-install tools are available, use `list_available_plugins_to_install` and `request_plugin_install` only for an exact GitHub plugin or connector match. Continue only when the GitHub app tools are callable; otherwise stop with install/enable/authorize instructions. Do not treat `gh auth status` or successful `gh` commands as evidence that the Codex GitHub app/connector is available.
 
 ## Pull Request Creation
 
@@ -153,7 +153,7 @@ When there are fewer than 5 relevant tests, the collapsed test-details section c
 The PR body should provide traceability: if a regression occurs, the Motivation, Solution, Changes, and Test plan sections should help identify likely root-cause areas quickly.
 When creating or updating the PR body, describe the **complete set of changes in the branch relative to the target base branch** (`git diff origin/<base-branch>...HEAD`), not just the last conversational change. If multiple fixes, refactors, docs updates, test updates, or risk-reducing cleanups were made during the session, include the full picture so reviewers can infer intent and impact across the entire patch set.
 
-**Usage examples:** When appropriate, include a brief usage snippet in the PR body showing how to exercise the change, along with sample program output. Keep these concise — a few lines of invocation and output is enough to demonstrate the feature or fix without bloating the PR description.
+**Usage examples:** When appropriate, include a brief usage snippet in the PR body showing how to exercise the change, along with sample program output. Keep these concise; a few lines of invocation and output is enough to demonstrate the feature or fix without bloating the PR description.
 
 **Rich formatting:** Where it aids clarity, use markdown tables to present structured data (e.g. before/after comparisons, configuration options, benchmark results) and mermaid diagrams to illustrate flows or architecture changes in the PR body.
 
@@ -176,6 +176,70 @@ When creating or updating the PR body, describe the **complete set of changes in
 **PR labeling:** When possible, add repository-standard labels that improve triage (for example: `bug`, `enhancement`, `documentation`, `dependencies`, `breaking-change`, `needs-tests`).
 
 Use GitHub app/connector label tools to inspect, add, and remove PR labels. Prefer existing labels over creating new ones unless explicitly requested. If the app cannot list repository labels, infer conservative labels from existing PRs/issues when already visible through app data, or skip labeling and state that labels were unavailable.
+
+## GitHub Actions Validation
+
+Apply this section when GitHub Actions is the repository's CI provider. Do not keep a Codex turn open while waiting for CI.
+
+### Pull-request runs
+
+Identify the workflows and jobs expected for the current pull-request revision from repository workflow files and branch-protection policy. Record:
+
+`PR head SHA | Run head SHA | Run ID | Run attempt | Run URL | Event | Expected jobs`
+
+Discover runs through the GitHub connector and accept a run only when its head SHA matches the current PR head SHA and its event is the intended pull-request event. Fetch all job conclusions through the connector and compare the observed jobs with the expected set. Do not infer success from elapsed time, a summary label, or a prior revision.
+
+### Scheduled workflow runs
+
+For every new or changed scheduled workflow, require a successful `workflow_dispatch` run from the exact branch or tag under review. The workflow file must exist on the default branch before GitHub enables manual dispatch. This default-branch rule is an eligibility gate; GitHub runs the workflow version present at the event's associated ref and SHA. A brand-new scheduled workflow therefore needs a two-stage introduction that first lands a safe dispatchable harness, or it must use an existing default-branch manual harness that exercises the same scheduled entry point.
+
+Prefer the GitHub connector when it exposes workflow dispatch. If dispatch is not exposed, report that specific connector gap and obtain explicit consent before running:
+
+```bash
+gh workflow run <workflow-file-or-id> --ref <exact-branch-or-tag>
+```
+
+Register the run ID returned by the dispatch operation. Record:
+
+`Workflow file and blob SHA at run head | Run ID and URL | Run attempt | Event | Requested ref | Run head SHA | Expected jobs | Job conclusions | Artifact or smoke-test evidence`
+
+Reject the run as validation evidence when the requested ref or run head SHA differs from the revision under review, or when the workflow file blob at that SHA differs from the reviewed definition. Workflow syntax validation and ordinary pull-request checks do not prove that the scheduled path ran.
+
+### Failures and replacement runs
+
+Use the GitHub connector to fetch the registered run's job conclusions, steps, and exact failing logs. If the failure is in scope, fix it on the existing branch in a new commit, push that commit, dispatch or observe the replacement run, and append a watch record for the replacement run ID. Preserve the completed run evidence. If job or log reads are unavailable through the connector, report the gap and do not claim that the run was validated.
+
+Literal `success` is necessary but not sufficient for successful validation. The run identity, event, ref and head SHA, expected jobs and their conclusions, and required artifact or smoke-test evidence must also match the registered validation contract. Treat `failure`, `cancelled`, `timed_out`, `startup_failure`, `action_required`, `stale`, `neutral`, unexpected `skipped`, unknown outcomes, and incomplete or mismatched validation evidence as requiring attention.
+
+GitHub requires a manually dispatched workflow file to exist on the default branch, accepts a branch or tag as the dispatch ref, uses the workflow version at the event's associated ref and SHA, and emits `workflow_run.completed` regardless of the prior workflow's conclusion. See the official [`workflow_dispatch` event rules](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch), [workflow dispatch API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event), [workflow execution model](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows), and [`workflow_run` event rules](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
+
+### Post-run validation and failure-only wake
+
+Use `$notify-wake` as the authoritative contract for registration, source and delivery state, reconciliation, retries, and Codex task delivery. Before dispatching or registering a run, extend its shared watch record with:
+
+`Repository and ID | Workflow file and blob SHA | Run ID | Run attempt | Event | Ref | Head SHA | URL | Expected jobs | Required artifact or smoke evidence | Origin task ID | Permission profile | Approval policy`
+
+Prefer a verified GitHub App webhook ingress for `workflow_run.completed`. A repository `workflow_run` relay is acceptable only when the relay workflow exists on the default branch, has least privilege, checks out and executes no untrusted code, and sends authenticated run identifiers to a trusted ingress. Because a `workflow_run` workflow can receive privileges that the triggering workflow lacked, never pass pull-request content, workflow output, artifact contents, branch names as commands, or other untrusted values into the relay.
+
+Before applying the attention predicate, require a trusted non-model verifier to record the observed event, ref and head SHA, workflow-file blob SHA, complete job set and conclusions, and required artifact or smoke-test evidence. The verifier may read authenticated provider metadata and predeclared job or step conclusions, but it must not download, execute, or interpret untrusted artifacts. Close literal `success` silently only when that record fully matches the registered contract. If the adapter cannot collect or prove any required evidence, if evidence needs agent inspection, or if any value is missing or mismatched, require attention so the resumed task can complete validation through the GitHub connector. Every non-success terminal conclusion also requires attention.
+
+Deduplicate completion events by repository ID, run ID, run attempt, and completion event. Limit wake input to trusted repository and run identifiers, ref and SHA, conclusion, validation-status code, and run URL. The resumed task must fetch jobs, logs, artifacts, and other required evidence through the GitHub connector before diagnosis or validation.
+
+If secure ingress is unavailable, use a bounded local non-model watcher that observes only the registered run ID and follows the same attention predicate. If no such watcher exists, report that automatic wake is unavailable instead of promising notification.
+
+### Acceptance cases
+
+| Scenario | Required result |
+|---|---|
+| Pull-request run succeeds | Verify the matching revision and complete expected-job set, persist the evidence, and close without a wake |
+| Pull-request run does not succeed | Accept one wake for the completion identity, then fetch jobs and exact logs through the connector |
+| Scheduled dispatch succeeds | Verify and preserve exact-ref, head-SHA, expected-job, and artifact or smoke-test evidence, then close without a wake |
+| Scheduled dispatch does not succeed | Accept one wake and fetch the failing job and step log through the connector |
+| GitHub reports success but evidence is missing or mismatched | Accept one wake for the validation gap and retrieve authoritative evidence |
+| Completion is delivered again | Return the stored delivery result without another wake |
+| Codex app-server is unavailable | Keep delivery pending and retry without changing terminal CI state |
+| New scheduled workflow is absent from the default branch | Reject dispatch until a two-stage introduction or existing manual harness is available |
+| Requested ref or run head SHA does not match | Reject the run as validation evidence |
 
 ## Reading & Responding to PR Reviews
 

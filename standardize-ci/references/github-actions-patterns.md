@@ -9,7 +9,10 @@ Use these patterns after inspecting the target repository. Choose only the workf
 - [Runtime and Resource Controls](#runtime-and-resource-controls)
 - [Dependency Health Workflow](#dependency-health-workflow)
 - [Self-hosted Runner Trust](#self-hosted-runner-trust)
+- [Self-hosted Runner Bootstrap and Job Setup](#self-hosted-runner-bootstrap-and-job-setup)
 - [GitHub Actions Security](#github-actions-security)
+- [Scheduled Workflow Validation](#scheduled-workflow-validation)
+- [Post-Run Validation and Failure-Only Wake](#post-run-validation-and-failure-only-wake)
 - [Scheduling and Cost](#scheduling-and-cost)
 - [Official Sources](#official-sources)
 
@@ -104,6 +107,30 @@ Runner-group repository restrictions reduce where a runner can be selected, but 
 
 If fork CI must remain a required check, plan a hosted fallback or stable aggregate result. Verify that skipped jobs do not leave branch protection waiting for a status that will never arrive.
 
+## Self-hosted Runner Bootstrap and Job Setup
+
+Keep the host contract small enough to inventory and verify:
+
+| Layer | Allowed contents |
+|---|---|
+| Runner bootstrap | Runner agent, declared OS and architecture, shell, base archive and network tools, required container runtime, hardware drivers, and access to named services |
+| Job setup | Every other runtime, compiler, package manager, build tool, test tool, scanner, utility, and service client invoked directly or through repository commands |
+| Documented exception | A dependency that cannot be installed safely per job, with reason, owner, supported version range, verification command, and direct failure message |
+
+Trace Makefile targets, task runners, scripts, hooks, and package-manager lifecycle steps before writing setup. Do not assume that a familiar utility is present merely because it exists on the planning host or another runner.
+
+For each job-installed tool:
+
+- pin a version or immutable source revision;
+- verify the downloaded checksum or publisher signature before execution;
+- install under a job-scoped path and add only that path to the job environment;
+- assert the resolved executable path and version before repository work starts;
+- make setup safe to repeat after partial completion;
+- include tool versions and relevant lockfile or configuration digests in cache keys;
+- treat cache misses, stale caches, and pre-existing runner files as performance differences, not correctness differences.
+
+Run preflight checks before large downloads, compilation, service startup, or accelerator allocation. A missing host-provisioned exception must fail with the dependency name, expected version or capability, observed result, and remediation owner.
+
 ## GitHub Actions Security
 
 - Set explicit workflow or job permissions. Start with `contents: read`.
@@ -113,6 +140,32 @@ If fork CI must remain a required check, plan a hosted fallback or stable aggreg
 - Do not cache secrets, credentials, signing material, or files containing them. Fork pull requests can read eligible base-branch caches.
 - Restrict cache writes to trusted events when cache contents can later be executed.
 - Keep publishing, signing, deployment, and other write-capable jobs separate from validation and protect them with trusted events or environments.
+
+## Scheduled Workflow Validation
+
+Require every scheduled workflow to include `workflow_dispatch`, then require the authorized implementation workflow to prove every new or changed scheduled path with a successful manual run from the exact branch or tag under review. GitHub requires the workflow file to exist on the default branch before manual dispatch is available. This is an eligibility gate; the run uses the workflow version at the event's associated ref and SHA. The plan must introduce a brand-new scheduled workflow in two stages or use an existing default-branch manual harness that calls the same scheduled entry point.
+
+The plan must prefer the GitHub connector when it exposes workflow dispatch. If workflow dispatch is unavailable, it must require the implementation workflow to identify that specific gap and obtain consent before using `gh workflow run`. The dispatch ref must be the exact branch or tag, and the resulting run head SHA must match the revision being validated.
+
+Require the implementation workflow to record this evidence:
+
+`Workflow file and blob SHA at run head | Run ID and URL | Event | Requested ref | Run head SHA | Expected jobs | Job conclusions | Artifact or smoke-test evidence`
+
+The plan must require the implementation workflow to use the GitHub connector to read the registered run's jobs, steps, conclusions, and exact failing logs. After an authorized in-scope fix, that workflow must push a new commit, dispatch the new revision, and append the replacement run ID without discarding prior evidence. It must reject YAML validation, an ordinary pull-request run, a different ref or head SHA, or a workflow-file blob that differs from the reviewed definition as evidence that the scheduled path ran.
+
+See GitHub's [`workflow_dispatch` event rules](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch), [workflow dispatch API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event), and [workflow execution model](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows).
+
+## Post-Run Validation and Failure-Only Wake
+
+The plan must use `$notify-wake` for the generic watch, source and delivery state, reconciliation, retries, and Codex task delivery. It must require the implementation workflow to register the exact run instead of keeping a Codex turn open or polling a workflow broadly, and extend the shared watch record with the repository, workflow file and blob SHA, run ID, run attempt, event, ref, head SHA, URL, expected jobs, and required artifact or smoke-test evidence.
+
+Prefer a verified GitHub App webhook ingress for `workflow_run.completed`. A repository `workflow_run` relay is acceptable only when its own workflow exists on the default branch, uses least privilege, checks out and executes no untrusted code, and sends authenticated run identifiers to a trusted ingress. A `workflow_run` workflow may receive privileges that the triggering workflow did not have, so do not pass untrusted content through the relay. See GitHub's [`workflow_run` event behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
+
+Before applying the attention predicate, require a trusted non-model verifier to record the observed event, ref and head SHA, workflow-file blob SHA, complete job set and conclusions, and required artifact or smoke-test evidence. It may read authenticated provider metadata and predeclared job or step conclusions, but it must not download, execute, or interpret untrusted artifacts. Suppress a wake for literal `success` only when that record fully matches the registered validation contract. Treat `failure`, `cancelled`, `timed_out`, `startup_failure`, `action_required`, `stale`, `neutral`, an unexpected `skipped`, an unknown outcome, missing or mismatched validation evidence, or evidence that needs agent inspection as requiring attention.
+
+Deduplicate by repository ID, run ID, run attempt, and completion event. Send only trusted identifiers, ref and SHA, conclusion, validation-status code, and run URL. The resumed task retrieves jobs, logs, artifacts, and other required evidence through the GitHub connector.
+
+If secure ingress is unavailable, use a bounded local non-model watcher that observes only the registered run ID and applies the same attention predicate. If no such watcher exists, state that automatic wake is unavailable instead of promising notification.
 
 ## Scheduling and Cost
 
@@ -131,5 +184,9 @@ Standard GitHub-hosted runners are currently free for public repositories. Priva
 - [Secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)
 - [Dependency caching reference](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)
 - [Events that trigger workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)
+- [`workflow_dispatch` event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)
+- [Create a workflow dispatch event](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event)
+- [Workflow execution model](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows)
+- [`workflow_run` event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run)
 - [Control workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
 - [GitHub Actions billing and usage](https://docs.github.com/en/actions/concepts/billing-and-usage)

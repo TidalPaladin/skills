@@ -129,6 +129,7 @@ Use this sequence when reviewing a change:
 - Default solver tools: `git` (all git actions), `rg` (search), `read_file`, `list_dir`, `glob_file_search`, `apply_patch`, and `todo_write`/`update_plan`.
 - Use `cmd`/`run_terminal_cmd` only when no listed tool can perform the action.
 - When calls are independent, run tool calls in parallel (for example todo updates, file searches, or reading multiple files) instead of sequentially.
+- Before starting machine-observable work that would otherwise require another model turn only to check status, use `$notify-wake`. Arm a native event, trusted relay, or exact-target non-model watcher instead of spending model turns polling.
 
 ## Codex agent definitions
 
