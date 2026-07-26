@@ -15,6 +15,10 @@ readonly AUDIT_SKILL="${REPO_ROOT}/audit-fixissues/SKILL.md"
 readonly AUDIT_PLAYBOOK="${REPO_ROOT}/audit-fixissues/references/remediation-playbook.md"
 readonly LIFECYCLE_SKILL="${REPO_ROOT}/manage-pr-lifecycle/SKILL.md"
 readonly LIFECYCLE_PLAYBOOK="${REPO_ROOT}/manage-pr-lifecycle/references/lifecycle-playbook.md"
+readonly GOAL_SKILL="${REPO_ROOT}/goal-mode/SKILL.md"
+readonly GOAL_INTERFACE="${REPO_ROOT}/goal-mode/agents/openai.yaml"
+readonly REVIEW_SKILL="${REPO_ROOT}/review-fix-loop/SKILL.md"
+readonly REVIEW_INTERFACE="${REPO_ROOT}/review-fix-loop/agents/openai.yaml"
 readonly TEST_ROOT="$(mktemp -d)"
 
 cleanup() {
@@ -171,6 +175,32 @@ test_pull_request_contracts() {
   assert_contains "$ROOT_GUIDANCE" 'closing-linked issue state'
 }
 
+test_goal_mode_contract() {
+  assert_file_exists "$GOAL_SKILL"
+  assert_file_exists "$GOAL_INTERFACE"
+  assert_file_exists "$REVIEW_SKILL"
+  assert_file_exists "$REVIEW_INTERFACE"
+
+  assert_contains "$GOAL_SKILL" 'Manual invocation grants permission for the current task'
+  assert_contains "$GOAL_SKILL" '`get_goal`'
+  assert_contains "$GOAL_SKILL" '`create_goal`'
+  assert_contains "$GOAL_SKILL" '`update_goal`'
+  assert_contains "$GOAL_SKILL" 'Outcome'
+  assert_contains "$GOAL_SKILL" 'Constraints'
+  assert_contains "$GOAL_SKILL" 'Verification'
+  assert_contains "$GOAL_SKILL" '4,000 characters'
+  assert_contains "$GOAL_SKILL" 'only when the user explicitly requests one'
+  assert_contains "$GOAL_INTERFACE" 'default_prompt: "Use $goal-mode'
+  assert_contains "$GOAL_INTERFACE" 'allow_implicit_invocation: false'
+
+  assert_contains "$REVIEW_SKILL" 'Call `get_goal` before inspecting the repository.'
+  assert_contains "$REVIEW_SKILL" 'call `create_goal` before initializing the loop'
+  assert_contains "$REVIEW_SKILL" 'Do not replace an existing goal.'
+  assert_contains "$REVIEW_INTERFACE" 'starts Goal Mode automatically when needed'
+  assert_not_contains "$REVIEW_SKILL" 'Start this workflow only when the current task is in Goal Mode.'
+  assert_not_contains "$REVIEW_SKILL" '/goal Use $review-fix-loop'
+}
+
 test_root_alias_codex_home_is_rejected() {
   local codex_home="${TEST_ROOT}/root-codex-home"
   local output="${TEST_ROOT}/root-codex-home.out"
@@ -275,6 +305,8 @@ EOF
   assert_files_equal "${REPO_ROOT}/AGENTS.md" "${codex_home}/AGENTS.md"
   assert_file_exists "${codex_home}/skills/manage-pr-lifecycle/SKILL.md"
   assert_files_equal "$CITATION_SKILL" "${codex_home}/skills/citation-verifier/SKILL.md"
+  assert_files_equal "$GOAL_SKILL" "${codex_home}/skills/goal-mode/SKILL.md"
+  assert_files_equal "$REVIEW_SKILL" "${codex_home}/skills/review-fix-loop/SKILL.md"
   assert_path_missing "${codex_home}/skills/.codex"
   assert_path_missing "${codex_home}/skills/.agents"
   assert_contains "${codex_home}/config.toml" 'model = "gpt-5.6-sol"'
@@ -474,6 +506,7 @@ test_invalid_source_agents_are_rejected_before_sync() {
 
 test_agent_source_contract
 test_pull_request_contracts
+test_goal_mode_contract
 test_root_alias_codex_home_is_rejected
 test_sync_does_not_require_gnu_realpath
 test_missing_codex_home_dry_run_succeeds_without_writes
