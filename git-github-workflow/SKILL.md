@@ -13,22 +13,24 @@ Read `references/git-workflow.md` first and treat it as the source of truth for 
 ## Invocation Contract
 
 Use local `git` for checkout-local operations: repository state, branches, staging, commits, and pushes.
-Use the Codex GitHub app/connector tools for GitHub-side operations: issue and PR lookup, PR creation and updates, labels, top-level comments, review comments, review threads, reactions, merge/automerge actions, workflow dispatch when exposed, and workflow run, job, step, and log reads.
+Prefer the Codex GitHub app/connector tools for GitHub-side operations so Codex can track issues, pull requests, reviews, comments, merges, and workflow activity.
 
 The GitHub plugin is the installable package that can provide skills and app mappings. The GitHub app/connector tools are the preferred live interface in the Codex macOS app.
-If GitHub app/connector tools are unavailable, search for a GitHub plugin/app path when tool discovery or plugin-install tools are available. If those tools cannot be made available, stop and tell the user to install, enable, or authorize the GitHub plugin/app in the Codex macOS app, then rerun the workflow.
-Use `gh` only when the user explicitly requested CLI fallback or after reporting the app-tool capability gap and receiving explicit consent.
+For task-related GitHub operations on repositories owned by `TidalPaladin` or `medcognetics`, the user grants standing authorization to use authenticated `gh` for reads and writes, including issues, pull requests, reviews, releases, repository administration, and GitHub Actions operations. App-first is a tool preference, not a permission gate. If app tools are unavailable or lack the required capability, continue with `gh` without asking for permission.
 
-## GitHub App Availability Check
+## GitHub Interface and Authorization Check
 
 Before the first GitHub-side operation in a task:
 
-1. Inspect the active tools for GitHub app/connector tools. Treat a callable GitHub app namespace, such as `mcp__codex_apps__github`, or GitHub app tools as available, for example tools for repository lookup, PR fetch/create/update, issue lookup, labels, comments, reviews, review threads, reactions, merge/automerge, workflow dispatch, run discovery, jobs, steps, or logs.
-2. If no GitHub app tools are active and `tool_search` is available, search for GitHub app/connector tools with terms like `GitHub pull request repository connector` and use the returned tools when they become callable.
-3. If app tools are still unavailable and plugin-install tools are available, use `list_available_plugins_to_install` and `request_plugin_install` only for an exact GitHub plugin or connector match. After installation, continue only when GitHub app tools are callable in the session.
-4. If no app tools can be made callable, stop and tell the user to install, enable, or authorize the GitHub plugin/app in the Codex macOS app, grant repository access as needed, then rerun the workflow.
+1. Resolve the target repository owner. Standing `gh` authorization applies to the exact owner slugs `TidalPaladin` and `medcognetics`, matched case-insensitively. For another owner, require authorization in the current user request.
+2. Inspect the active tools for a GitHub app/connector operation that covers the task. Use the app when it is available and adequate.
+3. If the app is unavailable, incomplete, or fails because of an app-specific capability or authentication gap, verify authenticated `gh` access and continue with `gh`. Do not stop to request app installation or permission to use `gh`.
+4. Before either interface performs a GitHub operation on a standing-authorized repository, ask only when:
+   - directly dispatching or rerunning a workflow where any GitHub-hosted job is known to run longer than 30 minutes;
+   - changing branch protection rules or GitHub rulesets that implement branch protection; or
+   - the operation has substantial destructive potential, meaning a material risk of unrecoverable data loss or destruction of important repository history.
 
-Do not use `gh auth status` or successful `gh` commands as evidence that the Codex GitHub app/connector is available.
+The workflow gate excludes self-hosted jobs and workflows triggered indirectly by a push, pull request, merge, or other authorized operation. An unknown runtime does not satisfy the known-runtime condition. Read-only inspection of branch protection and rulesets is authorized.
 
 When this skill is explicitly invoked with a `$` skill reference (for example `$git-github-workflow` or `$skill`) and no additional task context, treat that as a request to run the default publish flow:
 1. Commit task-relevant changes.
@@ -50,8 +52,8 @@ If modifiers conflict, prefer the most restrictive interpretation and explicitly
 ## Operating Procedure
 
 1. Determine target flow from the invocation contract and explicit user instructions before running commands.
-2. Run the GitHub app availability check before the first GitHub-side operation.
-3. Keep local `git` and GitHub app responsibilities separate: use `git` for checkout-local operations and the GitHub app/connector tools for GitHub-side operations after a branch exists remotely.
+2. Run the GitHub interface and authorization check before the first GitHub-side operation.
+3. Keep local `git` and GitHub-side responsibilities separate: use `git` for checkout-local operations, prefer the GitHub app for GitHub-side operations, and use `gh` without additional permission when the app cannot complete a standing-authorized operation.
 4. Inspect current repository state before mutating commands (`git status`, branch tracking, recent history).
 5. Never commit or push directly to `main` or `master` unless explicitly authorized by the user for the current task.
 6. Ensure the base branch is up to date with or ahead of `origin/<base>` before creating a new branch or worktree.
@@ -61,10 +63,10 @@ If modifiers conflict, prefer the most restrictive interpretation and explicitly
 10. Run repository-relevant code quality checks and unit tests before pushing changes; if the repository defines quality targets in a Makefile (for example, `make lint`, `make test`, `make check`, `make quality`), use those targets before equivalent one-off commands.
    If a check cannot run locally, document why and note expected CI coverage.
 11. When GitHub Actions is the repository's CI provider, validate the current pull-request revision and every new or changed scheduled workflow according to `GitHub Actions Validation` in the reference guide. Use `$notify-wake` to register post-run validation and failure-only wake monitoring through an approved secure adapter or exact-run non-model watcher. If neither exists, report that automatic wake is unavailable instead of polling with model turns.
-12. If GitHub app/connector tools are missing, search for or request the GitHub plugin/app when possible; otherwise stop with setup instructions instead of silently switching to CLI.
-13. Create draft PRs with clear summary and test plan through the GitHub app, apply appropriate repository labels when possible, and include usage snippets when useful.
-14. Read all review channels through the GitHub app where available: review comments, reviews, review threads, and top-level PR comments.
-15. Prefer replying to the original review comment thread when addressing feedback; keep replies brief (short paragraph) and explicitly state how the feedback was handled.
+12. If GitHub app/connector tools are missing or incomplete, continue with authenticated `gh` for standing-authorized repositories.
+13. Create draft PRs with a clear summary and test plan through the GitHub app when possible or `gh` otherwise, apply appropriate repository labels, and include usage snippets when useful.
+14. Read all review channels through the GitHub app when possible or `gh` otherwise: review comments, reviews, review threads, and top-level PR comments.
+15. Prefer replying to the original review comment thread through the app or `gh` when addressing feedback; keep replies brief (short paragraph) and explicitly state how the feedback was handled.
 16. Address feedback in new commits by default and preserve review context unless rewrite is explicitly requested.
 17. Resolve conversations only when feedback is implemented; otherwise reply with rationale and leave unresolved.
 18. Apply rebase/squash policy from the reference guide based on branch publication and review state.
@@ -73,6 +75,6 @@ If modifiers conflict, prefer the most restrictive interpretation and explicitly
 ## Reference
 
 - Primary guide: `references/git-workflow.md`
-- For GitHub-side operations, default to the Codex GitHub app/connector tools.
-- Use `gh` only as an explicit, user-approved fallback for a named app-tool gap.
+- For GitHub-side operations, prefer the Codex GitHub app/connector tools and use authenticated `gh` without additional permission when needed on standing-authorized repositories.
+- Apply the three approval gates in `GitHub Interface and Authorization Check` regardless of which GitHub interface performs the operation.
 - If guidance conflicts, follow repository-level instructions first, then explicit user instructions.

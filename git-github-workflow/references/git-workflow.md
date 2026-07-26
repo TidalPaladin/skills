@@ -82,18 +82,24 @@ git worktree remove /tmp/project-hotfix
 
 Using `/tmp/` for worktree paths is a good option for short-lived tasks (reviews, quick hotfixes). For long-running branches, large build artifacts, or any work that must survive reboot, prefer a persistent directory (for example, `../worktrees/`). Each worktree is a separate checkout with its own working directory, so builds, venvs, and editor state in the main tree are unaffected.
 
-## GitHub App / Connector Boundary
+## GitHub Interface and Authorization
 
 Use local `git` for checkout-local work: branch inspection, branch creation, staging, committing, and pushing.
-Use the Codex GitHub app/connector tools for GitHub-side work: repository and issue lookup, PR creation and updates, labels, top-level comments, review comments, review threads, reactions, merge/automerge actions, workflow dispatch when exposed, and workflow run, job, step, and log reads.
+Prefer the Codex GitHub app/connector tools for GitHub-side work so Codex can track repository and issue lookup, pull requests, reviews, comments, merges, and workflow activity.
 
 The GitHub plugin is the installable package. The GitHub app/connector tools are the live Codex macOS app interface for GitHub data and actions. Prefer those tools because Codex can track the PRs, comments, commits, and app-backed actions in the desktop app.
 
-If the GitHub app/connector tools are not available, use tool discovery or plugin-install tooling when available to find or request the GitHub plugin/app. If the app still is not available, stop and tell the user to install, enable, or authorize the GitHub plugin/app in the Codex macOS app, then rerun the workflow. Do not silently switch to CLI.
+For task-related operations on repositories owned by `TidalPaladin` or `medcognetics`, the user grants standing authorization to use authenticated `gh` for reads and writes. This includes issues, pull requests, reviews, releases, repository administration, workflow dispatch and reruns, run management, job and step inspection, and log reads. The owner match is case-insensitive.
 
-Use `gh` only when the user explicitly requested CLI fallback or after reporting the exact app-tool capability gap and receiving explicit consent.
+Before the first GitHub-side operation, resolve the repository owner and inspect the active tools for an app operation that covers the task. Use the app when it is available and adequate. If it is unavailable, incomplete, or fails because of an app-specific capability or authentication gap, verify authenticated `gh` access and continue with `gh`. Do not stop to request app installation or permission to use `gh`. For another repository owner, require authorization in the current user request.
 
-**Availability check:** Before the first GitHub-side operation, inspect the active tools for a callable GitHub app namespace such as `mcp__codex_apps__github`, or tools covering repository lookup, PR fetch/create/update, issue lookup, labels, comments, reviews, review threads, reactions, merge/automerge, workflow dispatch, run discovery, jobs, steps, or logs. If no GitHub app tools are active and `tool_search` is available, search for `GitHub pull request repository connector` and use the returned GitHub tools when they become callable. If app tools remain unavailable and plugin-install tools are available, use `list_available_plugins_to_install` and `request_plugin_install` only for an exact GitHub plugin or connector match. Continue only when the GitHub app tools are callable; otherwise stop with install/enable/authorize instructions. Do not treat `gh auth status` or successful `gh` commands as evidence that the Codex GitHub app/connector is available.
+Ask before an operation on a standing-authorized repository only when:
+
+- directly dispatching or rerunning a workflow where user-provided information or prior-run evidence shows that any GitHub-hosted job runs longer than 30 minutes;
+- changing branch protection rules or GitHub rulesets that implement branch protection; or
+- the operation has substantial destructive potential, meaning a material risk of unrecoverable data loss or destruction of important repository history.
+
+The workflow approval gate does not apply to self-hosted jobs or to workflows triggered indirectly by a push, pull request, merge, or another authorized operation. An unknown runtime does not satisfy the known-runtime condition. Read-only inspection of branch protection and rulesets is authorized. These gates apply whether the app or `gh` performs the operation.
 
 ## Pull Request Creation
 
@@ -164,18 +170,18 @@ When creating or updating the PR body, describe the **complete set of changes in
 - Prefer Makefile-defined quality targets when available.
 - Push with `-u` flag to set upstream tracking
 - Create a new branch if needed
-- After the branch exists remotely, use the GitHub app/connector PR creation tool. Derive:
+- After the branch exists remotely, use the GitHub app/connector PR creation tool when available or `gh pr create` otherwise. Derive:
   - `repository_full_name` from the `origin` remote URL or app-backed repository lookup.
   - `head_branch` from `git branch --show-current`.
   - `base_branch` from explicit user instructions, app-backed repository metadata, or the remote default branch.
 - Always create PRs as draft unless otherwise specified.
-- If the branch is pushed from a fork, the target repository differs from the push remote, or another cross-repository case is not representable by the app tool, report that app-tool gap and ask before using CLI fallback.
+- If a fork, different push remote, or another cross-repository case is not representable by the app tool, use `gh` without additional permission when the target repository is standing-authorized. For another owner, require authorization in the current user request.
 - For PRs that remove or significantly alter unit tests, ensure the PR body includes `## Test suite changes (Required when test coverage changed)` with explicit removed or altered test names and rationale. If no unit tests were removed or altered and coverage intent did not change, this section can be omitted.
-- When pushing to an existing PR, use GitHub app/connector tools to update the PR body or post a PR comment with the same required test-suite traceability details before or with the push, including any removed or significantly altered tests.
+- When pushing to an existing PR, use GitHub app/connector tools or `gh` to update the PR body or post a PR comment with the same required test-suite traceability details before or with the push, including any removed or significantly altered tests.
 
 **PR labeling:** When possible, add repository-standard labels that improve triage (for example: `bug`, `enhancement`, `documentation`, `dependencies`, `breaking-change`, `needs-tests`).
 
-Use GitHub app/connector label tools to inspect, add, and remove PR labels. Prefer existing labels over creating new ones unless explicitly requested. If the app cannot list repository labels, infer conservative labels from existing PRs/issues when already visible through app data, or skip labeling and state that labels were unavailable.
+Use GitHub app/connector tools when available or `gh` to inspect, add, and remove PR labels. Prefer existing labels over creating new ones unless explicitly requested.
 
 ## GitHub Actions Validation
 
@@ -187,17 +193,19 @@ Identify the workflows and jobs expected for the current pull-request revision f
 
 `PR head SHA | Run head SHA | Run ID | Run attempt | Run URL | Event | Expected jobs`
 
-Discover runs through the GitHub connector and accept a run only when its head SHA matches the current PR head SHA and its event is the intended pull-request event. Fetch all job conclusions through the connector and compare the observed jobs with the expected set. Do not infer success from elapsed time, a summary label, or a prior revision.
+Discover runs through the GitHub connector when available or `gh` otherwise, and accept a run only when its head SHA matches the current PR head SHA and its event is the intended pull-request event. Fetch all job conclusions and compare the observed jobs with the expected set. Do not infer success from elapsed time, a summary label, or a prior revision.
 
 ### Scheduled workflow runs
 
 For every new or changed scheduled workflow, require a successful `workflow_dispatch` run from the exact branch or tag under review. The workflow file must exist on the default branch before GitHub enables manual dispatch. This default-branch rule is an eligibility gate; GitHub runs the workflow version present at the event's associated ref and SHA. A brand-new scheduled workflow therefore needs a two-stage introduction that first lands a safe dispatchable harness, or it must use an existing default-branch manual harness that exercises the same scheduled entry point.
 
-Prefer the GitHub connector when it exposes workflow dispatch. If dispatch is not exposed, report that specific connector gap and obtain explicit consent before running:
+Prefer the GitHub connector when it exposes workflow dispatch. If dispatch is not exposed, use:
 
 ```bash
 gh workflow run <workflow-file-or-id> --ref <exact-branch-or-tag>
 ```
+
+Before directly dispatching or rerunning a workflow through either interface, ask only when any GitHub-hosted job is known to run longer than 30 minutes. Self-hosted jobs are exempt, and an unknown runtime does not satisfy this condition. This gate does not apply to workflows triggered indirectly by a push, pull request, merge, or another authorized operation.
 
 Register the run ID returned by the dispatch operation. Record:
 
@@ -207,7 +215,7 @@ Reject the run as validation evidence when the requested ref or run head SHA dif
 
 ### Failures and replacement runs
 
-Use the GitHub connector to fetch the registered run's job conclusions, steps, and exact failing logs. If the failure is in scope, fix it on the existing branch in a new commit, push that commit, dispatch or observe the replacement run, and append a watch record for the replacement run ID. Preserve the completed run evidence. If job or log reads are unavailable through the connector, report the gap and do not claim that the run was validated.
+Use the GitHub connector when available or `gh` to fetch the registered run's job conclusions, steps, and exact failing logs. If the failure is in scope, fix it on the existing branch in a new commit, push that commit, dispatch or observe the replacement run, and append a watch record for the replacement run ID. Preserve the completed run evidence. If job or log reads fail through both interfaces, report the gap and do not claim that the run was validated.
 
 Literal `success` is necessary but not sufficient for successful validation. The run identity, event, ref and head SHA, expected jobs and their conclusions, and required artifact or smoke-test evidence must also match the registered validation contract. Treat `failure`, `cancelled`, `timed_out`, `startup_failure`, `action_required`, `stale`, `neutral`, unexpected `skipped`, unknown outcomes, and incomplete or mismatched validation evidence as requiring attention.
 
@@ -221,9 +229,9 @@ Use `$notify-wake` as the authoritative contract for registration, source and de
 
 Prefer a verified GitHub App webhook ingress for `workflow_run.completed`. A repository `workflow_run` relay is acceptable only when the relay workflow exists on the default branch, has least privilege, checks out and executes no untrusted code, and sends authenticated run identifiers to a trusted ingress. Because a `workflow_run` workflow can receive privileges that the triggering workflow lacked, never pass pull-request content, workflow output, artifact contents, branch names as commands, or other untrusted values into the relay.
 
-Before applying the attention predicate, require a trusted non-model verifier to record the observed event, ref and head SHA, workflow-file blob SHA, complete job set and conclusions, and required artifact or smoke-test evidence. The verifier may read authenticated provider metadata and predeclared job or step conclusions, but it must not download, execute, or interpret untrusted artifacts. Close literal `success` silently only when that record fully matches the registered contract. If the adapter cannot collect or prove any required evidence, if evidence needs agent inspection, or if any value is missing or mismatched, require attention so the resumed task can complete validation through the GitHub connector. Every non-success terminal conclusion also requires attention.
+Before applying the attention predicate, require a trusted non-model verifier to record the observed event, ref and head SHA, workflow-file blob SHA, complete job set and conclusions, and required artifact or smoke-test evidence. The verifier may read authenticated provider metadata and predeclared job or step conclusions, but it must not download, execute, or interpret untrusted artifacts. Close literal `success` silently only when that record fully matches the registered contract. If the adapter cannot collect or prove any required evidence, if evidence needs agent inspection, or if any value is missing or mismatched, require attention so the resumed task can complete validation through the GitHub connector or `gh`. Every non-success terminal conclusion also requires attention.
 
-Deduplicate completion events by repository ID, run ID, run attempt, and completion event. Limit wake input to trusted repository and run identifiers, ref and SHA, conclusion, validation-status code, and run URL. The resumed task must fetch jobs, logs, artifacts, and other required evidence through the GitHub connector before diagnosis or validation.
+Deduplicate completion events by repository ID, run ID, run attempt, and completion event. Limit wake input to trusted repository and run identifiers, ref and SHA, conclusion, validation-status code, and run URL. The resumed task must fetch jobs, logs, artifacts, and other required evidence through the GitHub connector or `gh` before diagnosis or validation.
 
 If secure ingress is unavailable, use a bounded local non-model watcher that observes only the registered run ID and follows the same attention predicate. If no such watcher exists, report that automatic wake is unavailable instead of promising notification.
 
@@ -243,38 +251,38 @@ If secure ingress is unavailable, use a bounded local non-model watcher that obs
 
 ## Reading & Responding to PR Reviews
 
-**Fetching review context:** Use GitHub app/connector tools to fetch PR metadata, changed files or patches, review submissions, inline review comments, review threads with resolution state, and top-level PR conversation comments. Prefer thread-aware app tools when available. Do not treat flat comments as a complete representation of unresolved review-thread state when the task depends on line anchors or resolution status.
+**Fetching review context:** Use GitHub app/connector tools when available or `gh` to fetch PR metadata, changed files or patches, review submissions, inline review comments, review threads with resolution state, and top-level PR conversation comments. Prefer thread-aware app tools when available. Do not treat flat comments as a complete representation of unresolved review-thread state when the task depends on line anchors or resolution status.
 
-If the GitHub app exposes only flat comments and the task depends on unresolved thread state, line anchors, or resolution status, report that app-tool gap and ask before using CLI fallback.
+If the GitHub app exposes only flat comments and the task depends on unresolved thread state, line anchors, or resolution status, use authenticated `gh api graphql` without additional permission for a standing-authorized repository.
 
 **Handling feedback:**
 - Read and understand each comment in context
 - Make the requested changes in the codebase
 - Commit fixes as **new commits** (never amend previous commits unless explicitly asked), since amending after a hook failure or during review can destroy prior work
-- When addressing feedback, use GitHub app/connector tools to reply in the original review comment thread, not as a new top-level PR comment. Keep replies short: one concise paragraph stating what changed and how it addresses the comment.
+- When addressing feedback, use GitHub app/connector tools or `gh` to reply in the original review comment thread, not as a new top-level PR comment. Keep replies short: one concise paragraph stating what changed and how it addresses the comment.
 
 ## Resolving Conversations
 
 - Group related fixes into a single commit where appropriate
 - New commits are always preferred over amends to preserve review history
-- **If implementing the reviewer's suggestion:** make the change, reply in the original thread with a short paragraph indicating which commit addresses it, and mark the conversation as resolved through the GitHub app when possible.
+- **If implementing the reviewer's suggestion:** make the change, reply in the original thread with a short paragraph indicating which commit addresses it, and mark the conversation as resolved through the GitHub app or `gh`.
 - **If declining the reviewer's suggestion:** reply in the original thread with a short paragraph explaining why, and leave the conversation unresolved so the reviewer can follow up.
 
-## Explicit CLI Fallback
+## Authorized `gh` Use
 
-Use CLI fallback only when the user explicitly requested it, or after you have reported the exact GitHub app/connector capability gap and received explicit consent. State the operation, the app-tool gap, and the command you will run before using fallback.
+For task-related operations on repositories owned by `TidalPaladin` or `medcognetics`, authenticated `gh` is pre-authorized. Use it without announcing an app gap or requesting permission when the preferred app interface is unavailable or inadequate. Apply the three approval gates in `GitHub Interface and Authorization` before either interface performs the operation.
 
-Fallback-only examples:
+Examples:
 
 ```bash
-# Create a draft PR only after app PR creation is unavailable and fallback is approved.
+# Create a draft PR when app PR creation is unavailable.
 gh pr create --draft --title "<title>" --body-file /tmp/pr-body.md
 
-# Fetch review-thread data only after app thread data is unavailable and fallback is approved.
+# Fetch review-thread data when app thread data is unavailable.
 gh api graphql -f query='...'
 ```
 
-After using CLI fallback, summarize which GitHub-side actions used CLI instead of app tools so Codex app linkage gaps are visible.
+Before a `gh` write, resolve the repository owner and exact target. Do not print authentication tokens or other secrets. After using `gh`, summarize the GitHub-side actions performed so the user can verify the result.
 
 ## Recovery & Safety Nets
 
