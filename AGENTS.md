@@ -131,6 +131,17 @@ Use this sequence when reviewing a change:
 - When calls are independent, run tool calls in parallel (for example todo updates, file searches, or reading multiple files) instead of sequentially.
 - Before starting machine-observable work that would otherwise require another model turn only to check status, use `$notify-wake`. Arm a native event, trusted relay, or exact-target non-model watcher instead of spending model turns polling.
 
+## GitHub authorization
+
+- For task-related GitHub operations on repositories owned by `TidalPaladin` or `medcognetics`, the user grants standing authorization to use authenticated `gh` for reads and writes. This includes issues, pull requests, reviews, releases, repository administration, and GitHub Actions operations.
+- Prefer the Codex GitHub app/connector when it supports the operation so Codex can track the result. This is a tool preference, not a permission gate. If the app is unavailable or lacks the required capability, use `gh` without asking for permission.
+- Ask before a GitHub operation on these repositories only when:
+  - directly dispatching or rerunning a workflow where any GitHub-hosted job is known to run longer than 30 minutes;
+  - changing branch protection rules or GitHub rulesets that implement branch protection; or
+  - the operation has substantial destructive potential, meaning a material risk of unrecoverable data loss or destruction of important repository history.
+- The workflow approval gate does not apply to self-hosted jobs or to workflows triggered indirectly by a push, pull request, merge, or other already-authorized operation. An unknown runtime does not satisfy the known-runtime condition.
+- Read-only inspection of branch protection and rulesets is authorized. Repositories owned by other accounts require authorization in the current user request.
+
 ## Codex agent definitions
 
 - In `/home/chase/skills`, store project-scoped custom agents as standalone TOML files under `.codex/agents/` and keep shared project agent limits in `.codex/config.toml`.
