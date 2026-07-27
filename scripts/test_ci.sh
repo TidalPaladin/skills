@@ -11,6 +11,7 @@ readonly DEPENDABOT_CONFIG="${REPO_ROOT}/.github/dependabot.yml"
 readonly PACKAGE_MANIFEST="${REPO_ROOT}/package.json"
 readonly PROJECT_CONFIG="${REPO_ROOT}/pyproject.toml"
 readonly REQUIRED_CI="${REPO_ROOT}/.github/workflows/ci.yml"
+readonly TOKEN_AUTH_SCRIPT="${REPO_ROOT}/token-file-auth/scripts/token_file_auth.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -81,8 +82,10 @@ assert_contains \
 assert_contains "${CI_SCRIPT}" "npm ci --ignore-scripts"
 assert_contains "${CI_SCRIPT}" 'CODEX_INSTALL_MODE'
 assert_contains "${CI_SCRIPT}" 'node_modules/.bin'
+assert_contains "${CI_SCRIPT}" "PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1"
 assert_contains "${CI_SCRIPT}" "git diff --cached --check"
 assert_contains "${CI_SCRIPT}" 'git diff --check "${resolved_diff_base}...HEAD"'
+assert_not_contains "${TOKEN_AUTH_SCRIPT}" '[[ -v TOKEN_FILE_AUTH_BASE_DIR ]]'
 assert_not_contains "${REQUIRED_CI}" "npm ci --ignore-scripts"
 assert_contains "${REQUIRED_CI}" "fetch-depth: 0"
 assert_contains "${REQUIRED_CI}" "CI_DIFF_BASE:"
