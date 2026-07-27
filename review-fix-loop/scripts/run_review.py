@@ -14,7 +14,6 @@ import tempfile
 from pathlib import Path
 from typing import Any, Final, Literal, TypeAlias, cast
 
-
 SKILL_ROOT: Final = Path(__file__).resolve().parents[1]
 REVIEW_SCHEMA_PATH: Final = SKILL_ROOT / "references" / "review-result.schema.json"
 DEFAULT_MAX_ITERATIONS: Final = 10

@@ -141,6 +141,7 @@ test_agent_source_contract() {
   assert_contains "$ROOT_GUIDANCE" 'assign exactly one citation occurrence to each instance'
   assert_contains "$ROOT_GUIDANCE" 'source path, line or unique context, citation key, complete surrounding claim, and bibliography entry'
   assert_contains "$ROOT_GUIDANCE" 'consolidate citation reports in source order'
+  assert_contains "$SYNC_SCRIPT" "--exclude='/.venv/'"
 }
 
 test_pull_request_contracts() {
@@ -233,6 +234,45 @@ test_sync_does_not_require_gnu_realpath() {
   assert_not_contains "$output" 'realpath: illegal option -- -'
 }
 
+test_agent_validation_requires_python_with_tomllib() {
+  local codex_home
+  local fake_bin="${TEST_ROOT}/validator-python/bin"
+  local output="${TEST_ROOT}/validator-python.out"
+  codex_home="$(new_codex_home validator-python)"
+  mkdir -p "$fake_bin"
+  cat >"${fake_bin}/uv" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+is_agent_validation=false
+has_supported_python=false
+previous_argument=""
+for argument in "$@"; do
+  if [[ "$argument" == */validate_codex_agents.py ]]; then
+    is_agent_validation=true
+  elif [[ "$previous_argument" == --python && "$argument" == '>=3.11' ]]; then
+    has_supported_python=true
+  fi
+  previous_argument="$argument"
+done
+
+if "$is_agent_validation" && ! "$has_supported_python"; then
+  echo "ModuleNotFoundError: No module named 'tomllib'" >&2
+  exit 1
+fi
+
+exec "${REAL_UV:?}" "$@"
+EOF
+  chmod +x "${fake_bin}/uv"
+
+  if ! REAL_UV="$(command -v uv)" PATH="${fake_bin}:${PATH}" \
+    run_sync "$codex_home" --dry-run >"$output" 2>&1; then
+    fail "expected agent validation to select Python 3.11 or newer"
+  fi
+
+  assert_not_contains "$output" "No module named 'tomllib'"
+}
+
 test_missing_codex_home_dry_run_succeeds_without_writes() {
   local codex_home="${TEST_ROOT}/missing-codex-home/codex-home"
   local output="${TEST_ROOT}/missing-codex-home.out"
@@ -309,6 +349,11 @@ EOF
   assert_files_equal "$REVIEW_SKILL" "${codex_home}/skills/review-fix-loop/SKILL.md"
   assert_path_missing "${codex_home}/skills/.codex"
   assert_path_missing "${codex_home}/skills/.agents"
+  assert_path_missing "${codex_home}/skills/.github"
+  assert_path_missing "${codex_home}/skills/.pytest_cache"
+  assert_path_missing "${codex_home}/skills/.venv"
+  assert_path_missing "${codex_home}/skills/review-fix-loop/scripts/__pycache__"
+  assert_path_missing "${codex_home}/skills/node_modules"
   assert_contains "${codex_home}/config.toml" 'model = "gpt-5.6-sol"'
   assert_contains "${codex_home}/config.toml" 'max_threads = 8 # preserve this comment'
   assert_contains "${codex_home}/config.toml" 'apps = true'
@@ -509,6 +554,7 @@ test_pull_request_contracts
 test_goal_mode_contract
 test_root_alias_codex_home_is_rejected
 test_sync_does_not_require_gnu_realpath
+test_agent_validation_requires_python_with_tomllib
 test_missing_codex_home_dry_run_succeeds_without_writes
 test_dry_run_is_non_mutating
 test_apply_syncs_agents_and_preserves_unrelated_state

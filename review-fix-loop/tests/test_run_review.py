@@ -11,7 +11,6 @@ from typing import Any
 
 import pytest
 
-
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 RUNNER_PATH = SKILL_ROOT / "scripts" / "run_review.py"
 SCHEMA_PATH = SKILL_ROOT / "references" / "review-result.schema.json"
