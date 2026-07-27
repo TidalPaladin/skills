@@ -1,7 +1,7 @@
 [project]
 name = "codex-skills-ci"
 version = "0.0.0"
-requires-python = "==3.14.6"
+requires-python = "==3.14.5"
 dependencies = []
 
 [dependency-groups]

@@ -7,7 +7,7 @@ readonly CODEX_INSTALL_MODE="${CODEX_INSTALL_MODE:-locked}"
 readonly NODE_MODULES_BIN="${REPO_ROOT}/node_modules/.bin"
 readonly CODEX_BIN="${NODE_MODULES_BIN}/codex"
 readonly NULL_GIT_SHA="0000000000000000000000000000000000000000"
-readonly PYTHON_VERSION="3.14.6"
+readonly PYTHON_VERSION="3.14.5"
 
 readonly -a SHELL_FILES=(
   scripts/audit_dependencies.sh

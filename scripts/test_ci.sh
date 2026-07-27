@@ -9,6 +9,7 @@ readonly CODEX_CANARY="${REPO_ROOT}/.github/workflows/codex-latest.yml"
 readonly DEPENDENCY_HEALTH="${REPO_ROOT}/.github/workflows/dependency-health.yml"
 readonly DEPENDABOT_CONFIG="${REPO_ROOT}/.github/dependabot.yml"
 readonly PACKAGE_MANIFEST="${REPO_ROOT}/package.json"
+readonly PROJECT_CONFIG="${REPO_ROOT}/pyproject.toml"
 readonly REQUIRED_CI="${REPO_ROOT}/.github/workflows/ci.yml"
 
 fail() {
@@ -53,6 +54,18 @@ assert_not_contains() {
   fail "a locked dependency-audit script must be available locally"
 [[ -f "${DEPENDENCY_HEALTH}" ]] ||
   fail "dependency vulnerability audits must run on an independent schedule"
+
+readonly PYTHON_VERSION="$(
+  sed -n 's/^requires-python = "==\([^"]*\)"$/\1/p' "$PROJECT_CONFIG"
+)"
+[[ "$PYTHON_VERSION" == "3.14.5" ]] ||
+  fail "CI must use a Python release available for Linux x64 and macOS Arm64"
+
+assert_contains "${CI_SCRIPT}" "readonly PYTHON_VERSION=\"${PYTHON_VERSION}\""
+assert_contains "${AUDIT_SCRIPT}" "readonly PYTHON_VERSION=\"${PYTHON_VERSION}\""
+for workflow in "$REQUIRED_CI" "$CODEX_CANARY" "$DEPENDENCY_HEALTH"; do
+  assert_contains "$workflow" "PYTHON_VERSION: \"${PYTHON_VERSION}\""
+done
 
 if rg --quiet --fixed-strings -- "--no-project" "${CI_SCRIPT}"; then
   fail "CI must run from the locked project environment"
