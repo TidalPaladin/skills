@@ -154,7 +154,7 @@ token_file_auth_internal_negative_checks() {
 
   had_old_base_dir="false"
   old_base_dir=""
-  if [[ -v TOKEN_FILE_AUTH_BASE_DIR ]]; then
+  if [[ "${TOKEN_FILE_AUTH_BASE_DIR+x}" == "x" ]]; then
     had_old_base_dir="true"
     old_base_dir="${TOKEN_FILE_AUTH_BASE_DIR}"
   fi

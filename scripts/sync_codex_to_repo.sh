@@ -70,6 +70,7 @@ readonly repo_root
 readonly source_dir="${repo_root}/"
 readonly source_agents="${repo_root}/.codex/agents/"
 readonly agent_validator="${repo_root}/scripts/validate_codex_agents.py"
+readonly agent_validator_python='>=3.11'
 readonly project_config="${repo_root}/.codex/config.toml"
 destination_root="${CODEX_HOME:-${HOME}/.codex}"
 destination_root="${destination_root%/}"
@@ -109,10 +110,10 @@ analyze_agent_settings() {
   local in_agents=false
   local line
   local max_threads_value
-  local readonly agents_header_pattern='^[[:space:]]*\[agents\][[:space:]]*(#.*)?$'
-  local readonly table_header_pattern='^[[:space:]]*\['
-  local readonly max_threads_key_pattern='^[[:space:]]*max_threads[[:space:]]*='
-  local readonly max_threads_value_pattern='^[[:space:]]*max_threads[[:space:]]*=[[:space:]]*([0-9]+)([[:space:]]*(#.*)?)$'
+  local -r agents_header_pattern='^[[:space:]]*\[agents\][[:space:]]*(#.*)?$'
+  local -r table_header_pattern='^[[:space:]]*\['
+  local -r max_threads_key_pattern='^[[:space:]]*max_threads[[:space:]]*='
+  local -r max_threads_value_pattern='^[[:space:]]*max_threads[[:space:]]*=[[:space:]]*([0-9]+)([[:space:]]*(#.*)?)$'
 
   CONFIG_AGENTS_SECTION_COUNT=0
   CONFIG_MAX_THREADS_COUNT=0
@@ -181,9 +182,9 @@ render_global_config() {
   local max_threads_count
   local in_agents=false
   local line
-  local readonly agents_header_pattern='^[[:space:]]*\[agents\][[:space:]]*(#.*)?$'
-  local readonly table_header_pattern='^[[:space:]]*\['
-  local readonly max_threads_value_pattern='^([[:space:]]*)max_threads[[:space:]]*=[[:space:]]*([0-9]+)([[:space:]]*(#.*)?)$'
+  local -r agents_header_pattern='^[[:space:]]*\[agents\][[:space:]]*(#.*)?$'
+  local -r table_header_pattern='^[[:space:]]*\['
+  local -r max_threads_value_pattern='^([[:space:]]*)max_threads[[:space:]]*=[[:space:]]*([0-9]+)([[:space:]]*(#.*)?)$'
 
   analyze_agent_settings "$config_path"
   agents_section_count="$CONFIG_AGENTS_SECTION_COUNT"
@@ -244,7 +245,8 @@ validate_proposed_configuration() {
   fi
   rsync --archive "${source_agents}" "${validation_home}/agents/"
 
-  if ! UV_NO_PROGRESS=1 uv run --no-project --no-cache python \
+  if ! UV_NO_PROGRESS=1 uv run --python "$agent_validator_python" \
+    --no-project --no-cache python \
     "$agent_validator" "${validation_home}/agents"; then
     echo "Error: standalone Codex agent validation failed." >&2
     return 1
@@ -337,9 +339,14 @@ skills_flags=(
   --exclude='.git/'
   --exclude='/.agents/'
   --exclude='/.codex/'
+  --exclude='/.github/'
   --exclude='/scripts/'
   --exclude='/ruff_cache/'
   --exclude='/.ruff_cache/'
+  --exclude='/.pytest_cache/'
+  --exclude='/.venv/'
+  --exclude='__pycache__/'
+  --exclude='node_modules/'
   --include='/*/'
   --include='/*/**'
   --exclude='/*'

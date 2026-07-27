@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: "24.18.0"
+  PYTHON_VERSION: "3.14.5"
+  UV_VERSION: "0.11.18"
+  UV_NO_PROGRESS: "1"
+
+jobs:
+  test:
+    name: Test (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            runner: ubuntu-24.04
+            architecture: x86_64
+          - name: macOS Arm64
+            runner: macos-15
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: false
+          python-version: ${{ env.PYTHON_VERSION }}
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Install system tools
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install --yes ripgrep rsync
+          elif ! command -v rg >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install ripgrep
+          fi
+
+      - name: Verify runner and tools
+        shell: bash
+        run: |
+          actual_architecture="$(uname -m)"
+          if [[ "$actual_architecture" != "${{ matrix.architecture }}" ]]; then
+            echo "Expected ${{ matrix.architecture }}, found ${actual_architecture}." >&2
+            exit 1
+          fi
+          uv python install "$PYTHON_VERSION"
+          uv --version
+          uv run --no-project --python "$PYTHON_VERSION" python --version
+          node --version
+          rg --version | sed -n '1p'
+          rsync --version | sed -n '1p'
+
+      - name: Run CI
+        shell: bash
+        env:
+          CI_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: scripts/ci.sh
+
+  required:
+    name: Required
+    if: ${{ always() }}
+    needs:
+      - test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Confirm required jobs passed
+        shell: bash
+        run: |
+          if [[ "${{ needs.test.result }}" != "success" ]]; then
+            echo "Required test jobs concluded: ${{ needs.test.result }}" >&2
+            exit 1
+          fi
