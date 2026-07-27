@@ -1,19 +1,22 @@
 ---
 name: review-fix-loop
-description: Run bounded review, verification, fix, and validation cycles over uncommitted or current-branch changes. Use only when the user explicitly invokes $review-fix-loop from Goal Mode and wants the main task to address findings until a native Codex review is clean or the iteration cap is reached.
+description: Run bounded review, verification, fix, and validation cycles over uncommitted or current-branch changes. Use only when the user explicitly invokes $review-fix-loop and wants the main task to address findings until a native Codex review is clean or the iteration cap is reached; start Goal Mode automatically when no goal is active.
 ---
 
 # Review Fix Loop
 
 Use native, read-only Codex reviewers to inspect a pinned Git scope. Verify and fix each valid finding in the main task, then ask a new reviewer to inspect the updated scope.
 
-## Require Goal Mode
+## Enter Goal Mode
 
-Start this workflow only when the current task is in Goal Mode. Outside Goal Mode, do not inspect the repository, launch a reviewer, or edit files. Return a paste-ready invocation that preserves the user's inputs. Use this default when no inputs were supplied:
+Call `get_goal` before inspecting the repository. Track whether this workflow creates the goal.
 
-```text
-/goal Use $review-fix-loop with scope=auto and max-iterations=10.
-```
+- When no goal is active, call `create_goal` before initializing the loop. Build the objective from the requested `scope`, optional `base`, and `max-iterations` values. Require a clean native review and unchanged passing repository gates, preserve unrelated changes, and include the configured stop conditions. For `scope=auto`, describe the runner-selected pinned scope rather than inspecting Git before creating the goal.
+- When a goal is already active, retain it and run the loop under that goal. Do not replace an existing goal.
+- If goal tools are unavailable, do not claim Goal Mode is active. Stop before repository inspection and tell the user that they must start the equivalent goal with the Goal Mode controls or `/goal`.
+- If `create_goal` reports that an unfinished goal already exists, call `get_goal` again and retain that goal. Stop on other goal configuration failures.
+
+Goal activation does not expand the current sandbox, approval policy, or repository permissions. Do not set a goal token budget unless the user explicitly supplied one.
 
 ## Parse Inputs
 
@@ -83,6 +86,8 @@ When a round returns `clean`, run the repository's standard formatting, linting,
 
 Any edit after the clean review, including an edit made by a formatter or validation fix, invalidates that result. Run another review round before declaring the scope clean. If no edit occurs and all required checks pass, the goal is complete.
 
+If this workflow created the goal and no required work remains, call `update_goal` with `status=complete`. When the workflow reused a broader existing goal, leave it active unless that complete objective is also achieved. Never mark an unfinished goal complete merely to exit the loop.
+
 ## Handle Stops and Failures
 
 - `findings`: Fix verified findings in the main task, validate them, and continue.
@@ -90,6 +95,8 @@ Any edit after the clean review, including an edit made by a formatter or valida
 - `limit_reached`: Stop immediately. Do not make another fix that cannot receive a confirming review.
 - Reviewer failure: The runner retries one clearly transient process failure without consuming an iteration. Stop after the second transient failure.
 - Configuration, authentication, unavailable-model, and malformed-output failures: Stop on the first failure. Do not change models or weaken the read-only controls.
+
+An iteration limit or first-time failure does not make the goal complete or blocked. Use `update_goal` with `status=blocked` only after the same blocker has recurred for at least three consecutive goal turns and meaningful progress is impossible without user input or an external state change. Otherwise leave the goal active.
 
 Do not stage, commit, push, publish, or fetch while using this skill. Repository edits needed to fix verified findings are allowed in the main task.
 
@@ -100,6 +107,7 @@ At handoff, report:
 - selected scope;
 - selected base ref and merge-base SHA for session scope;
 - completed logical iterations and the configured cap;
+- whether the workflow created or reused the goal and its final state;
 - whether a clean review was confirmed;
 - last findings or their verified dispositions;
 - focused and full validation commands with pass, fail, or not-run state;
