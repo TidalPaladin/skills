@@ -19,9 +19,15 @@ readonly GOAL_SKILL="${REPO_ROOT}/goal-mode/SKILL.md"
 readonly GOAL_INTERFACE="${REPO_ROOT}/goal-mode/agents/openai.yaml"
 readonly REVIEW_SKILL="${REPO_ROOT}/review-fix-loop/SKILL.md"
 readonly REVIEW_INTERFACE="${REPO_ROOT}/review-fix-loop/agents/openai.yaml"
+readonly NOTIFY_WAKE_SKILL="${REPO_ROOT}/notify-wake/SKILL.md"
+readonly NOTIFY_WAKE_SCRIPT="${REPO_ROOT}/notify-wake/scripts/notify_wake.py"
+readonly NOTIFY_WAKE_PROJECT="${REPO_ROOT}/notify-wake/pyproject.toml"
+readonly NOTIFY_WAKE_LOCK="${REPO_ROOT}/notify-wake/uv.lock"
 readonly TEST_ROOT="$(mktemp -d)"
+readonly NESTED_ARTIFACT_FIXTURE="${REPO_ROOT}/.sync-artifact-fixture-${BASHPID}"
 
 cleanup() {
+  rm -rf "$NESTED_ARTIFACT_FIXTURE"
   rm -rf "$TEST_ROOT"
 }
 trap cleanup EXIT
@@ -95,6 +101,12 @@ test_agent_source_contract() {
   assert_file_exists "$CITATION_INTERFACE"
   assert_path_missing "${REPO_ROOT}/citation-verifier/scripts"
   assert_file_exists "$PROJECT_CONFIG"
+  assert_file_exists "$NOTIFY_WAKE_SKILL"
+  assert_file_exists "$NOTIFY_WAKE_SCRIPT"
+  [[ -x "$NOTIFY_WAKE_SCRIPT" ]] ||
+    fail "notify-wake CLI entrypoint must be executable"
+  assert_file_exists "$NOTIFY_WAKE_PROJECT"
+  assert_file_exists "$NOTIFY_WAKE_LOCK"
   assert_contains "$PR_AGENT_SOURCE" 'name = "pr_lifecycle_reporter"'
   assert_contains "$PR_AGENT_SOURCE" 'model = "gpt-5.6-luna"'
   assert_contains "$PR_AGENT_SOURCE" 'model_reasoning_effort = "medium"'
@@ -141,7 +153,11 @@ test_agent_source_contract() {
   assert_contains "$ROOT_GUIDANCE" 'assign exactly one citation occurrence to each instance'
   assert_contains "$ROOT_GUIDANCE" 'source path, line or unique context, citation key, complete surrounding claim, and bibliography entry'
   assert_contains "$ROOT_GUIDANCE" 'consolidate citation reports in source order'
-  assert_contains "$SYNC_SCRIPT" "--exclude='/.venv/'"
+  assert_contains "$SYNC_SCRIPT" "--exclude='.venv/'"
+  assert_contains "$SYNC_SCRIPT" "--exclude='.pytest_cache/'"
+  assert_contains "$SYNC_SCRIPT" "--exclude='.ruff_cache/'"
+  assert_contains "$NOTIFY_WAKE_SKILL" 'preflight'
+  assert_contains "$NOTIFY_WAKE_SKILL" 'turn/start'
 }
 
 test_pull_request_contracts() {
@@ -347,6 +363,12 @@ EOF
   assert_files_equal "$CITATION_SKILL" "${codex_home}/skills/citation-verifier/SKILL.md"
   assert_files_equal "$GOAL_SKILL" "${codex_home}/skills/goal-mode/SKILL.md"
   assert_files_equal "$REVIEW_SKILL" "${codex_home}/skills/review-fix-loop/SKILL.md"
+  assert_files_equal "$NOTIFY_WAKE_SKILL" "${codex_home}/skills/notify-wake/SKILL.md"
+  assert_files_equal "$NOTIFY_WAKE_SCRIPT" "${codex_home}/skills/notify-wake/scripts/notify_wake.py"
+  [[ -x "${codex_home}/skills/notify-wake/scripts/notify_wake.py" ]] ||
+    fail "synced notify-wake CLI entrypoint must be executable"
+  assert_files_equal "$NOTIFY_WAKE_PROJECT" "${codex_home}/skills/notify-wake/pyproject.toml"
+  assert_files_equal "$NOTIFY_WAKE_LOCK" "${codex_home}/skills/notify-wake/uv.lock"
   assert_path_missing "${codex_home}/skills/.codex"
   assert_path_missing "${codex_home}/skills/.agents"
   assert_path_missing "${codex_home}/skills/.github"
@@ -363,6 +385,32 @@ EOF
   run_sync "$codex_home" --apply >/dev/null
   [[ "$(file_checksum "${codex_home}/config.toml")" == "$config_hash" ]] ||
     fail "repeated apply changed config.toml"
+}
+
+test_apply_excludes_nested_python_artifacts() {
+  local codex_home
+  local synced_fixture
+  codex_home="$(new_codex_home nested-python-artifacts)"
+  synced_fixture="${codex_home}/skills/$(basename "$NESTED_ARTIFACT_FIXTURE")"
+
+  mkdir -p \
+    "${NESTED_ARTIFACT_FIXTURE}/.venv" \
+    "${NESTED_ARTIFACT_FIXTURE}/.pytest_cache" \
+    "${NESTED_ARTIFACT_FIXTURE}/.ruff_cache" \
+    "${NESTED_ARTIFACT_FIXTURE}/runtime/__pycache__"
+  printf '%s\n' 'fixture' >"${NESTED_ARTIFACT_FIXTURE}/SKILL.md"
+  printf '%s\n' 'artifact' >"${NESTED_ARTIFACT_FIXTURE}/.venv/sentinel"
+  printf '%s\n' 'artifact' >"${NESTED_ARTIFACT_FIXTURE}/.pytest_cache/sentinel"
+  printf '%s\n' 'artifact' >"${NESTED_ARTIFACT_FIXTURE}/.ruff_cache/sentinel"
+  printf '%s\n' 'artifact' >"${NESTED_ARTIFACT_FIXTURE}/runtime/__pycache__/sentinel"
+
+  run_sync "$codex_home" --apply >/dev/null
+
+  assert_file_exists "${synced_fixture}/SKILL.md"
+  assert_path_missing "${synced_fixture}/.venv"
+  assert_path_missing "${synced_fixture}/.pytest_cache"
+  assert_path_missing "${synced_fixture}/.ruff_cache"
+  assert_path_missing "${synced_fixture}/runtime/__pycache__"
 }
 
 test_existing_equal_or_higher_limits_are_unchanged() {
@@ -558,6 +606,7 @@ test_agent_validation_requires_python_with_tomllib
 test_missing_codex_home_dry_run_succeeds_without_writes
 test_dry_run_is_non_mutating
 test_apply_syncs_agents_and_preserves_unrelated_state
+test_apply_excludes_nested_python_artifacts
 test_existing_equal_or_higher_limits_are_unchanged
 test_missing_config_and_section_are_created
 test_missing_limit_is_inserted_in_existing_section

@@ -20,9 +20,49 @@ Support two modes:
 
 Invocation does not authorize the operation itself, new network exposure, service installation, daemon creation, schedule creation, credential use, or broader permissions. Obtain any authority those actions require through the task's normal workflow.
 
-Keep this skill protocol-only. Do not invent a generic notifier runtime. Use a repository, provider, or host adapter that implements the contract below.
+Use the bundled strict local-process adapter for commands and existing Unix
+processes. Use repository or provider adapters for remote operations and
+provider-specific event sources. Do not expand the local adapter into a generic
+daemon or provider framework.
 
 A planning result must name the real event source, adapter owner, durable watch location, retry trigger, and target identity rule. If the environment cannot supply them, report automatic continuation as unavailable. Do not hide an unresolved implementation behind a placeholder adapter.
+
+## Bundled Local-Process CLI
+
+The synced skill includes a locked `uv` project with
+`websockets==16.1.1`. Set the skill path once, then invoke the script through
+that project:
+
+```bash
+notify_wake_skill="${CODEX_HOME:-$HOME/.codex}/skills/notify-wake"
+uv run --project "$notify_wake_skill" --locked \
+  python "$notify_wake_skill/scripts/notify_wake.py" preflight --format json
+```
+
+Public commands:
+
+- `preflight` discovers the managed daemon, captures the effective non-null
+  permission profile and approval policy, and reports whether strict delivery
+  is available.
+- `run --timeout-seconds N [--wake-on always|failure] [--evidence ABS] -- COMMAND...`
+  registers a prepared watch before releasing an owned child process group.
+- `attach --pid PID --timeout-seconds N [--expect-start-ticks TICKS]
+  [--evidence ABS]` captures a Linux pidfd plus `/proc` start time and never
+  signals the attached process.
+- `status WATCH_ID` reads one exact durable watch.
+- `reconcile WATCH_ID` reconciles one exact terminal event and uncertain
+  request boundary.
+
+Use `--format json` for automation. The CLI returns `0` for success, `1` when
+durable state requires attention or strict automatic delivery is unavailable,
+and `2` for a runtime or state error. Watch state is stored under
+`${CODEX_HOME:-$HOME/.codex}/notify-wake/<watch-id>/`.
+
+The adapter intentionally blocks delivery when the originating task is idle,
+when a persistent goal exists, or when the effective permission profile or
+approval policy differs after resume. It does not mutate goals or issue
+`turn/start` because the installed app-server does not expose the required
+cross-client lease or atomic idle-start precondition.
 
 ## Adapter Selection
 

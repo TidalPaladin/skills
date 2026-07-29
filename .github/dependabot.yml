@@ -28,6 +28,20 @@ updates:
     cooldown:
       default-days: 7
 
+  - package-ecosystem: "uv"
+    directory: "/notify-wake"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:20"
+      timezone: "America/Chicago"
+    groups:
+      notify-wake-python:
+        patterns:
+          - "*"
+    cooldown:
+      default-days: 7
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

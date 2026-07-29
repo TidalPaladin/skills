@@ -8,6 +8,8 @@ readonly NODE_MODULES_BIN="${REPO_ROOT}/node_modules/.bin"
 readonly CODEX_BIN="${NODE_MODULES_BIN}/codex"
 readonly NULL_GIT_SHA="0000000000000000000000000000000000000000"
 readonly PYTHON_VERSION="3.14.5"
+readonly NOTIFY_WAKE_PYTHON_MIN="3.12"
+readonly NOTIFY_WAKE_PROJECT="${REPO_ROOT}/notify-wake"
 
 readonly -a SHELL_FILES=(
   scripts/audit_dependencies.sh
@@ -58,6 +60,16 @@ run_ci_tool() {
   uv run --locked --group ci --python "$PYTHON_VERSION" "$@"
 }
 
+run_notify_wake_tool() {
+  local python_version="$1"
+  shift
+
+  (
+    cd "$NOTIFY_WAKE_PROJECT"
+    uv run --locked --group dev --python "$python_version" "$@"
+  )
+}
+
 check_whitespace() {
   local resolved_diff_base
 
@@ -97,6 +109,14 @@ run_ci_tool env PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1 \
   review-fix-loop/tests/test_run_review.py
 run_ci_tool shellcheck --severity=error "${SHELL_FILES[@]}"
 run_ci_tool pytest -q review-fix-loop/tests
+
+run_notify_wake_tool "$PYTHON_VERSION" ruff format --check runtime scripts tests
+run_notify_wake_tool "$PYTHON_VERSION" ruff check runtime scripts tests
+run_notify_wake_tool "$PYTHON_VERSION" env PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1 \
+  basedpyright --level error runtime scripts tests
+run_notify_wake_tool "$PYTHON_VERSION" pytest --cov=notify_wake \
+  --cov-report=term-missing -q tests
+run_notify_wake_tool "$NOTIFY_WAKE_PYTHON_MIN" pytest -q tests
 
 token-file-auth/scripts/tests/test_token_file_auth.sh
 circleci-job-results/scripts/tests/test_fetch_circleci_job_results.sh
