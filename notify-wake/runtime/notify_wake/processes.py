@@ -430,7 +430,7 @@ def wait_owned_process(
                 _signal_owned_process(owned, signal.SIGKILL)
                 observer.wait()
             else:
-                _signal_owned_process(owned, signal.SIGKILL)
+                _signal_process_group_after_leader_exit(owned)
             _reap_owned_process(owned)
             leader_reaped = True
             return OwnedProcessOutcome(
@@ -471,7 +471,7 @@ def terminate_owned_process(
             _signal_owned_process(owned, signal.SIGKILL)
             observer.wait()
         else:
-            _signal_owned_process(owned, signal.SIGKILL)
+            _signal_process_group_after_leader_exit(owned)
         _reap_owned_process(owned)
         leader_reaped = True
     except BaseException:
@@ -530,6 +530,17 @@ def _signal_owned_process(owned: OwnedProcess, signal_number: int) -> None:
     if process_group is None:
         raise StateError("owned process lacks a process-group identity")
     _signal_process_group(process_group, signal_number)
+
+
+def _signal_process_group_after_leader_exit(owned: OwnedProcess) -> None:
+    try:
+        _signal_owned_process(owned, signal.SIGKILL)
+    except PermissionError:
+        # Darwin omits zombies from group signaling and returns EPERM when no
+        # signalable live member remains, even though the retained leader still
+        # protects the group ID from reuse.
+        if sys.platform != "darwin":
+            raise
 
 
 def _terminate_unreleased_child(pid: int) -> None:

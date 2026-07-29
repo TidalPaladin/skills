@@ -610,6 +610,38 @@ def test_owned_process_signal_does_not_fall_back_to_reused_pid(
     assert signaled_pids == []
 
 
+@pytest.mark.parametrize(
+    ("platform", "should_raise"),
+    [("darwin", False), ("linux", True)],
+)
+def test_post_exit_group_signal_only_tolerates_darwin_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    should_raise: bool,
+) -> None:
+    owned = OwnedProcess(
+        TargetIdentity(
+            kind="owned",
+            pid=PID,
+            process_group_id=PID,
+            start_ticks=None,
+            identity_method="parent-handle",
+        )
+    )
+    monkeypatch.setattr(sys, "platform", platform)
+
+    def deny_group_signal(_owned: OwnedProcess, _signal_number: int) -> None:
+        raise PermissionError
+
+    monkeypatch.setattr(processes, "_signal_owned_process", deny_group_signal)
+
+    if should_raise:
+        with pytest.raises(PermissionError):
+            processes._signal_process_group_after_leader_exit(owned)
+    else:
+        processes._signal_process_group_after_leader_exit(owned)
+
+
 def test_decode_wait_status_rejects_nonterminal_status() -> None:
     with pytest.raises(StateError, match="unsupported"):
         _decode_wait_status((signal.SIGSTOP << 8) | 0x7F)
