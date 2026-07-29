@@ -130,7 +130,7 @@ Use this sequence when reviewing a change:
 - Use `cmd`/`run_terminal_cmd` only when no listed tool can perform the action.
 - When calls are independent, run tool calls in parallel (for example todo updates, file searches, or reading multiple files) instead of sequentially.
 - Before starting machine-observable work that would otherwise require another model turn only to check status, use `$notify-wake`. Arm a native event, trusted relay, or exact-target non-model watcher instead of spending model turns polling.
-- For local Unix commands and existing Linux PIDs, use the locked CLI bundled under `notify-wake/` instead of writing a one-off watcher. Run `preflight` first and preserve its strict idle-task, persistent-goal, and authority-mismatch blockers.
+- For local Unix commands and existing Linux PIDs, use the locked CLI bundled under `notify-wake/` instead of writing a one-off watcher. Run `preflight` first. Use the default `research_compatibility` policy unless strict non-atomicity blocking is required, preserve authority-mismatch blockers, and enter owned goal wait after the controller is durable when no immediate work remains. Never set a cheaper model on the active root conversation; reserve Luna 5.6 medium for read-only checks, relay tasks, or model-selectable subagents.
 
 ## GitHub authorization
 

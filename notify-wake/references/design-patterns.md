@@ -1,165 +1,125 @@
 # Notify-Wake Design Patterns
 
-Use this reference to select an adapter and review its state, delivery, and security behavior.
-
-## Contents
-
-- [Adapter Patterns](#adapter-patterns)
-- [Registration and Reconciliation](#registration-and-reconciliation)
-- [Persistent Goal Event-Wait](#persistent-goal-event-wait)
-- [Watch and Delivery States](#watch-and-delivery-states)
-- [Codex Task Delivery](#codex-task-delivery)
-- [Security Boundaries](#security-boundaries)
-- [Design Review](#design-review)
-- [Acceptance Scenarios](#acceptance-scenarios)
+Use this reference to select an event adapter and review its v2 state, goal ownership, delivery, and security behavior.
 
 ## Adapter Patterns
 
-### Bundled strict local-process adapter
+### Bundled local-process adapter
 
-For one local Unix command or Linux PID, prefer the `preflight`, `run`,
-`attach`, `status`, and `reconcile` commands bundled with this skill. The
-adapter uses an owned process group and native `waitpid` for `run`, or a pidfd
-plus `/proc/<pid>/stat` start time for `attach`. It calls `os.pidfd_open` when
-Python exposes it and otherwise uses the host libc `pidfd_open` wrapper. Each
-UUID-named watch is contained under the fixed managed notify-wake root.
+For one local Unix command or Linux PID, use the `preflight`, `run`, `attach`, `wait`, `status`, and `reconcile` commands bundled with this skill.
 
-The supervisor writes and syncs `terminal.json` before creating or updating
-`notification.json`. It records the app-server request boundary as
-`in_flight`, uses per-event full-jitter retry deadlines, and reconciles an
-uncertain request against full task history by `clientUserMessageId`. It
-connects to the managed daemon's Unix WebSocket directly and rejects
-app-server approval requests.
+`run` owns a process group and receives exit state through `waitpid`. `attach` captures a pidfd plus `/proc/<pid>/stat` start time and never signals the target. The supervisor syncs source truth before notification state. Each UUID watch is contained under `${CODEX_HOME:-$HOME/.codex}/notify-wake/v2/`.
 
-This adapter is deliberately strict. It steers only one exact active turn with
-`expectedTurnId`. It keeps idle-task, persistent-goal, missing-authority,
-legacy-null-authority, and changed-authority delivery durably `blocked`. Use a
-different adapter only when its native source and concurrency guarantees
-satisfy the same contract.
+Delivery uses `research_compatibility` by default. It starts an idle task or steers one exact active turn. `strict` is an explicit opt-in that blocks idle starts and blocked-goal activation. Both policies verify captured authority, serialize by task, persist request boundaries, and reconcile uncertain requests by stable client message ID.
 
 ### Native local completion
 
-Use a supervisor that owns the child process or process group and receives its exit status. The supervisor writes lifecycle and terminal state, then emits a notification event. The child must not wait for Codex delivery.
+Use a supervisor that owns the child process or process group. It records exit, signal, timeout, or cancellation state before emitting an event. The child must not wait for Codex.
 
-Use this pattern for builds, training, exports, batch transforms, and long file operations. Treat child exit, fatal signal, timeout, and cancellation as terminal source events.
+This pattern fits builds, training, exports, batch transforms, and long file operations.
 
 ### Native remote event
 
-Use a provider webhook, queue event, callback, or event stream. Verify provider signatures or tokens before accepting identifiers. Store the provider event or delivery identifier for replay deduplication, then fetch authoritative state from the provider.
+Use a provider webhook, queue event, callback, or event stream. Verify its signature or token, store replay metadata, and fetch authoritative state from the provider.
 
-Do not place webhook text, logs, artifact contents, branch names as commands, or user-controlled descriptions in the wake prompt.
+Do not place webhook text, logs, artifact contents, or user-controlled descriptions in the wake prompt.
 
 ### Trusted relay
 
-Use a relay when the native event cannot reach the local ingress directly. Give the relay the least privilege needed to read or receive completion state. It must execute no untrusted operation code and send only authenticated identifiers to the trusted ingress.
+Use a relay when a native event cannot reach local ingress. The relay receives only the permission needed to inspect the exact target. It forwards authenticated identifiers and does not execute untrusted operation code.
 
-Keep provider credentials and Codex task context out of untrusted jobs. The trusted ingress resolves identifiers and records source truth.
+A dedicated Luna 5.6 medium relay or subagent may validate durable evidence and summarize an event for the root model. It must remain read-only and must not replace the direct root-delivery path.
 
 ### Local non-model watcher
 
-Use this fallback when no event subscription exists. Poll only one registered immutable target. Set a bounded interval, deadline, total lifetime, and terminal-state mapping before starting the watcher.
+Use this fallback when no event subscription exists. Poll one registered immutable target with a fixed interval, deadline, total lifetime, and terminal-state mapping.
 
-The watcher may:
-
-- fetch status for the registered target;
-- validate target and attempt identity;
-- write lifecycle or terminal state;
-- emit the corresponding durable event.
-
-It must not:
-
-- search broadly for related work;
-- interpret results or logs;
-- choose a next action;
-- change code, Git state, job state, or source configuration;
-- spend model turns checking progress.
+The watcher may fetch exact status, validate identity, record source truth, and emit a durable event. It must not search for related work, interpret results, choose a next action, change state outside its queue, or spend model turns checking progress.
 
 ### No observable source
 
-Do not promise automatic wake when the operation lacks a native event, exact status read, or safe local watcher. Stop before launch unless the user explicitly authorizes execution without automatic continuation.
+Do not promise automatic wake without a native event, exact status read, or safe watcher. Stop before launch unless the user authorizes execution without automatic continuation.
 
-## Registration and Reconciliation
+## Registration and Recovery
 
-Prefer this order:
+Use this order:
 
-1. Generate stable watch and dispatch-correlation identifiers.
-2. Capture the originating task, permission context, and persistent-goal snapshot when one exists.
-3. Persist the prepared watch.
+1. Generate stable watch and dispatch-correlation IDs.
+2. Capture the task, effective permission profile, approval policy, and goal snapshot.
+3. Persist the prepared v2 watch.
 4. Arm the event source or watcher.
-5. Launch or dispatch the operation.
-6. Bind the returned immutable target and attempt identifiers atomically and claim matching early events.
-7. Query current source state immediately.
-8. Persist any already-observed terminal event.
-9. When the turn cannot progress until an event, use native compare-and-set or a lease-protected read/verify/write to move the captured active goal into `blocked`, then persist the returned event-wait snapshot before returning control.
+5. Launch or attach.
+6. Bind the immutable target and attempt IDs atomically and claim matching early events.
+7. Reconcile current source state.
+8. Persist any already-observed event.
+9. Enter owned goal wait if the active goal has no immediate work until the next event.
 
-When an API returns the target identifier only after dispatch, require provider lookup by a stable dispatch correlation identifier or keep a durable inbox for authenticated provider events. Match the returned identifier or correlation identifier before processing an early event. Preflight recovery from a lost dispatch acknowledgment; if a started operation could become unidentifiable, do not dispatch it.
+If an API returns its target ID only after dispatch, require lookup by a stable correlation ID or a durable authenticated early-event inbox. Do not dispatch work that can become unidentifiable after a lost acknowledgment.
 
-For attachment to existing work, reject mutable names, broad filters, or "latest run" selectors. Require the exact process, job, run, transfer, request, or attempt identifier.
+For existing work, reject mutable names, broad filters, and "latest" selectors. Require the exact process, job, run, transfer, request, or attempt ID.
 
-After restart:
+After restart, read only exact registered v2 roots. Preserve accepted deliveries, reconcile in-flight requests, retry due events, and close source-complete watches that do not require attention.
 
-- load only registered watch records;
-- validate their schema and managed location;
-- query each exact target;
-- preserve already-accepted delivery;
-- retry due pending delivery;
-- close source-complete watches that do not meet the attention predicate.
+## Owned Persistent-Goal Wait
 
-## Persistent Goal Event-Wait
+An active persistent goal can schedule another model turn after the current turn ends. Enter notify wait after the controller is durable when:
 
-An active persistent goal can schedule another model turn after the current turn ends. A notify-wake design has not removed model polling unless it also controls that continuation.
+- the goal is `active`;
+- no implementation, analysis, state transition, or other immediate work remains;
+- the goal API permits `blocked`.
 
-Before launch, preflight an authorized goal controller and either native compare-and-set support or an exclusive goal-write lease honored by every goal controller. After the operation is registered and immediate reconciliation confirms that no model action is due:
+Record a prepared `NotifyWaitLease` before changing the goal. The lease contains the task and loop identities, source IDs, goal `createdAt`, objective hash, token budget, and pre-transition `updatedAt`. Set the goal to `blocked`, then claim ownership only after the response confirms the same goal with its new blocked `updatedAt`.
 
-1. Re-read the goal and require the captured identity, revision, objective, and `active` status.
-2. Use the native precondition or hold the goal-write lease while setting that exact snapshot to `blocked` for this watch.
-3. Persist the returned blocked snapshot, transition owner, time, and watch identifier.
-4. Return control only after the blocked state is durable.
+A lost or malformed transition response makes the lease `uncertain`. It never confers ownership.
 
-Do not block a goal merely because a watcher exists. Use event-wait only when the current turn has no useful work until the registered source emits an event. If the goal cannot be blocked safely, stop before launch. If the post-launch transition fails despite preflight, keep the current turn active and follow a defined recovery path rather than returning with an active goal.
+At wake:
 
-At delivery, keep the goal blocked while submitting the wake whenever the installed app-server permits it. After `turn/start` or `turn/steer` is accepted, use native compare-and-set or the exclusive goal-write lease to reactivate the exact blocked snapshot and persist the result before closing the notification.
+1. Read the current goal.
+2. Require `blocked`, the same goal identity, and the exact owned blocked `updatedAt`.
+3. Set that goal to `active` and persist the returned activation revision.
+4. Read it again and require the exact activation revision.
+5. Deliver the wake.
+6. Release the lease on acceptance.
 
-If the app-server requires goal activation before wake acceptance, use this fallback only under a task-scoped lease honored by every input client and the goal controller:
+A blocked goal without an exact owned lease is treated as manually blocked. Preserve it. Also preserve `paused`, `complete`, `usageLimited`, and `budgetLimited`.
 
-1. Verify that the goal still equals the recorded blocked snapshot.
-2. Activate it under the lease and persist the returned activation snapshot.
-3. Read task and goal state again while holding the lease.
-4. Submit `turn/start` with its atomic idle precondition or `turn/steer` with `expectedTurnId`.
-5. If the request is explicitly rejected or authoritative history proves absence, verify that the activation snapshot is unchanged and restore it to `blocked` before releasing the lease.
-6. If acceptance is uncertain, leave the goal unchanged and reconcile the client message before another wake or goal transition.
+If wake delivery is explicitly rejected, verify the activation snapshot is unchanged, restore `blocked`, and renew the owned lease. Use the same restoration after complete history proves the message absent. When wake acceptance is uncertain, leave the goal unchanged until reconciliation.
 
-Never restore or reactivate a goal after its identity, revision, objective, or protected status changes. Preserve paused, complete, budget-limited, and usage-limited states.
+Codex 0.146.0 goal updates have no compare-and-set field. A user, app, remote-control client, or other controller can write between the notifier's read and write. `createdAt`, the objective hash, token budget, and `updatedAt` detect changes around that window, but cannot close it. This is the non-atomic behavior accepted by `research_compatibility`. It is unrelated to legacy-format support.
 
-## Watch and Delivery States
+## State Machines
 
-Track lifecycle and delivery independently.
+Track lifecycle, delivery, and goal wait independently.
 
-Lifecycle states:
-
-| State | Meaning |
+| Lifecycle | Meaning |
 |---|---|
-| `prepared` | Origin context and intent are durable; no target is bound |
+| `prepared` | Context and intent are durable; no target is bound |
 | `armed` | Event source or watcher is ready |
 | `active` | Immutable target and attempt are registered |
 | `complete` | Source reached a supported terminal state |
-| `closed` | Terminal source handling and any required delivery are complete |
+| `closed` | Source handling and required delivery are complete |
 
-Store the authoritative source status separately. Every emitted event also stores the result of the declared attention predicate. A terminal event can therefore have lifecycle `complete` and `attention_required: true`. A nonterminal decision event can have lifecycle `active` and `attention_required: true`.
-
-Delivery states:
-
-| State | Meaning |
+| Delivery | Meaning |
 |---|---|
-| `none` | Attention predicate is false or no event exists |
-| `pending` | Durable event requires delivery |
-| `in_flight` | One serialized delivery attempt is active |
-| `uncertain` | A request may have been accepted, but its acknowledgment was lost |
-| `retry_due` | Prior attempt failed transiently |
+| `none` | No event or attention predicate is false |
+| `pending` | A durable event requires delivery |
+| `in_flight` | The request boundary is durable and one send is active |
+| `uncertain` | The request may have reached app-server |
+| `retry_due` | A transient or proven-absent attempt can retry |
 | `accepted` | App-server accepted start or steer |
-| `blocked` | The durable event remains undelivered after retry exhaustion or until a context or configuration change |
+| `blocked` | Delivery needs configuration, context, or manual recovery |
 
-Write source state first. For a terminal event that requires attention:
+| Goal wait | Meaning |
+|---|---|
+| `prepared` | Pre-transition goal identity is durable |
+| `blocking_in_flight` | The block request crossed its durable boundary |
+| `owned` | The exact blocked revision was acknowledged |
+| `activation_in_flight` | Owned activation is being attempted |
+| `activated` | The exact active revision was acknowledged |
+| `released` | Wake acceptance ended wait ownership |
+| `uncertain` | Goal-transition or wake acceptance needs reconciliation |
+
+Write source truth first:
 
 ```text
 lifecycle: active -> complete
@@ -167,123 +127,113 @@ delivery:  none -> pending -> in_flight -> accepted
 lifecycle: complete -> closed
 ```
 
-Silent success uses:
+Acknowledgment loss follows:
 
 ```text
-lifecycle: active -> complete -> closed
-delivery:  none
+delivery:  in_flight -> uncertain
+history match: accepted
+proven absence: retry_due
+incomplete history: blocked
 ```
 
-An app-server outage uses:
+Never rewrite operation status because delivery failed.
 
-```text
-lifecycle: active -> complete
-delivery:  none -> pending -> in_flight -> retry_due
-```
+## Event Identity and Request Boundaries
 
-An acknowledgment loss uses:
+Deduplicate by the strongest immutable provider identity. Otherwise derive a stable UUID from source namespace, target ID, attempt ID, event kind, and occurrence identity. Provider delivery-attempt IDs are replay metadata.
 
-```text
-lifecycle: active -> complete
-delivery:  none -> pending -> in_flight -> uncertain
-reconcile: matching clientId -> accepted
-           proven absence    -> retry_due
-           unknown           -> blocked
-```
+Enforce an atomic event insert and atomic delivery claim under per-task serialization. Reuse the logical event ID as `clientUserMessageId` for correlation, not as the durable deduplication store.
 
-An accepted nonterminal decision event does not close the watch. Keep source observation armed while the operation remains active. Once terminal source truth is durable, the source subscription may be disarmed while delivery remains pending; retain the watch in `complete` until delivery is accepted.
+Persist `in_flight`, the attempted RPC method, and request time before transport write. A proven pre-send failure can retry. Any failure after the request may have reached app-server is `uncertain`.
 
-Never rewrite authoritative source status or lifecycle because delivery failed.
+Reconcile through `thread/read` with `includeTurns: true`. A matching `userMessage.clientId` proves acceptance and identifies the turn. Complete history without a match proves absence. Incomplete, stale, malformed, or unavailable history proves neither.
 
-Deduplicate source events by the strongest immutable logical provider identity. Otherwise derive a stable identity from source namespace, target ID, attempt ID, event kind, and occurrence identity. Treat webhook delivery IDs as replay metadata. Enforce an atomic unique insert for the event ID and an atomic delivery claim under the per-task serializer. Reuse the logical event ID for `clientUserMessageId`, but treat that field as correlation metadata unless the installed app-server explicitly documents stronger semantics.
+Retain accepted event IDs for at least the provider replay horizon and watch-retention period. Retain unmatched authenticated early events through registration and recovery.
 
-Persist the request-sent boundary before transport write. A transport error before any bytes are sent is retryable. A timeout, disconnect, or crash after bytes may have been sent is `uncertain`, not retryable by assumption. Reconcile it through an app-server idempotency result or an authoritative history read that returns turn items and can prove presence or absence of the exact `userMessage.clientId`. A matching item is accepted delivery even when the original response was lost. If the history contract cannot prove absence, keep the delivery blocked instead of sending the wake again.
+## Codex 0.146.0 Delivery
 
-Retain accepted event identities for at least the provider replay horizon and watch retention period. Keep unmatched early events through registration, restart recovery, and the watch deadline.
+The shared runtime, not repository adapters, owns app-server delivery:
 
-## Codex Task Delivery
+1. Discover a running 0.146.0 or later daemon.
+2. Initialize and resume the captured task.
+3. Require the same non-null permission profile and approval policy.
+4. Read the goal and apply the owned-wait rules.
+5. Read the task and current turns.
+6. Start an idle task under `research_compatibility`, or steer exactly one active turn with `expectedTurnId`.
+7. Persist acceptance only after the response identifies the accepted turn.
+8. Reconcile uncertain requests by exact client message ID.
 
-Capture the effective permission profile and approval policy before launch. Do not infer them from static configuration when the app-server can return the active values. If a persistent goal is involved, follow [Persistent Goal Event-Wait](#persistent-goal-event-wait) and record both sides of every authorized transition.
+`thread/read` followed by `turn/start` is a time-of-check/time-of-use race. A notifier lock does not cover user input, app input, remote control, or another client. `research_compatibility` accepts the race because 0.146.0 has no atomic idle-start precondition. `strict` keeps the event blocked instead.
 
-At delivery:
+Never set `model` or `effort` on a root `turn/start`. In 0.146.0, those root overrides remain selected for later turns. `turn/steer` uses the current turn's model.
 
-1. Initialize the app-server connection.
-2. Call `thread/resume` with the captured permission and approval context.
-3. Reject a different effective context.
-4. Call `thread/read` and identify the current task and active turn state.
-5. Read persistent goal state when the task uses a goal.
-6. Verify that any event-wait goal still matches the watch's blocked snapshot.
-7. Use `turn/start` for an idle task only under an atomic idle-start guarantee. Use `turn/steer` with `expectedTurnId` for an active task.
-8. Keep the goal blocked until wake acceptance, or use the lease-protected activation-first fallback when the installed app-server requires it.
-9. Persist acceptance only after the RPC response identifies the accepted turn, then durably reactivate the exact event-wait goal before closing the notification.
-10. If acknowledgment is lost, call `thread/read` with `includeTurns: true`, find the exact `userMessage.clientId`, and reconcile goal state before any retry.
+Model selection is allowed only for a dedicated relay target. Use Luna 5.6 medium for read-only scheduled checks, relay/subagent summaries, or other low-value non-mutating work. The root model owns goal changes, launches, recovery, scientific decisions, and code changes.
 
-If silent success would still require a goal transition or user-visible completion, the attention predicate is true and the adapter must wake the task. If task, turn, or goal state changes between the read and delivery request, keep the event queued and reconcile again.
+Queued agent mail can wake sleeping agents in 0.146.0. Treat it as an optional relay optimization. Durable direct root delivery remains the fallback and correctness path.
 
-App-server outages before request transmission and task-state races use `retry_due`. A request with an unknown acceptance result uses `uncertain` until reconciled. Persistent permission, approval, configuration, or unresolvable delivery-state mismatches use `blocked`. In every case, preserve the pending event and the observed operation result. The retry trigger, capped delay and jitter, and delivery deadline or attempt limit must be selected during preflight.
+## Version-2 Cutover
 
-`thread/read` followed by `turn/start` is subject to a time-of-check/time-of-use race. Before enabling idle delivery, inspect the installed schema and app-server behavior for an expected-idle or equivalent atomic precondition. If none exists, require a task-scoped lease honored by every start-capable client. A lock held only by the notifier does not cover user, app, remote-control, or other client input. Without either guarantee, leave the event `blocked` and report that automatic idle wake is unavailable.
+Version 2 has separate namespaces:
 
-Wake text should identify:
+- global watches: `${CODEX_HOME:-$HOME/.codex}/notify-wake/v2/`;
+- research events: `<registered-root>/.notify-wake/v2/`.
 
-- trusted source namespace;
-- target, attempt, and event identifiers;
-- validated lifecycle or terminal status;
-- occurrence time;
-- local state path or provider URL used to retrieve evidence.
+Reject version-1 files and pre-0.146 response shapes. Do not parse, migrate, or requeue them.
 
-The resumed task fetches source state, jobs, logs, artifacts, or metrics through the authoritative tool or local state reader. It must not trust the wake text as result evidence.
+Before cutover, prove that no old watch, run, supervisor, or controller is live. Keep old files in place. Write a manifest containing:
+
+- canonical source commit and contract version;
+- file counts and SHA-256 hashes;
+- live-state inspection result;
+- disposition for each old state class;
+- exact list of pending events intentionally superseded.
 
 ## Security Boundaries
 
-- Validate all provider payloads, local state, paths, identifiers, and app-server responses.
-- Authenticate public ingress and prevent replay from creating another accepted wake.
+- Validate provider payloads, paths, identifiers, v2 state, and app-server responses.
+- Authenticate public ingress and prevent replay from creating another event.
 - Keep trusted delivery code separate from untrusted operation code.
-- Use least-privilege provider and repository permissions.
-- Keep task IDs, permission context, and local socket paths out of untrusted jobs.
-- Keep secrets, raw logs, stack traces, model output, user data, and artifact contents out of wake input.
-- Bound stored error text and remove control characters before persistence or display.
-- Restrict local watch files and sockets with host-appropriate permissions.
-- Never let delivery mutate the recorded operation result.
-- Never make the operation depend on Codex availability.
-- Test with fake transports and mock sources. Automated tests must not wake a real task.
+- Keep credentials, task IDs, permission context, and socket paths out of untrusted jobs.
+- Keep raw logs, stack traces, model output, user data, secrets, and artifact contents out of wake input.
+- Bound persisted errors and remove control characters.
+- Restrict state and sockets with host-appropriate permissions.
+- Never let the operation depend on Codex availability.
+- Test only with fake app servers and fake sources.
 
-## Design Review
+## Review Questions
 
 Reject a design unless it answers:
 
-- What exact operation will be observed?
-- Which immutable identifiers distinguish retries and attempts?
-- Which source is authoritative for status and evidence?
-- Is the event source armed before launch, or how is the race reconciled?
-- Which outcomes meet the attention predicate?
-- Where are lifecycle truth, watch state, and delivery state stored?
-- How are duplicates, concurrent delivery, restarts, and transient errors handled?
-- How is a lost app-server acknowledgment reconciled without a blind resend?
-- How are lost dispatch acknowledgments, early-event retention, atomic event insertion, and atomic delivery claims handled?
-- How are permission, approval, task, active-turn, and goal state preserved?
-- How is an active persistent goal placed into event-wait before control returns?
-- Is goal reactivation post-acceptance, or protected by a cross-client lease and safe rollback?
-- What information enters the wake input?
-- What happens when the event source, local watcher, or app-server is unavailable?
-- When and how is the watcher disarmed?
-- How does the design prove that no model polling is required?
+- What exact operation and attempt are observed?
+- Which source is authoritative?
+- How are registration races and lost dispatch acknowledgments recovered?
+- Which outcomes require attention?
+- Where is the exact registered v2 root?
+- How are duplicates, concurrent delivery, retries, and restarts handled?
+- How is uncertain acceptance reconciled without a blind resend?
+- When does the active goal enter owned wait?
+- How are manual goal blocks distinguished from owned notify waits?
+- What non-atomic race does the selected policy accept?
+- Does root delivery omit model and effort?
+- Which code remains provider-specific, and which calls the shared runtime?
+- What happens when the source, watcher, relay, or app-server is unavailable?
+- How does the design avoid model polling?
 
 ## Acceptance Scenarios
 
 | Scenario | Required result |
 |---|---|
-| Successful operation needs analysis | One accepted wake, followed by source-backed analysis |
-| Successful operation completes the objective | Durable silent close with no wake |
-| Failure, cancellation, timeout, or stall | Pending attention event and one idempotent accepted wake |
-| Duplicate provider delivery | Stored event result, no second accepted wake |
-| Delivery acknowledgment is lost | Reconcile by stable client message ID; accept a match, retry only after proven absence, otherwise block |
-| Originating task is idle | `turn/start` with the stable client message ID only under an atomic idle-start guarantee; otherwise keep delivery blocked |
-| Originating task has an active turn | `turn/steer` with the expected active turn ID |
-| Active persistent goal waits on the operation | Exact goal snapshot is moved to `blocked` under a native precondition or exclusive goal-write lease before control returns |
-| Wake is explicitly rejected after activation-first fallback | Unchanged activation snapshot is restored to the recorded event-wait state before the lease is released |
-| Wake acceptance is uncertain | Goal state is left unchanged until client-message reconciliation proves acceptance or absence |
-| App-server is unavailable | Source truth remains durable and delivery stays retryable |
-| Task, turn, goal, or permission context changed | Delivery remains queued or blocked without changing source truth |
-| Operation completes during registration | Immediate reconciliation records the missed terminal event |
-| No native source or safe watcher exists | Launch stops and automatic wake is reported unavailable |
+| Success needs analysis | One accepted wake followed by source-backed analysis |
+| Success completes the objective | Durable silent close |
+| Failure, timeout, cancellation, or stall | One durable attention event and accepted wake |
+| Duplicate source delivery | No second logical event or accepted wake |
+| Lost wake acknowledgment | Match means accepted; complete absence means retry; incomplete history blocks |
+| Idle root task, compatibility policy | Root `turn/start` without model or effort |
+| Idle root task, strict policy | Event remains blocked |
+| Active task | `turn/steer` with exact `expectedTurnId` |
+| Exact owned blocked goal | Activate, verify, deliver, then release |
+| Manual, changed, or uncertain blocked goal | Preserve it without activation |
+| Explicit wake rejection after activation | Restore blocked and renew ownership |
+| Uncertain wake after activation | Leave the goal unchanged until reconciliation |
+| Old state or response shape | Reject with cutover-required error |
+| No observable source | Stop before launch or report no automatic wake |

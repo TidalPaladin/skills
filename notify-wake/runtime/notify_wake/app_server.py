@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import re
 import subprocess
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from random import Random
@@ -39,6 +39,7 @@ RETRY_FACTOR = 2.0
 RETRY_CAP_SECONDS = 300.0
 SERVER_REQUEST_REJECTION_CODE = -32601
 SERVER_REQUEST_REJECTION_MESSAGE = "This client does not handle server requests"
+MINIMUM_APP_SERVER_VERSION = (0, 146, 0)
 
 JsonObject = dict[str, Any]
 
@@ -191,6 +192,13 @@ class RpcClient:
                     f"{method} timed out",
                     request_may_have_reached=wake_request and sent_boundary_crossed,
                 ) from error
+            except AppServerError as error:
+                if wake_request and sent_boundary_crossed:
+                    raise AppServerError(
+                        f"{method} acknowledgment is uncertain: {error}",
+                        request_may_have_reached=True,
+                    ) from error
+                raise
         finally:
             self._pending.pop(request_id, None)
         if "error" in response:
@@ -255,12 +263,6 @@ class RpcClient:
                     future.set_exception(protocol_error)
 
 
-@dataclass(frozen=True, slots=True)
-class Acceptance:
-    rpc_method: str
-    turn_id: str
-
-
 def initialize_params() -> JsonObject:
     return {
         "clientInfo": {
@@ -297,6 +299,19 @@ def discover_daemon_socket(
     socket_path = payload.get("socketPath")
     if not isinstance(socket_path, str) or not Path(socket_path).is_absolute():
         raise AppServerError("managed daemon did not report an absolute socket path")
+    version = payload.get("appServerVersion")
+    if not isinstance(version, str):
+        raise AppServerError("managed daemon did not report appServerVersion")
+    parsed_version = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:[-+].*)?", version)
+    if parsed_version is None:
+        raise AppServerError("managed daemon reported an invalid appServerVersion")
+    version_tuple = tuple(int(part) for part in parsed_version.groups())
+    if version_tuple < MINIMUM_APP_SERVER_VERSION:
+        raise AppServerError(
+            "unsupported notify-wake contract; cutover required: "
+            "Codex app-server 0.146.0 or later is required",
+            permanent=True,
+        )
     return Path(socket_path)
 
 
@@ -449,7 +464,7 @@ async def deliver_notification(
     random: Random | None = None,
     request_timeout: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
 ) -> NotificationRecord:
-    """Attempt one serialized delivery without ever using unsafe idle start."""
+    """Attempt one serialized delivery with research compatibility by default."""
 
     selected_random = random or Random()
     notification = store.ensure_notification(watch_id)
@@ -494,69 +509,89 @@ async def deliver_notification(
             store.write_notification(watch_id, accepted)
             store.close_watch(watch_id, now=accepted.accepted_at or selected_now)
             return accepted
+        from .delivery import (
+            DeliveryState as CoreDeliveryState,
+        )
+        from .delivery import (
+            WakeRequest,
+            deliver_wake,
+        )
+
         try:
             transport = await _connect(connect)
-            acceptance = await _deliver_over_transport(
-                store,
-                watch,
-                context,
-                terminal,
-                notification,
-                transport,
-                selected_now,
-                request_timeout=request_timeout,
-            )
         except AppServerError as error:
-            current = store.read_notification(watch_id)
-            if error.explicit_rejection:
-                retry = _schedule_retry(
-                    current,
-                    selected_now,
-                    error,
-                    selected_random,
-                    increment_attempt=False,
-                )
-                store.write_notification(watch_id, retry)
-                store.append_controller_log(
-                    watch_id,
-                    event="delivery_retry_scheduled",
-                    detail=retry.last_error,
-                    occurred_at=selected_now,
-                )
-                return retry
-            if error.request_may_have_reached or current.state == "in_flight":
-                sent_at = current.request_sent_at or selected_now
-                uncertain = current.mark_uncertain(
-                    sent_at=sent_at,
-                    reason=_sanitize_error_text(str(error)),
-                )
-                store.write_notification(watch_id, uncertain)
-                store.append_controller_log(
-                    watch_id,
-                    event="delivery_uncertain",
-                    detail=uncertain.last_error,
-                    occurred_at=selected_now,
-                )
-                return uncertain
             if error.permanent:
-                blocked = current.mark_blocked(
+                blocked = notification.mark_blocked(
                     attempted_at=selected_now,
                     error=_sanitize_error_text(str(error)),
                 )
                 store.write_notification(watch_id, blocked)
-                store.append_controller_log(
-                    watch_id,
-                    event="delivery_blocked",
-                    detail=blocked.last_error,
-                    occurred_at=selected_now,
-                )
                 return blocked
             retry = _schedule_retry(
-                current,
+                notification,
                 selected_now,
                 error,
                 selected_random,
                 increment_attempt=True,
+            )
+            store.write_notification(watch_id, retry)
+            return retry
+
+        def persist_request_boundary(rpc_method: str, sent_at: datetime) -> None:
+            current = store.read_notification(watch_id)
+            store.write_notification(
+                watch_id,
+                current.mark_in_flight(sent_at, rpc_method=rpc_method),
+            )
+
+        outcome = await deliver_wake(
+            WakeRequest(
+                event_id=terminal.event_id,
+                prompt=build_wake_prompt(watch, terminal, store.watch_dir(watch_id)),
+                context=context,
+            ),
+            transport,
+            lease=store.read_goal_wait_lease(watch_id),
+            persist_lease=lambda lease: store.write_goal_wait_lease(watch_id, lease),
+            persist_request_boundary=persist_request_boundary,
+            now=now,
+            request_timeout=request_timeout,
+        )
+        current = store.read_notification(watch_id)
+        if outcome.state == CoreDeliveryState.UNCERTAIN:
+            sent_at = current.request_sent_at or outcome.request_sent_at or selected_now
+            uncertain = current.mark_uncertain(
+                sent_at=sent_at,
+                reason=outcome.error or "wake acknowledgment is uncertain",
+            )
+            store.write_notification(watch_id, uncertain)
+            store.append_controller_log(
+                watch_id,
+                event="delivery_uncertain",
+                detail=uncertain.last_error,
+                occurred_at=selected_now,
+            )
+            return uncertain
+        if outcome.state == CoreDeliveryState.BLOCKED:
+            blocked = current.mark_blocked(
+                attempted_at=selected_now,
+                error=outcome.error or "delivery is blocked",
+            )
+            store.write_notification(watch_id, blocked)
+            store.append_controller_log(
+                watch_id,
+                event="delivery_blocked",
+                detail=blocked.last_error,
+                occurred_at=selected_now,
+            )
+            return blocked
+        if outcome.state == CoreDeliveryState.RETRY_DUE:
+            retry = _schedule_retry(
+                current,
+                selected_now,
+                AppServerError(outcome.error or "delivery retry required"),
+                selected_random,
+                increment_attempt=current.state != "in_flight",
             )
             store.write_notification(watch_id, retry)
             store.append_controller_log(
@@ -566,18 +601,19 @@ async def deliver_notification(
                 occurred_at=selected_now,
             )
             return retry
+        if outcome.rpc_method is None or outcome.turn_id is None:
+            raise AppServerError("accepted delivery outcome lacks RPC acceptance metadata")
         accepted_at = normalize_datetime(now(), "accepted_at")
-        current = store.read_notification(watch_id)
         accepted = current.mark_accepted(
             accepted_at=accepted_at,
-            rpc_method=acceptance.rpc_method,
-            turn_id=acceptance.turn_id,
+            rpc_method=outcome.rpc_method,
+            turn_id=outcome.turn_id,
         )
         ledger = store.read_accepted_ledger(lock_path, context.thread_id)
         ledger[terminal.event_id] = {
             "accepted_at": accepted_at.isoformat(),
-            "rpc_method": acceptance.rpc_method,
-            "turn_id": acceptance.turn_id,
+            "rpc_method": outcome.rpc_method,
+            "turn_id": outcome.turn_id,
         }
         store.write_accepted_ledger(lock_path, context.thread_id, ledger)
         store.write_notification(watch_id, accepted)
@@ -585,7 +621,7 @@ async def deliver_notification(
         store.append_controller_log(
             watch_id,
             event="delivery_accepted",
-            detail=acceptance.rpc_method,
+            detail=outcome.rpc_method,
             occurred_at=accepted_at,
         )
         return accepted
@@ -605,6 +641,8 @@ async def reconcile_uncertain_delivery(
     selected_random = random or Random()
     selected_now = normalize_datetime(now(), "now")
     context = store.read_wake_context(watch_id)
+    terminal = store.read_terminal(watch_id)
+    watch = store.read_watch(watch_id)
     async with _async_thread_lock(store, context.thread_id) as lock_path:
         notification = store.read_notification(watch_id)
         if not notification.requires_history_reconciliation:
@@ -617,38 +655,6 @@ async def reconcile_uncertain_delivery(
             return accepted
         try:
             transport = await _connect(connect)
-            async with RpcClient(
-                transport,
-                request_timeout=request_timeout,
-            ) as client:
-                await client.request("initialize", initialize_params())
-                await client.notify("initialized", {})
-                resumed = await client.request(
-                    "thread/resume",
-                    cast(JsonObject, context.resume_params()),
-                )
-                _thread_from_result(
-                    resumed,
-                    "thread/resume",
-                    context.thread_id,
-                )
-                _verify_effective_context(resumed, context)
-                result = await client.request(
-                    "thread/read",
-                    {
-                        "threadId": context.thread_id,
-                        "includeTurns": True,
-                    },
-                )
-                thread = _thread_from_result(
-                    result,
-                    "thread/read",
-                    context.thread_id,
-                )
-                match, complete = _find_client_message(
-                    thread,
-                    notification.event_id,
-                )
         except AppServerError as error:
             reconciliation_error = (
                 "authoritative history reconciliation unavailable: "
@@ -669,36 +675,74 @@ async def reconcile_uncertain_delivery(
             )
             store.write_notification(watch_id, retry)
             return retry
-        if match is not None:
+        from .delivery import (
+            DeliveryState as CoreDeliveryState,
+        )
+        from .delivery import (
+            WakeRequest,
+            reconcile_wake,
+        )
+
+        rpc_method = notification.attempted_rpc_method
+        if rpc_method not in {"turn/start", "turn/steer"}:
+            raise AppServerError(
+                "notification is missing the attempted wake RPC method",
+                permanent=True,
+            )
+        outcome = await reconcile_wake(
+            WakeRequest(
+                event_id=terminal.event_id,
+                prompt=build_wake_prompt(watch, terminal, store.watch_dir(watch_id)),
+                context=context,
+            ),
+            transport,
+            attempted_rpc_method=rpc_method,
+            lease=store.read_goal_wait_lease(watch_id),
+            persist_lease=lambda lease: store.write_goal_wait_lease(watch_id, lease),
+            now=now,
+            request_timeout=request_timeout,
+        )
+        if outcome.state == CoreDeliveryState.ACCEPTED:
+            if outcome.turn_id is None:
+                raise AppServerError("accepted reconciliation lacks a turn ID")
             accepted = notification.mark_accepted(
                 accepted_at=selected_now,
-                rpc_method="turn/steer",
-                turn_id=match,
+                rpc_method=rpc_method,
+                turn_id=outcome.turn_id,
             )
             ledger = store.read_accepted_ledger(lock_path, context.thread_id)
             ledger[notification.event_id] = {
                 "accepted_at": selected_now.isoformat(),
-                "rpc_method": "turn/steer",
-                "turn_id": match,
+                "rpc_method": rpc_method,
+                "turn_id": outcome.turn_id,
             }
             store.write_accepted_ledger(lock_path, context.thread_id, ledger)
             store.write_notification(watch_id, accepted)
             store.close_watch(watch_id, now=selected_now)
             return accepted
-        if not complete:
+        if outcome.state == CoreDeliveryState.BLOCKED:
             blocked = notification.mark_reconciliation_blocked(
                 attempted_at=selected_now,
-                error="authoritative thread history is incomplete",
+                error=outcome.error or "authoritative history reconciliation is blocked",
             )
             store.write_notification(watch_id, blocked)
             return blocked
-        retry = _schedule_retry(
-            notification,
-            selected_now,
-            AppServerError("authoritative thread history proves the client message is absent"),
-            selected_random,
-            increment_attempt=False,
-        )
+        error = outcome.error or "authoritative history reconciliation failed"
+        if "proves the wake is absent" in error:
+            retry = _schedule_retry(
+                notification,
+                selected_now,
+                AppServerError(error),
+                selected_random,
+                increment_attempt=False,
+            )
+        else:
+            retry = _schedule_reconciliation_retry(
+                notification,
+                selected_now,
+                error,
+                selected_random,
+            )
         store.write_notification(watch_id, retry)
         return retry
 
@@ -725,82 +769,6 @@ def build_wake_prompt(
         f"Evidence:\n{evidence_section}\n\n"
         "Read and validate the durable state and evidence before continuing."
     )
-
-
-async def _deliver_over_transport(
-    store: WatchStore,
-    watch: WatchRecord,
-    context: WakeContext,
-    terminal: TerminalRecord,
-    notification: NotificationRecord,
-    transport: MessageTransport,
-    selected_now: datetime,
-    *,
-    request_timeout: float,
-) -> Acceptance:
-    async with RpcClient(transport, request_timeout=request_timeout) as client:
-        await client.request("initialize", initialize_params())
-        await client.notify("initialized", {})
-        resumed = await client.request(
-            "thread/resume",
-            cast(JsonObject, context.resume_params()),
-        )
-        _thread_from_result(resumed, "thread/resume", context.thread_id)
-        _verify_effective_context(resumed, context)
-        goal_result = await client.request(
-            "thread/goal/get",
-            {"threadId": context.thread_id},
-        )
-        goal = goal_result.get("goal")
-        if goal is not None:
-            raise AppServerError(
-                "persistent goal delivery requires an atomic event-wait lease",
-                permanent=True,
-            )
-        fresh = await client.request(
-            "thread/read",
-            {"threadId": context.thread_id, "includeTurns": True},
-        )
-        thread = _thread_from_result(
-            fresh,
-            "thread/read",
-            context.thread_id,
-        )
-        expected_turn_id = _steerable_turn_id(thread)
-        input_items = [
-            {
-                "type": "text",
-                "text": build_wake_prompt(
-                    watch,
-                    terminal,
-                    store.watch_dir(watch.watch_id),
-                ),
-            }
-        ]
-
-        def persist_request_boundary() -> None:
-            current = store.read_notification(watch.watch_id)
-            in_flight = current.mark_in_flight(selected_now)
-            store.write_notification(watch.watch_id, in_flight)
-
-        result = await client.request(
-            "turn/steer",
-            {
-                "threadId": context.thread_id,
-                "input": input_items,
-                "expectedTurnId": expected_turn_id,
-                "clientUserMessageId": terminal.event_id,
-            },
-            before_send=persist_request_boundary,
-            wake_request=True,
-        )
-        turn_id = result.get("turnId")
-        if not isinstance(turn_id, str) or turn_id != expected_turn_id:
-            raise AppServerError(
-                "turn/steer returned an unexpected turn ID",
-                request_may_have_reached=True,
-            )
-        return Acceptance(rpc_method="turn/steer", turn_id=turn_id)
 
 
 def _verify_effective_context(

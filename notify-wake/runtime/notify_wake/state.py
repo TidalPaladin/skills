@@ -19,6 +19,7 @@ from .models import (
     SCHEMA_VERSION,
     ModelError,
     NotificationRecord,
+    NotifyWaitLease,
     TerminalRecord,
     WakeContext,
     WatchRecord,
@@ -29,6 +30,7 @@ ROOT_MARKER = ".notify-wake-root.json"
 ROOT_KIND = "codex-notify-wake"
 WATCH_FILENAME = "watch.json"
 WAKE_CONTEXT_FILENAME = "wake-context.json"
+GOAL_WAIT_FILENAME = "goal-wait.json"
 TERMINAL_FILENAME = "terminal.json"
 NOTIFICATION_FILENAME = "notification.json"
 PROCESS_LOG_FILENAME = "process.log"
@@ -50,7 +52,7 @@ def default_state_root(environment: dict[str, str] | None = None) -> Path:
     resolved_base = base.resolve(strict=False)
     if resolved_base == Path("/"):
         raise StateError("CODEX_HOME must not resolve to the filesystem root")
-    return resolved_base / "notify-wake"
+    return resolved_base / "notify-wake" / f"v{SCHEMA_VERSION}"
 
 
 @contextmanager
@@ -98,6 +100,8 @@ class WatchStore:
         }
         if marker.exists():
             payload = self._load_json(marker)
+            if payload.get("schema_version") != SCHEMA_VERSION:
+                raise StateError("unsupported notify-wake contract; cutover required")
             if payload != expected:
                 raise StateError("notify-wake root marker does not match the exact root")
         else:
@@ -119,7 +123,10 @@ class WatchStore:
             "kind": ROOT_KIND,
             "root_path": str(self.root),
         }
-        if self._load_json(marker) != expected:
+        payload = self._load_json(marker)
+        if payload.get("schema_version") != SCHEMA_VERSION:
+            raise StateError("unsupported notify-wake contract; cutover required")
+        if payload != expected:
             raise StateError("notify-wake root marker does not match the exact root")
 
     def watch_dir(self, watch_id: str, *, create: bool = False) -> Path:
@@ -158,6 +165,24 @@ class WatchStore:
 
     def read_wake_context(self, watch_id: str) -> WakeContext:
         return WakeContext.from_dict(self._read_watch_json(watch_id, WAKE_CONTEXT_FILENAME))
+
+    def read_goal_wait_lease(self, watch_id: str) -> NotifyWaitLease | None:
+        path = self.watch_dir(watch_id) / GOAL_WAIT_FILENAME
+        if not path.exists():
+            return None
+        return NotifyWaitLease.from_dict(self._load_json(path))
+
+    def write_goal_wait_lease(
+        self,
+        watch_id: str,
+        lease: NotifyWaitLease,
+    ) -> None:
+        path = self.watch_dir(watch_id)
+        context = WakeContext.from_dict(self._load_json(path / WAKE_CONTEXT_FILENAME))
+        if lease.thread_id != context.thread_id:
+            raise StateError("goal-wait lease task ID does not match the wake context")
+        with locked_file(path / STATE_LOCK_FILENAME):
+            self._atomic_write_json(path / GOAL_WAIT_FILENAME, lease.to_dict())
 
     def read_terminal(self, watch_id: str) -> TerminalRecord:
         return TerminalRecord.from_dict(self._read_watch_json(watch_id, TERMINAL_FILENAME))
@@ -233,6 +258,7 @@ class WatchStore:
             self._fsync_directory(self.root)
         for filename in (
             WAKE_CONTEXT_FILENAME,
+            GOAL_WAIT_FILENAME,
             WATCH_FILENAME,
             PROCESS_LOG_FILENAME,
             CONTROLLER_LOG_FILENAME,
@@ -356,11 +382,9 @@ class WatchStore:
         if not path.exists():
             return {}
         payload = self._load_json(path)
-        if (
-            payload.get("schema_version") != SCHEMA_VERSION
-            or payload.get("thread_id") != thread_id
-            or not isinstance(payload.get("events"), dict)
-        ):
+        if payload.get("schema_version") != SCHEMA_VERSION:
+            raise StateError("unsupported notify-wake contract; cutover required")
+        if payload.get("thread_id") != thread_id or not isinstance(payload.get("events"), dict):
             raise StateError("accepted-event ledger is invalid")
         events = cast(dict[object, object], payload["events"])
         if not all(

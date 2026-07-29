@@ -42,6 +42,7 @@ from notify_wake.app_server import (
 from notify_wake.cli import build_parser, render_result
 from notify_wake.models import (
     MAX_DELIVERY_ATTEMPTS,
+    SCHEMA_VERSION,
     NotificationRecord,
     TargetIdentity,
     TerminalRecord,
@@ -254,7 +255,7 @@ def target_identity(*, pid: int = TARGET_PID) -> TargetIdentity:
 
 def watch_record(*, watch_id: str = WATCH_ID) -> WatchRecord:
     return WatchRecord(
-        schema_version=1,
+        schema_version=SCHEMA_VERSION,
         watch_id=watch_id,
         mode="attach",
         lifecycle="active",
@@ -274,7 +275,7 @@ def terminal_record(
     status: TerminalStatus = "exited",
 ) -> TerminalRecord:
     return TerminalRecord(
-        schema_version=1,
+        schema_version=SCHEMA_VERSION,
         watch_id=WATCH_ID,
         event_id=EVENT_ID,
         target=target_identity(),
@@ -424,7 +425,7 @@ def test_delivery_blocks_goal_without_mutation(tmp_path: Path) -> None:
     assert store.read_terminal(WATCH_ID).status == "exited"
 
 
-def test_delivery_blocks_idle_thread_without_turn_start(tmp_path: Path) -> None:
+def test_default_delivery_starts_idle_thread_without_model_override(tmp_path: Path) -> None:
     store = prepared_store(tmp_path)
     transport = ScriptedTransport(app_server_handler(thread_status="idle", turns=[]))
 
@@ -438,9 +439,10 @@ def test_delivery_blocks_idle_thread_without_turn_start(tmp_path: Path) -> None:
         )
     )
 
-    assert result.state == "blocked"
-    assert "atomic idle-start" in (result.last_error or "")
-    assert not any(message.get("method") == "turn/start" for message in transport.sent)
+    assert result.state == "accepted"
+    start = next(message for message in transport.sent if message.get("method") == "turn/start")
+    assert "model" not in start["params"]
+    assert "effort" not in start["params"]
 
 
 def test_delivery_steers_exact_active_turn_and_persists_acceptance(tmp_path: Path) -> None:
@@ -530,10 +532,9 @@ def test_incomplete_history_blocks_uncertain_delivery_without_retry(
     store = prepared_store(tmp_path)
     store.write_notification(
         WATCH_ID,
-        store.read_notification(WATCH_ID).mark_uncertain(
-            sent_at=NOW,
-            reason="lost response",
-        ),
+        store.read_notification(WATCH_ID)
+        .mark_in_flight(NOW, rpc_method="turn/steer")
+        .mark_uncertain(sent_at=NOW, reason="lost response"),
     )
     transport = ScriptedTransport(app_server_handler(complete_history=False))
 
@@ -563,10 +564,9 @@ def test_malformed_history_item_blocks_uncertain_delivery_without_retry(
     store = prepared_store(tmp_path)
     store.write_notification(
         WATCH_ID,
-        store.read_notification(WATCH_ID).mark_uncertain(
-            sent_at=NOW,
-            reason="lost response",
-        ),
+        store.read_notification(WATCH_ID)
+        .mark_in_flight(NOW, rpc_method="turn/steer")
+        .mark_uncertain(sent_at=NOW, reason="lost response"),
     )
     transport = ScriptedTransport(
         app_server_handler(
@@ -649,7 +649,7 @@ def test_daemon_discovery_uses_version_command_not_proxy(tmp_path: Path) -> None
                 {
                     "status": "running",
                     "socketPath": str(socket_path),
-                    "appServerVersion": "0.145.0",
+                    "appServerVersion": "0.146.0",
                 }
             ),
             stderr="",
@@ -867,7 +867,7 @@ def test_restart_context_mismatch_is_permanently_blocked(
 @pytest.mark.parametrize(
     ("thread_status", "turns", "message"),
     [
-        ("paused", [], "not currently deliverable"),
+        ("paused", [], "not deliverable"),
         ("active", [], "exactly one"),
         (
             "active",
@@ -904,10 +904,9 @@ def test_reconcile_absent_complete_history_becomes_retry_due(tmp_path: Path) -> 
     store = prepared_store(tmp_path)
     store.write_notification(
         WATCH_ID,
-        store.read_notification(WATCH_ID).mark_uncertain(
-            sent_at=NOW,
-            reason="lost ack",
-        ),
+        store.read_notification(WATCH_ID)
+        .mark_in_flight(NOW, rpc_method="turn/steer")
+        .mark_uncertain(sent_at=NOW, reason="lost ack"),
     )
     result = run(
         reconcile_uncertain_delivery(
@@ -926,10 +925,9 @@ def test_reconcile_transport_failure_schedules_history_retry(tmp_path: Path) -> 
     store = prepared_store(tmp_path)
     store.write_notification(
         WATCH_ID,
-        store.read_notification(WATCH_ID).mark_uncertain(
-            sent_at=NOW,
-            reason="lost ack",
-        ),
+        store.read_notification(WATCH_ID)
+        .mark_in_flight(NOW, rpc_method="turn/steer")
+        .mark_uncertain(sent_at=NOW, reason="lost ack"),
     )
     result = run(
         reconcile_uncertain_delivery(
@@ -964,10 +962,9 @@ def test_reconcile_transport_failures_exhaust_attempt_limit(tmp_path: Path) -> N
     store = prepared_store(tmp_path)
     store.write_notification(
         WATCH_ID,
-        store.read_notification(WATCH_ID).mark_uncertain(
-            sent_at=NOW,
-            reason="lost ack",
-        ),
+        store.read_notification(WATCH_ID)
+        .mark_in_flight(NOW, rpc_method="turn/steer")
+        .mark_uncertain(sent_at=NOW, reason="lost ack"),
     )
 
     result: NotificationRecord | None = None
@@ -995,10 +992,9 @@ def test_reconcile_authority_mismatch_is_permanently_blocked(tmp_path: Path) -> 
     store = prepared_store(tmp_path)
     store.write_notification(
         WATCH_ID,
-        store.read_notification(WATCH_ID).mark_uncertain(
-            sent_at=NOW,
-            reason="lost ack",
-        ),
+        store.read_notification(WATCH_ID)
+        .mark_in_flight(NOW, rpc_method="turn/steer")
+        .mark_uncertain(sent_at=NOW, reason="lost ack"),
     )
 
     result = run(
@@ -1181,6 +1177,24 @@ def test_concurrent_same_event_delivery_does_not_resend_uncertain_wake(
         (
             subprocess.CompletedProcess((), 0, '{"status":"running","socketPath":"relative"}', ""),
             "absolute socket",
+        ),
+        (
+            subprocess.CompletedProcess(
+                (),
+                0,
+                '{"status":"running","socketPath":"/tmp/app.sock"}',
+                "",
+            ),
+            "appServerVersion",
+        ),
+        (
+            subprocess.CompletedProcess(
+                (),
+                0,
+                ('{"status":"running","socketPath":"/tmp/app.sock","appServerVersion":"0.145.0"}'),
+                "",
+            ),
+            "cutover required",
         ),
     ],
 )
@@ -1410,10 +1424,9 @@ def test_deliver_routes_in_flight_state_to_reconciliation(tmp_path: Path) -> Non
     store = prepared_store(tmp_path)
     store.write_notification(
         WATCH_ID,
-        store.read_notification(WATCH_ID).mark_uncertain(
-            sent_at=NOW,
-            reason="lost",
-        ),
+        store.read_notification(WATCH_ID)
+        .mark_in_flight(NOW, rpc_method="turn/steer")
+        .mark_uncertain(sent_at=NOW, reason="lost"),
     )
     transport = ScriptedTransport(app_server_handler(history_client_id=EVENT_ID))
     result = run(

@@ -9,6 +9,7 @@ import selectors
 import signal
 import subprocess
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -16,8 +17,10 @@ from typing import Any, cast
 import notify_wake.cli as cli
 import pytest
 from notify_wake.models import (
+    SCHEMA_VERSION,
     Lifecycle,
     NotificationRecord,
+    NotifyWaitLease,
     TargetIdentity,
     TerminalRecord,
     WakeContext,
@@ -73,7 +76,7 @@ def watch_record(
     process_log: Path | None = None,
 ) -> WatchRecord:
     return WatchRecord(
-        schema_version=1,
+        schema_version=SCHEMA_VERSION,
         watch_id=WATCH_ID,
         mode=cast(WatchMode, mode),
         lifecycle=cast(Lifecycle, lifecycle),
@@ -89,7 +92,7 @@ def watch_record(
 
 def terminal() -> TerminalRecord:
     return TerminalRecord(
-        schema_version=1,
+        schema_version=SCHEMA_VERSION,
         watch_id=WATCH_ID,
         event_id=EVENT_ID,
         target=attached_target(),
@@ -177,7 +180,7 @@ def test_main_preflight_and_error_exit_contracts(
     assert json.loads(capsys.readouterr().out)["error"] == "unsafe"
 
 
-def test_preflight_reports_authority_and_goal_blocker(
+def test_preflight_reports_authority_and_non_atomic_goal_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("CODEX_THREAD_ID", THREAD_ID)
@@ -187,12 +190,14 @@ def test_preflight_reports_authority_and_goal_blocker(
 
     monkeypatch.setattr(cli, "capture_wake_readiness_from_daemon", capture)
     payload = cli._preflight()
-    assert payload["delivery"] == "blocked"
+    assert payload["delivery"] == "available"
+    assert payload["delivery_policy"] == "research_compatibility"
+    assert payload["non_atomic_delivery"] is True
     assert payload["permission_profile"] == "danger-full-access"
     assert payload["socket_path"] == "/tmp/app.sock"
 
 
-def test_preflight_and_launch_context_reject_idle_thread(
+def test_preflight_and_launch_context_accept_idle_thread_under_default_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("CODEX_THREAD_ID", THREAD_ID)
@@ -211,11 +216,10 @@ def test_preflight_and_launch_context_reject_idle_thread(
 
     payload = cli._preflight()
 
-    assert payload["automatic_delivery_available"] is False
-    assert payload["delivery"] == "blocked"
-    assert payload["blocker"] == idle_blocker
-    with pytest.raises(cli.ExpectedProblem, match="atomic idle-start"):
-        cli._capture_launch_context()
+    assert payload["automatic_delivery_available"] is True
+    assert payload["delivery"] == "available"
+    assert payload["observed_strict_blocker"] == idle_blocker
+    assert cli._capture_launch_context() == context()
 
 
 def test_run_command_registers_prepared_watch_without_leaking_arguments(
@@ -249,7 +253,7 @@ def test_run_command_registers_prepared_watch_without_leaking_arguments(
     assert selected.process_log_path in selected.evidence_paths
 
 
-def test_run_command_rejects_missing_command_goal_and_failed_handshake(
+def test_run_command_accepts_goal_and_rejects_missing_command_or_failed_handshake(
     store: WatchStore,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -258,8 +262,23 @@ def test_run_command_rejects_missing_command_goal_and_failed_handshake(
         cli._run_command(parsed(["run", "--timeout-seconds", "1"]))
 
     monkeypatch.setattr(cli, "_capture_launch_context", lambda: context(goal={"status": "active"}))
-    with pytest.raises(cli.ExpectedProblem, match="persistent goal"):
-        cli._run_command(parsed(["run", "--timeout-seconds", "1", "--", "/bin/true"]))
+    monkeypatch.setattr(cli, "_launch_supervisor", lambda *_args, **_kwargs: {"status": "active"})
+    assert (
+        cli._run_command(
+            parsed(
+                [
+                    "run",
+                    "--watch-id",
+                    "32345678-1234-5678-9234-567812345678",
+                    "--timeout-seconds",
+                    "1",
+                    "--",
+                    "/bin/true",
+                ]
+            )
+        )["lifecycle"]
+        == "prepared"
+    )
 
     monkeypatch.setattr(cli, "_capture_launch_context", context)
     monkeypatch.setattr(
@@ -403,7 +422,10 @@ def test_reconcile_routes_delivery_state(
     store.create_watch(watch_record(selected_target=attached_target()), context())
     current = store.record_terminal(terminal())
     if state in {"uncertain", "blocked_uncertain"}:
-        current = current.mark_uncertain(sent_at=NOW, reason="lost")
+        current = current.mark_in_flight(NOW, rpc_method="turn/steer").mark_uncertain(
+            sent_at=NOW,
+            reason="lost",
+        )
         if state == "blocked_uncertain":
             current = current.mark_reconciliation_blocked(
                 attempted_at=NOW,
@@ -432,6 +454,85 @@ def test_reconcile_routes_delivery_state(
     assert calls == (
         [] if state == "accepted" else [(state == "pending" and "deliver") or "reconcile"]
     )
+
+
+def test_wait_command_passes_exact_armed_loop_identity(
+    store: WatchStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store.create_watch(
+        watch_record(selected_target=attached_target()),
+        context(goal={"status": "active"}),
+    )
+    captured: dict[str, object] = {}
+
+    async def connect(_socket_path: Path) -> object:
+        return object()
+
+    async def enter(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(cli, "discover_daemon_socket", lambda: Path("/tmp/app.sock"))
+    monkeypatch.setattr(cli.UnixWebSocketTransport, "connect", connect)
+    monkeypatch.setattr(cli, "enter_notify_wait", enter)
+
+    payload = cli._wait_command(WATCH_ID)
+
+    assert payload["lifecycle"] == "active"
+    assert captured["loop_id"] == f"local-process:{WATCH_ID}"
+    assert captured["source_ids"] == (f"watch:{WATCH_ID}",)
+    verifier = cast(Callable[[str, tuple[str, ...]], bool], captured["verify_loop_identity"])
+    assert verifier(
+        f"local-process:{WATCH_ID}",
+        (f"watch:{WATCH_ID}",),
+    )
+    assert not verifier("local-process:other", (f"watch:{WATCH_ID}",))
+
+
+def test_wait_command_rejects_completed_watch(
+    store: WatchStore,
+) -> None:
+    selected_watch = watch_record(selected_target=attached_target())
+    store.create_watch(
+        selected_watch,
+        context(goal={"status": "active"}),
+    )
+    store.write_watch(selected_watch.with_lifecycle("complete", NOW))
+
+    with pytest.raises(cli.ExpectedProblem, match="armed or active"):
+        cli._wait_command(WATCH_ID)
+
+
+def test_wait_command_rejects_existing_owned_lease(
+    store: WatchStore,
+) -> None:
+    selected_watch = watch_record(selected_target=attached_target())
+    store.create_watch(selected_watch, context(goal={"status": "active"}))
+    store.write_goal_wait_lease(
+        WATCH_ID,
+        NotifyWaitLease.owned(
+            lease_id="32345678-1234-5678-9234-567812345678",
+            loop_id=f"local-process:{WATCH_ID}",
+            source_ids=(f"watch:{WATCH_ID}",),
+            thread_id=THREAD_ID,
+            goal={
+                "threadId": THREAD_ID,
+                "objective": "wait for the local process",
+                "status": "blocked",
+                "tokenBudget": 1000,
+                "tokensUsed": 100,
+                "timeUsedSeconds": 10,
+                "createdAt": 1,
+                "updatedAt": 3,
+            },
+            prepared_at=NOW,
+            blocked_at=NOW,
+            pre_block_updated_at=2,
+        ),
+    )
+
+    with pytest.raises(cli.ExpectedProblem, match="already has"):
+        cli._wait_command(WATCH_ID)
 
 
 def test_owned_supervisor_runs_process_to_terminal(
