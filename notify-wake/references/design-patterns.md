@@ -15,6 +15,28 @@ Use this reference to select an adapter and review its state, delivery, and secu
 
 ## Adapter Patterns
 
+### Bundled strict local-process adapter
+
+For one local Unix command or Linux PID, prefer the `preflight`, `run`,
+`attach`, `status`, and `reconcile` commands bundled with this skill. The
+adapter uses an owned process group and native `waitpid` for `run`, or a pidfd
+plus `/proc/<pid>/stat` start time for `attach`. It calls `os.pidfd_open` when
+Python exposes it and otherwise uses the host libc `pidfd_open` wrapper. Each
+UUID-named watch is contained under the fixed managed notify-wake root.
+
+The supervisor writes and syncs `terminal.json` before creating or updating
+`notification.json`. It records the app-server request boundary as
+`in_flight`, uses per-event full-jitter retry deadlines, and reconciles an
+uncertain request against full task history by `clientUserMessageId`. It
+connects to the managed daemon's Unix WebSocket directly and rejects
+app-server approval requests.
+
+This adapter is deliberately strict. It steers only one exact active turn with
+`expectedTurnId`. It keeps idle-task, persistent-goal, missing-authority,
+legacy-null-authority, and changed-authority delivery durably `blocked`. Use a
+different adapter only when its native source and concurrency guarantees
+satisfy the same contract.
+
 ### Native local completion
 
 Use a supervisor that owns the child process or process group and receives its exit status. The supervisor writes lifecycle and terminal state, then emits a notification event. The child must not wait for Codex delivery.

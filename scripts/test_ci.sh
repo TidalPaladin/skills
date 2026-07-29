@@ -10,6 +10,8 @@ readonly DEPENDENCY_HEALTH="${REPO_ROOT}/.github/workflows/dependency-health.yml
 readonly DEPENDABOT_CONFIG="${REPO_ROOT}/.github/dependabot.yml"
 readonly PACKAGE_MANIFEST="${REPO_ROOT}/package.json"
 readonly PROJECT_CONFIG="${REPO_ROOT}/pyproject.toml"
+readonly NOTIFY_WAKE_PROJECT="${REPO_ROOT}/notify-wake/pyproject.toml"
+readonly NOTIFY_WAKE_LOCK="${REPO_ROOT}/notify-wake/uv.lock"
 readonly REQUIRED_CI="${REPO_ROOT}/.github/workflows/ci.yml"
 readonly TOKEN_AUTH_SCRIPT="${REPO_ROOT}/token-file-auth/scripts/token_file_auth.sh"
 
@@ -47,6 +49,10 @@ assert_not_contains() {
   fail "pyproject.toml must define the locked CI environment"
 [[ -f "${REPO_ROOT}/uv.lock" ]] ||
   fail "uv.lock must pin the complete CI dependency graph"
+[[ -f "$NOTIFY_WAKE_PROJECT" ]] ||
+  fail "notify-wake must define its locked runtime environment"
+[[ -f "$NOTIFY_WAKE_LOCK" ]] ||
+  fail "notify-wake must pin its complete dependency graph"
 [[ -f "${DEPENDABOT_CONFIG}" ]] ||
   fail "Dependabot must propose controlled dependency updates"
 [[ -f "${CODEX_CANARY}" ]] ||
@@ -79,6 +85,15 @@ fi
 assert_contains \
   "${CI_SCRIPT}" \
   'uv run --locked --group ci --python "$PYTHON_VERSION"'
+assert_contains "${CI_SCRIPT}" 'readonly NOTIFY_WAKE_PYTHON_MIN="3.12"'
+assert_contains \
+  "${CI_SCRIPT}" \
+  'run_notify_wake_tool "$PYTHON_VERSION" pytest --cov=notify_wake'
+assert_contains \
+  "${CI_SCRIPT}" \
+  'run_notify_wake_tool "$NOTIFY_WAKE_PYTHON_MIN" pytest -q tests'
+assert_contains "${NOTIFY_WAKE_PROJECT}" '"websockets==16.1.1"'
+assert_contains "${NOTIFY_WAKE_PROJECT}" 'fail_under = 90'
 assert_contains "${CI_SCRIPT}" "npm ci --ignore-scripts"
 assert_contains "${CI_SCRIPT}" 'CODEX_INSTALL_MODE'
 assert_contains "${CI_SCRIPT}" 'node_modules/.bin'
@@ -101,9 +116,10 @@ for package_ecosystem in npm uv github-actions; do
 done
 assert_contains "${DEPENDABOT_CONFIG}" 'dependency-name: "@openai/codex"'
 assert_contains "${DEPENDABOT_CONFIG}" 'versioning-strategy: increase'
-if [[ "$(rg --count-matches --fixed-strings -- 'default-days: 7' "${DEPENDABOT_CONFIG}")" != 3 ]]; then
+if [[ "$(rg --count-matches --fixed-strings -- 'default-days: 7' "${DEPENDABOT_CONFIG}")" != 4 ]]; then
   fail "every Dependabot ecosystem must use the seven-day supply-chain cooldown"
 fi
+assert_contains "${DEPENDABOT_CONFIG}" 'directory: "/notify-wake"'
 
 assert_contains \
   "${CI_SCRIPT}" \
@@ -128,6 +144,7 @@ fi
 
 assert_contains "${AUDIT_SCRIPT}" "npm audit --audit-level=low"
 assert_contains "${AUDIT_SCRIPT}" "uv export --locked"
+assert_contains "${AUDIT_SCRIPT}" "uv export --project notify-wake --locked"
 assert_contains "${AUDIT_SCRIPT}" "pip-audit --strict"
 assert_contains "${DEPENDENCY_HEALTH}" "name: Dependency Health"
 assert_contains "${DEPENDENCY_HEALTH}" "schedule:"
