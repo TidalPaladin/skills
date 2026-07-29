@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import os
 import signal
 import stat
@@ -101,6 +102,41 @@ def test_pidfd_fallback_opens_exact_current_process() -> None:
         assert descriptor >= 0
     finally:
         os.close(descriptor)
+
+
+def test_pidfd_support_detection_covers_system_and_libc_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(os, "pidfd_open", lambda _pid: 9, raising=False)
+    assert pidfd_supported() is True
+
+    monkeypatch.delattr(os, "pidfd_open")
+    monkeypatch.setattr(processes, "_libc_pidfd_open", lambda: object())
+    assert pidfd_supported() is True
+
+    def unavailable() -> object:
+        raise StateError("unavailable")
+
+    monkeypatch.setattr(processes, "_libc_pidfd_open", unavailable)
+    assert pidfd_supported() is False
+
+
+def test_open_pidfd_covers_system_libc_and_errno_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(os, "pidfd_open", lambda pid: pid + 1, raising=False)
+    assert open_pidfd(PID) == PID + 1
+
+    monkeypatch.delattr(os, "pidfd_open")
+    monkeypatch.setattr(processes, "_libc_pidfd_open", lambda: lambda pid, _flags: pid + 2)
+    assert open_pidfd(PID) == PID + 2
+
+    monkeypatch.setattr(processes, "_libc_pidfd_open", lambda: lambda _pid, _flags: -1)
+    monkeypatch.setattr(processes.ctypes, "get_errno", lambda: errno.EPERM)
+    with pytest.raises(OSError, match=os.strerror(errno.EPERM)):
+        open_pidfd(PID)
 
 
 def test_read_proc_start_ticks_rejects_non_linux(
@@ -311,7 +347,7 @@ def test_owned_exit_monitor_uses_prearmed_kqueue_without_waitid(
         assert flags == 6
         return FakeEvent(ident, fflags)
 
-    monkeypatch.delattr(processes.os, "waitid")
+    monkeypatch.delattr(processes.os, "waitid", raising=False)
     monkeypatch.setattr(processes.sys, "platform", "darwin")
     monkeypatch.setattr(processes.select, "kqueue", lambda: fake_kqueue, raising=False)
     monkeypatch.setattr(processes.select, "kevent", make_event, raising=False)
