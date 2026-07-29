@@ -24,7 +24,7 @@ readonly NOTIFY_WAKE_SCRIPT="${REPO_ROOT}/notify-wake/scripts/notify_wake.py"
 readonly NOTIFY_WAKE_PROJECT="${REPO_ROOT}/notify-wake/pyproject.toml"
 readonly NOTIFY_WAKE_LOCK="${REPO_ROOT}/notify-wake/uv.lock"
 readonly TEST_ROOT="$(mktemp -d)"
-readonly NESTED_ARTIFACT_FIXTURE="${REPO_ROOT}/.sync-artifact-fixture-${BASHPID}"
+readonly NESTED_ARTIFACT_FIXTURE="$(mktemp -d "${REPO_ROOT}/.sync-artifact-fixture.XXXXXX")"
 
 cleanup() {
   rm -rf "$NESTED_ARTIFACT_FIXTURE"
