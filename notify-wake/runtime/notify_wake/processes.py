@@ -347,7 +347,8 @@ def spawn_gated_child(
         try:
             os.close(gate_write)
             os.close(readiness_read)
-            os.setsid()
+            # A separate group supports cleanup without crossing sessions on macOS.
+            os.setpgid(0, 0)
             os.write(readiness_write, b"1")
             os.close(readiness_write)
             null_descriptor = os.open(os.devnull, os.O_RDONLY)
@@ -534,7 +535,8 @@ def _signal_owned_process(owned: OwnedProcess, signal_number: int) -> None:
 def _terminate_unreleased_child(pid: int) -> None:
     try:
         os.killpg(pid, signal.SIGKILL)
-    except ProcessLookupError:
+    except (PermissionError, ProcessLookupError):
+        # The gated direct child cannot exec or fork, so this PID cannot be reused yet.
         with suppress(ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
     with suppress(ChildProcessError):

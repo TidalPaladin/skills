@@ -53,6 +53,10 @@ Public commands:
 - `reconcile WATCH_ID` reconciles one exact terminal event and uncertain
   request boundary.
 
+When the watched command runs `uv` for a different project, prefix that command
+with `env -u VIRTUAL_ENV` so the notifier's locked environment does not leak
+into the nested invocation.
+
 Use `--format json` for automation. The CLI returns `0` for success, `1` when
 durable state requires attention or strict automatic delivery is unavailable,
 and `2` for a runtime or state error. Watch state is stored under

@@ -7,6 +7,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -1273,24 +1274,25 @@ def test_rpc_timeout_error_and_nonobject_results() -> None:
     run(response_errors())
 
 
-def test_direct_unix_websocket_transport_round_trip(tmp_path: Path) -> None:
-    socket_path = tmp_path / "server.sock"
+def test_direct_unix_websocket_transport_round_trip() -> None:
+    with tempfile.TemporaryDirectory(prefix="notify-wake-") as directory:
+        socket_path = Path(directory) / "server.sock"
 
-    async def scenario() -> None:
-        async def handler(connection: Any) -> None:
-            request = json.loads(await connection.recv())
-            await connection.send(json.dumps({"id": request["id"], "result": {"ok": True}}))
+        async def scenario() -> None:
+            async def handler(connection: Any) -> None:
+                request = json.loads(await connection.recv())
+                await connection.send(json.dumps({"id": request["id"], "result": {"ok": True}}))
 
-        server = await unix_serve(handler, path=str(socket_path))
-        async with server:
-            transport = await UnixWebSocketTransport.connect(socket_path)
-            await transport.send({"id": 1, "method": "ping", "params": {}})
-            assert await transport.receive() == {"id": 1, "result": {"ok": True}}
-            await transport.close()
+            server = await unix_serve(handler, path=str(socket_path))
+            async with server:
+                transport = await UnixWebSocketTransport.connect(socket_path)
+                await transport.send({"id": 1, "method": "ping", "params": {}})
+                assert await transport.receive() == {"id": 1, "result": {"ok": True}}
+                await transport.close()
 
-    run(scenario())
-    with pytest.raises(AppServerError, match="could not connect"):
-        run(UnixWebSocketTransport.connect(tmp_path / "missing.sock"))
+        run(scenario())
+        with pytest.raises(AppServerError, match="could not connect"):
+            run(UnixWebSocketTransport.connect(Path(directory) / "missing.sock"))
 
 
 def test_low_level_app_server_helpers_are_strict(

@@ -235,11 +235,13 @@ def test_owned_process_is_registered_reaped_and_logged(
 ) -> None:
     registered: list[TargetIdentity] = []
     process_group_ready: list[bool] = []
+    process_session_ready: list[bool] = []
     log_path = tmp_path / "logs" / "process.log"
 
     def register(target: TargetIdentity) -> None:
         registered.append(target)
         process_group_ready.append(os.getpgid(target.pid) == target.process_group_id)
+        process_session_ready.append(os.getsid(target.pid) == os.getsid(0))
 
     owned = spawn_gated_child(
         ["/bin/sh", "-c", f"printf launched; {shell_command}"],
@@ -250,6 +252,7 @@ def test_owned_process_is_registered_reaped_and_logged(
 
     assert registered == [owned.target]
     assert process_group_ready == [True]
+    assert process_session_ready == [True]
     assert owned.target.kind == "owned"
     assert owned.target.process_group_id == owned.target.pid
     assert outcome.status == status
@@ -498,6 +501,10 @@ def test_wait_owned_process_rejects_invalid_timeout(timeout: float) -> None:
         )
 
 
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="/proc identity capture is Linux-only",
+)
 def test_spawn_cleans_gated_child_when_identity_capture_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -528,6 +535,33 @@ def test_spawn_cleans_gated_child_when_identity_capture_fails(
             original_cleanup(captured_pids[0])
 
     assert cleaned_pids == captured_pids
+
+
+def test_unreleased_child_cleanup_falls_back_to_exact_pid_on_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signaled_pids: list[tuple[int, int]] = []
+    waited_pids: list[tuple[int, int]] = []
+
+    def reject_group(_process_group_id: int, _signal_number: int) -> None:
+        raise PermissionError
+
+    monkeypatch.setattr(os, "killpg", reject_group)
+    monkeypatch.setattr(
+        os,
+        "kill",
+        lambda pid, signal_number: signaled_pids.append((pid, signal_number)),
+    )
+    monkeypatch.setattr(
+        os,
+        "waitpid",
+        lambda pid, options: waited_pids.append((pid, options)) or (pid, 0),
+    )
+
+    processes._terminate_unreleased_child(PID)
+
+    assert signaled_pids == [(PID, signal.SIGKILL)]
+    assert waited_pids == [(PID, 0)]
 
 
 @pytest.mark.parametrize("process_group_id", [0, -1, True])
