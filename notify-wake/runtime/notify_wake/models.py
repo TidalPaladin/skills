@@ -952,6 +952,30 @@ class NotificationRecord:
             or self.accepted_turn_id is None
         ):
             raise ModelError("accepted notification lacks acceptance metadata")
+        if self.state != "accepted" and any(
+            value is not None
+            for value in (
+                self.accepted_at,
+                self.accepted_rpc_method,
+                self.accepted_turn_id,
+            )
+        ):
+            raise ModelError("unaccepted notification contains acceptance metadata")
+        if self.state in {"none", "pending"} and (
+            self.attempt_count != 0
+            or any(
+                value is not None
+                for value in (
+                    self.attempted_rpc_method,
+                    self.request_sent_at,
+                    self.uncertainty_reason,
+                    self.last_attempt_at,
+                    self.next_attempt_at,
+                    self.last_error,
+                )
+            )
+        ):
+            raise ModelError(f"{self.state} notification contains delivery metadata")
         if self.state == "in_flight" and self.request_sent_at is None:
             raise ModelError("in_flight notification lacks request_sent_at")
         if self.state in {"in_flight", "uncertain"} and self.attempted_rpc_method not in {

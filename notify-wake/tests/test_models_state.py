@@ -354,6 +354,8 @@ def test_uncertain_history_miss_cycles_exhaust_send_attempt_limit() -> None:
         ({"state": "uncertain"}, "attempted_rpc_method"),
         ({"state": "retry_due"}, "next_attempt_at"),
         ({"state": "blocked"}, "last_error"),
+        ({"attempt_count": 1}, "delivery metadata"),
+        ({"accepted_rpc_method": "turn/start"}, "acceptance metadata"),
     ],
 )
 def test_notification_rejects_incomplete_states(
