@@ -430,6 +430,52 @@ def test_explicit_wake_rejection_restores_and_renews_owned_wait() -> None:
     assert goal_sets == ["active", "blocked"]
 
 
+def test_thread_read_failure_after_activation_restores_owned_wait() -> None:
+    leases: list[NotifyWaitLease] = []
+    owned = NotifyWaitLease.owned(
+        lease_id=LEASE_ID,
+        loop_id="research:study-a",
+        source_ids=("controller:study-a",),
+        thread_id=THREAD_ID,
+        goal=goal(status="blocked", updated_at=21),
+        prepared_at=NOW,
+        blocked_at=NOW,
+        pre_block_updated_at=20,
+    )
+    transport = FailAfterMethodTransport(
+        handler(selected_goal=goal(status="blocked", updated_at=21)),
+        method="thread/read",
+    )
+
+    outcome = run(
+        deliver_wake(
+            WakeRequest(
+                event_id=EVENT_ID,
+                prompt="Read the registered terminal event.",
+                context=wake_context(),
+            ),
+            transport,
+            lease=owned,
+            persist_lease=leases.append,
+            persist_request_boundary=lambda _method, _sent_at: None,
+            now=lambda: NOW,
+        )
+    )
+
+    assert outcome.state == DeliveryState.RETRY_DUE
+    assert outcome.lease is not None
+    assert outcome.lease.state == "owned"
+    assert outcome.lease.blocked_goal_updated_at == 23
+    assert [
+        message["params"]["status"]
+        for message in transport.sent
+        if message.get("method") == "thread/goal/set"
+    ] == ["active", "blocked"]
+    assert not any(
+        message.get("method") in {"turn/start", "turn/steer"} for message in transport.sent
+    )
+
+
 def test_absent_wake_reconciliation_restores_owned_wait() -> None:
     owned = NotifyWaitLease.owned(
         lease_id=LEASE_ID,

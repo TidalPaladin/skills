@@ -513,6 +513,7 @@ async def deliver_notification(
             DeliveryState as CoreDeliveryState,
         )
         from .delivery import (
+            DeliveryUncertainty,
             WakeRequest,
             deliver_wake,
         )
@@ -559,6 +560,23 @@ async def deliver_notification(
         )
         current = store.read_notification(watch_id)
         if outcome.state == CoreDeliveryState.UNCERTAIN:
+            if outcome.uncertainty == DeliveryUncertainty.GOAL_TRANSITION:
+                blocked = current.mark_blocked(
+                    attempted_at=selected_now,
+                    error=(
+                        "goal activation acknowledgment is uncertain; "
+                        "manual recovery required: "
+                        f"{outcome.error or 'unknown goal transition error'}"
+                    ),
+                )
+                store.write_notification(watch_id, blocked)
+                store.append_controller_log(
+                    watch_id,
+                    event="goal_transition_uncertain",
+                    detail=blocked.last_error,
+                    occurred_at=selected_now,
+                )
+                return blocked
             sent_at = current.request_sent_at or outcome.request_sent_at or selected_now
             uncertain = current.mark_uncertain(
                 sent_at=sent_at,

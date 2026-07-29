@@ -59,6 +59,13 @@ class DeliveryState(StrEnum):
     BLOCKED = "blocked"
 
 
+class DeliveryUncertainty(StrEnum):
+    """The operation whose acknowledgement could not be established."""
+
+    GOAL_TRANSITION = "goal_transition"
+    WAKE_DELIVERY = "wake_delivery"
+
+
 @dataclass(frozen=True, slots=True)
 class WakeRequest:
     """Validated input for one logical wake event."""
@@ -112,6 +119,20 @@ class DeliveryOutcome:
     error: str | None = None
     request_sent_at: datetime | None = None
     lease: NotifyWaitLease | None = None
+    uncertainty: DeliveryUncertainty | None = None
+
+
+class _GoalTransitionError(AppServerError):
+    """An app-server error carrying the durable goal lease produced by it."""
+
+    def __init__(self, error: AppServerError, lease: NotifyWaitLease) -> None:
+        super().__init__(
+            str(error),
+            permanent=error.permanent,
+            request_may_have_reached=error.request_may_have_reached,
+            explicit_rejection=error.explicit_rejection,
+        )
+        self.lease = lease
 
 
 async def enter_notify_wait(
@@ -223,8 +244,9 @@ async def deliver_wake(
 
     selected_now = normalize_datetime(now(), "now")
     active_lease: NotifyWaitLease | None = lease
-    try:
-        async with RpcClient(transport, request_timeout=request_timeout) as client:
+    wake_request_started = False
+    async with RpcClient(transport, request_timeout=request_timeout) as client:
+        try:
             await _initialize(client)
             await _resume_and_verify(client, request.context)
             goal = await _read_goal(client, request.context.thread_id)
@@ -291,38 +313,17 @@ async def deliver_wake(
             method, params = _wake_rpc(request, thread)
 
             def persist_boundary() -> None:
+                nonlocal wake_request_started
                 persist_request_boundary(method, selected_now)
+                wake_request_started = True
 
-            try:
-                response = await client.request(
-                    method,
-                    params,
-                    before_send=persist_boundary,
-                    wake_request=True,
-                )
-                turn_id = _accepted_turn_id(method, response, params)
-            except AppServerError as error:
-                if (
-                    active_lease is not None
-                    and active_lease.state == "activated"
-                    and persist_lease is not None
-                ):
-                    if error.request_may_have_reached:
-                        active_lease = active_lease.with_state(
-                            "uncertain",
-                            updated_at=normalize_datetime(now(), "now"),
-                            last_error=_bounded_error(error),
-                        )
-                        persist_lease(active_lease)
-                    else:
-                        active_lease = await _restore_owned_goal(
-                            client,
-                            request.context,
-                            active_lease,
-                            persist_lease,
-                            now,
-                        )
-                return _error_outcome(error, selected_now, active_lease)
+            response = await client.request(
+                method,
+                params,
+                before_send=persist_boundary,
+                wake_request=True,
+            )
+            turn_id = _accepted_turn_id(method, response, params)
             if (
                 active_lease is not None
                 and active_lease.state == "activated"
@@ -340,8 +341,60 @@ async def deliver_wake(
                 request_sent_at=selected_now,
                 lease=active_lease,
             )
-    except AppServerError as error:
-        return _error_outcome(error, selected_now, active_lease)
+        except AppServerError as error:
+            if isinstance(error, _GoalTransitionError):
+                active_lease = error.lease
+            if (
+                active_lease is not None
+                and active_lease.state == "activated"
+                and persist_lease is not None
+            ):
+                if wake_request_started and error.request_may_have_reached:
+                    active_lease = active_lease.with_state(
+                        "uncertain",
+                        updated_at=normalize_datetime(now(), "now"),
+                        last_error=_bounded_error(error),
+                    )
+                    persist_lease(active_lease)
+                else:
+                    try:
+                        active_lease = await _restore_owned_goal(
+                            client,
+                            request.context,
+                            active_lease,
+                            persist_lease,
+                            now,
+                        )
+                    except AppServerError as restoration_error:
+                        active_lease = active_lease.with_state(
+                            "uncertain",
+                            updated_at=normalize_datetime(now(), "now"),
+                            last_error=_bounded_error(restoration_error),
+                        )
+                        persist_lease(active_lease)
+                        return _blocked(
+                            "owned notify-wait restoration failed; manual recovery required: "
+                            f"{_bounded_error(restoration_error)}",
+                            active_lease,
+                        )
+                    if active_lease.state != "owned":
+                        return _blocked(
+                            "owned notify-wait restoration is uncertain; manual recovery required",
+                            active_lease,
+                        )
+            uncertainty = None
+            if error.request_may_have_reached:
+                uncertainty = (
+                    DeliveryUncertainty.WAKE_DELIVERY
+                    if wake_request_started
+                    else DeliveryUncertainty.GOAL_TRANSITION
+                )
+            return _error_outcome(
+                error,
+                selected_now,
+                active_lease,
+                uncertainty=uncertainty,
+            )
 
 
 async def reconcile_wake(
@@ -500,6 +553,9 @@ async def _activate_owned_goal(
                 last_error=_bounded_error(error),
             )
             persist_lease(uncertain)
+            raise _GoalTransitionError(error, uncertain) from error
+        if error.explicit_rejection:
+            persist_lease(lease)
         raise
     active_goal = _goal_from_response(response, "thread/goal/set")
     active_updated_at = cast(int, active_goal["updatedAt"])
@@ -510,7 +566,10 @@ async def _activate_owned_goal(
             last_error="goal activation returned a different goal",
         )
         persist_lease(uncertain)
-        raise AppServerError("goal activation returned a different goal", permanent=True)
+        raise _GoalTransitionError(
+            AppServerError("goal activation returned a different goal", permanent=True),
+            uncertain,
+        )
     activated = lease.with_state(
         "activated",
         updated_at=normalize_datetime(now(), "now"),
@@ -660,6 +719,8 @@ def _error_outcome(
     error: AppServerError,
     sent_at: datetime,
     lease: NotifyWaitLease | None,
+    *,
+    uncertainty: DeliveryUncertainty | None,
 ) -> DeliveryOutcome:
     if error.request_may_have_reached:
         state = DeliveryState.UNCERTAIN
@@ -670,6 +731,7 @@ def _error_outcome(
     return DeliveryOutcome(
         state=state,
         error=_bounded_error(error),
-        request_sent_at=sent_at if error.request_may_have_reached else None,
+        request_sent_at=(sent_at if uncertainty == DeliveryUncertainty.WAKE_DELIVERY else None),
         lease=lease,
+        uncertainty=uncertainty,
     )

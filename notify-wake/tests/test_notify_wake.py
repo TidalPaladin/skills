@@ -44,6 +44,7 @@ from notify_wake.models import (
     MAX_DELIVERY_ATTEMPTS,
     SCHEMA_VERSION,
     NotificationRecord,
+    NotifyWaitLease,
     TargetIdentity,
     TerminalRecord,
     TerminalStatus,
@@ -130,6 +131,22 @@ class ReaderFailureTransport:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class FailAfterMethodTransport(ScriptedTransport):
+    def __init__(
+        self,
+        handler: Callable[[dict[str, Any]], list[dict[str, Any]]],
+        *,
+        method: str,
+    ) -> None:
+        super().__init__(handler)
+        self._method = method
+
+    async def send(self, message: dict[str, Any]) -> None:
+        await super().send(message)
+        if message.get("method") == self._method:
+            raise ConnectionError(f"lost {self._method} acknowledgment")
 
 
 def app_server_handler(
@@ -466,6 +483,73 @@ def test_delivery_steers_exact_active_turn_and_persists_acceptance(tmp_path: Pat
     assert steer["params"]["expectedTurnId"] == ACTIVE_TURN_ID
     assert steer["params"]["clientUserMessageId"] == EVENT_ID
     assert store.read_watch(WATCH_ID).lifecycle == "closed"
+
+
+def test_goal_activation_uncertainty_blocks_without_wake_reconciliation(
+    tmp_path: Path,
+) -> None:
+    store = prepared_store(tmp_path)
+    current_goal = {
+        "threadId": THREAD_ID,
+        "objective": "wait for the registered research controller",
+        "status": "blocked",
+        "tokenBudget": 100_000,
+        "tokensUsed": 1_000,
+        "timeUsedSeconds": 20,
+        "createdAt": 10,
+        "updatedAt": 21,
+    }
+    owned = NotifyWaitLease.owned(
+        lease_id="32345678-1234-5678-9234-567812345678",
+        loop_id="research:study-a",
+        source_ids=("controller:study-a",),
+        thread_id=THREAD_ID,
+        goal=current_goal,
+        prepared_at=NOW,
+        blocked_at=NOW,
+        pre_block_updated_at=20,
+    )
+    store.write_goal_wait_lease(WATCH_ID, owned)
+    base_handler = app_server_handler(thread_status="idle", turns=[], goal=current_goal)
+
+    def stateful_handler(message: dict[str, Any]) -> list[dict[str, Any]]:
+        nonlocal current_goal
+        if message.get("method") == "thread/goal/get":
+            return [{"id": message["id"], "result": {"goal": current_goal}}]
+        if message.get("method") == "thread/goal/set":
+            current_goal = {
+                **current_goal,
+                "status": message["params"]["status"],
+                "updatedAt": current_goal["updatedAt"] + 1,
+            }
+            return [{"id": message["id"], "result": {"goal": current_goal}}]
+        return base_handler(message)
+
+    transport = FailAfterMethodTransport(
+        stateful_handler,
+        method="thread/goal/set",
+    )
+
+    result = run(
+        deliver_notification(
+            store,
+            WATCH_ID,
+            lambda: transport,
+            now=lambda: NOW,
+            random=Random(0),
+        )
+    )
+
+    assert result.state == "blocked"
+    assert result.attempted_rpc_method is None
+    assert result.request_sent_at is None
+    assert "goal activation" in (result.last_error or "")
+    persisted_lease = store.read_goal_wait_lease(WATCH_ID)
+    assert persisted_lease is not None
+    assert persisted_lease.state == "uncertain"
+    assert not any(
+        message.get("method") in {"turn/start", "turn/steer"} for message in transport.sent
+    )
 
 
 def test_lost_acknowledgment_is_uncertain_then_reconciled_by_client_id(
