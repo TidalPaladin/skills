@@ -85,13 +85,24 @@ fi
 assert_contains \
   "${CI_SCRIPT}" \
   'uv run --locked --group ci --python "$PYTHON_VERSION"'
-assert_contains "${CI_SCRIPT}" 'readonly NOTIFY_WAKE_PYTHON_MIN="3.12"'
+assert_contains \
+  "${CI_SCRIPT}" \
+  'readonly -a NOTIFY_WAKE_PYTHON_VERSIONS=("3.11" "3.12" "3.14")'
 assert_contains \
   "${CI_SCRIPT}" \
   'run_notify_wake_tool "$PYTHON_VERSION" pytest --cov=notify_wake'
 assert_contains \
   "${CI_SCRIPT}" \
-  'run_notify_wake_tool "$NOTIFY_WAKE_PYTHON_MIN" pytest -q tests'
+  'run_notify_wake_tool "$notify_wake_python" pytest -q tests'
+assert_contains \
+  "${CI_SCRIPT}" \
+  'codex app-server generate-json-schema --experimental --out "$schema_root"'
+assert_contains \
+  "${CI_SCRIPT}" \
+  'python scripts/validate_app_server_schema.py "$schema_root"'
+assert_contains \
+  "${CI_SCRIPT}" \
+  'run_notify_wake_tool "$PYTHON_VERSION" python -m build --installer uv'
 assert_contains "${NOTIFY_WAKE_PROJECT}" '"websockets==16.1.1"'
 assert_contains "${NOTIFY_WAKE_PROJECT}" 'fail_under = 90'
 assert_contains "${CI_SCRIPT}" "npm ci --ignore-scripts"

@@ -8,8 +8,8 @@ readonly NODE_MODULES_BIN="${REPO_ROOT}/node_modules/.bin"
 readonly CODEX_BIN="${NODE_MODULES_BIN}/codex"
 readonly NULL_GIT_SHA="0000000000000000000000000000000000000000"
 readonly PYTHON_VERSION="3.14.5"
-readonly NOTIFY_WAKE_PYTHON_MIN="3.12"
 readonly NOTIFY_WAKE_PROJECT="${REPO_ROOT}/notify-wake"
+readonly -a NOTIFY_WAKE_PYTHON_VERSIONS=("3.11" "3.12" "3.14")
 
 readonly -a SHELL_FILES=(
   scripts/audit_dependencies.sh
@@ -92,6 +92,12 @@ check_whitespace() {
 
 install_codex
 
+schema_root="$(mktemp -d)"
+trap 'rm -rf -- "$schema_root"' EXIT
+codex app-server generate-json-schema --experimental --out "$schema_root"
+run_notify_wake_tool "$PYTHON_VERSION" \
+  python scripts/validate_app_server_schema.py "$schema_root"
+
 for shell_file in "${SHELL_FILES[@]}"; do
   bash -n "$shell_file"
 done
@@ -116,7 +122,10 @@ run_notify_wake_tool "$PYTHON_VERSION" env PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT
   basedpyright --level error runtime scripts tests
 run_notify_wake_tool "$PYTHON_VERSION" pytest --cov=notify_wake \
   --cov-report=term-missing -q tests
-run_notify_wake_tool "$NOTIFY_WAKE_PYTHON_MIN" pytest -q tests
+run_notify_wake_tool "$PYTHON_VERSION" python -m build --installer uv
+for notify_wake_python in "${NOTIFY_WAKE_PYTHON_VERSIONS[@]}"; do
+  run_notify_wake_tool "$notify_wake_python" pytest -q tests
+done
 
 token-file-auth/scripts/tests/test_token_file_auth.sh
 circleci-job-results/scripts/tests/test_fetch_circleci_job_results.sh

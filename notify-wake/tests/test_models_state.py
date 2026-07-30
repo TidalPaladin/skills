@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from notify_wake.models import (
     MAX_DELIVERY_ATTEMPTS,
+    SCHEMA_VERSION,
     Lifecycle,
     ModelError,
     NotificationRecord,
@@ -80,7 +81,7 @@ def watch(
     selected_target: TargetIdentity | None = None,
 ) -> WatchRecord:
     return WatchRecord(
-        schema_version=1,
+        schema_version=SCHEMA_VERSION,
         watch_id=WATCH_ID,
         mode="attach",
         lifecycle=lifecycle,
@@ -96,7 +97,7 @@ def watch(
 
 def terminal(*, event_id: str = EVENT_ID, attention: bool = True) -> TerminalRecord:
     return TerminalRecord(
-        schema_version=1,
+        schema_version=SCHEMA_VERSION,
         watch_id=WATCH_ID,
         event_id=event_id,
         target=target(),
@@ -209,14 +210,14 @@ def test_model_primitives_normalize_values() -> None:
             {"start_ticks": None},
             "require a Linux pidfd",
         ),
-        (watch, {"schema_version": 2}, "schema version"),
+        (watch, {"schema_version": 1}, "cutover required"),
         (watch, {"mode": "other"}, "watch mode"),
         (watch, {"lifecycle": "other"}, "lifecycle"),
         (watch, {"timeout_seconds": 0}, "positive"),
         (watch, {"timeout_seconds": float("nan")}, "finite"),
         (watch, {"timeout_seconds": float("inf")}, "finite"),
         (watch, {"wake_on": "sometimes"}, "wake_on"),
-        (terminal, {"schema_version": 2}, "schema version"),
+        (terminal, {"schema_version": 1}, "cutover required"),
         (terminal, {"status": "running"}, "terminal status"),
         (terminal, {"exit_code": -1}, "non-negative"),
         (terminal, {"attention_required": 1}, "boolean"),
@@ -292,7 +293,7 @@ def test_notification_state_machine_covers_all_durable_boundaries() -> None:
         thread_id=THREAD_ID,
         attention_required=False,
     )
-    in_flight = pending.mark_in_flight(NOW)
+    in_flight = pending.mark_in_flight(NOW, rpc_method="turn/steer")
     uncertain = in_flight.mark_uncertain(sent_at=NOW, reason="lost ack")
     retry = uncertain.schedule_retry(
         attempted_at=NOW,
@@ -325,7 +326,7 @@ def test_uncertain_history_miss_cycles_exhaust_send_attempt_limit() -> None:
 
     for attempt in range(1, MAX_DELIVERY_ATTEMPTS + 1):
         sent_at = NOW + timedelta(seconds=attempt)
-        notification = notification.mark_in_flight(sent_at)
+        notification = notification.mark_in_flight(sent_at, rpc_method="turn/steer")
         notification = notification.mark_uncertain(
             sent_at=sent_at,
             reason="lost acknowledgment",
@@ -345,14 +346,16 @@ def test_uncertain_history_miss_cycles_exhaust_send_attempt_limit() -> None:
 @pytest.mark.parametrize(
     ("updates", "message"),
     [
-        ({"schema_version": 2}, "schema version"),
+        ({"schema_version": 1}, "cutover required"),
         ({"state": "other"}, "delivery state"),
         ({"attempt_count": -1}, "non-negative"),
         ({"state": "accepted"}, "acceptance metadata"),
         ({"state": "in_flight"}, "request_sent_at"),
-        ({"state": "uncertain"}, "request metadata"),
+        ({"state": "uncertain"}, "attempted_rpc_method"),
         ({"state": "retry_due"}, "next_attempt_at"),
         ({"state": "blocked"}, "last_error"),
+        ({"attempt_count": 1}, "delivery metadata"),
+        ({"accepted_rpc_method": "turn/start"}, "acceptance metadata"),
     ],
 )
 def test_notification_rejects_incomplete_states(
@@ -370,7 +373,9 @@ def test_notification_rejects_incomplete_states(
 
 def test_state_root_resolution_and_registration(tmp_path: Path) -> None:
     codex_home = tmp_path / "codex"
-    assert default_state_root({"CODEX_HOME": str(codex_home)}) == (codex_home / "notify-wake")
+    assert default_state_root({"CODEX_HOME": str(codex_home)}) == (
+        codex_home / "notify-wake" / "v2"
+    )
     with pytest.raises(StateError, match="absolute"):
         default_state_root({"CODEX_HOME": "relative"})
     with pytest.raises(StateError, match="filesystem root"):
@@ -583,12 +588,12 @@ def test_store_ledgers_and_controller_diagnostics_are_sanitized(tmp_path: Path) 
 
         ledger_path = lock_path.with_suffix(".accepted.json")
         ledger_path.write_text(json.dumps({"schema_version": 1}))
-        with pytest.raises(StateError, match="ledger is invalid"):
+        with pytest.raises(StateError, match="cutover required"):
             store.read_accepted_ledger(lock_path, THREAD_ID)
         ledger_path.write_text(
             json.dumps(
                 {
-                    "schema_version": 1,
+                    "schema_version": SCHEMA_VERSION,
                     "thread_id": THREAD_ID,
                     "events": {EVENT_ID: {"turn_id": 1}},
                 }

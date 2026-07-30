@@ -26,6 +26,7 @@ from .app_server import (
     discover_daemon_socket,
     reconcile_uncertain_delivery,
 )
+from .delivery import DeliveryPolicy, enter_notify_wait
 from .models import (
     SCHEMA_VERSION,
     ModelError,
@@ -127,6 +128,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_output_arguments(reconcile)
     reconcile.add_argument("watch_id")
+
+    wait = commands.add_parser(
+        "wait",
+        help="block the exact active goal for one durably armed watch",
+    )
+    _add_output_arguments(wait)
+    wait.add_argument("watch_id")
     return parser
 
 
@@ -156,6 +164,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             payload = _status_command(parsed.watch_id)
         elif parsed.command == "reconcile":
             payload = _reconcile_command(parsed.watch_id)
+        elif parsed.command == "wait":
+            payload = _wait_command(parsed.watch_id)
         else:
             raise RuntimeError(f"unsupported command: {parsed.command}")
         attention = _payload_requires_attention(payload)
@@ -270,13 +280,8 @@ def _preflight() -> dict[str, object]:
         )
     )
     goal_status = context.goal_snapshot.get("status") if context.goal_snapshot is not None else None
-    goal_blocker = (
-        "persistent goals require atomic event-wait support"
-        if context.goal_snapshot is not None
-        else None
-    )
-    blocker = goal_blocker or delivery_blocker
-    available = blocker is None
+    blocker = None
+    available = True
     return {
         "watch_id": None,
         "lifecycle": "checked",
@@ -285,7 +290,10 @@ def _preflight() -> dict[str, object]:
         "automatic_delivery_available": available,
         "attach_supported": pidfd_supported(),
         "blocker": blocker,
+        "delivery_policy": DeliveryPolicy.RESEARCH_COMPATIBILITY.value,
         "goal_status": goal_status,
+        "non_atomic_delivery": True,
+        "observed_strict_blocker": delivery_blocker,
         "permission_profile": context.permission_profile,
         "socket_path": str(socket_path),
         "thread_id": context.thread_id,
@@ -299,7 +307,6 @@ def _run_command(arguments: argparse.Namespace) -> dict[str, object]:
     if not command:
         raise ValueError("run requires a command after --")
     context = _capture_launch_context()
-    _require_goal_free_context(context)
     store = WatchStore.from_environment()
     store.initialize()
     watch_id = _selected_watch_id(arguments.watch_id)
@@ -345,7 +352,6 @@ def _run_command(arguments: argparse.Namespace) -> dict[str, object]:
 
 def _attach_command(arguments: argparse.Namespace) -> dict[str, object]:
     context = _capture_launch_context()
-    _require_goal_free_context(context)
     attached = capture_attached_process(
         arguments.pid,
         expected_start_ticks=arguments.expect_start_ticks,
@@ -431,6 +437,9 @@ def _status_command(watch_id: str) -> dict[str, object]:
             if notification is not None and notification.next_attempt_at is not None
             else None
         ),
+        "goal_wait_state": (
+            lease.state if (lease := store.read_goal_wait_lease(selected_id)) is not None else None
+        ),
     }
 
 
@@ -460,6 +469,36 @@ def _reconcile_command(watch_id: str) -> dict[str, object]:
                 connect,
             )
         )
+    return _status_command(selected_id)
+
+
+def _wait_command(watch_id: str) -> dict[str, object]:
+    selected_id = validate_uuid(watch_id, "watch_id")
+    store = WatchStore.from_environment()
+    store.validate_root()
+    watch = store.read_watch(selected_id)
+    if watch.lifecycle not in {"armed", "active"}:
+        raise ExpectedProblem("notify-wait requires an armed or active watch")
+    if store.read_goal_wait_lease(selected_id) is not None:
+        raise ExpectedProblem("watch already has a goal-wait lease")
+    context = store.read_wake_context(selected_id)
+
+    async def block_goal() -> None:
+        socket_path = discover_daemon_socket()
+        transport = await UnixWebSocketTransport.connect(socket_path)
+        await enter_notify_wait(
+            context=context,
+            loop_id=f"local-process:{selected_id}",
+            source_ids=(f"watch:{selected_id}",),
+            transport=transport,
+            persist_lease=lambda lease: store.write_goal_wait_lease(selected_id, lease),
+            verify_loop_identity=lambda loop_id, source_ids: (
+                loop_id == f"local-process:{selected_id}"
+                and source_ids == (f"watch:{selected_id}",)
+            ),
+        )
+
+    asyncio.run(block_goal())
     return _status_command(selected_id)
 
 
@@ -685,23 +724,13 @@ async def _deliver_until_settled(
 def _capture_launch_context() -> WakeContext:
     thread_id = _required_thread_id()
     requested_profile = os.environ.get("CODEX_PERMISSION_PROFILE")
-    context, _socket_path, delivery_blocker = asyncio.run(
+    context, _socket_path, _delivery_blocker = asyncio.run(
         capture_wake_readiness_from_daemon(
             thread_id=thread_id,
             requested_permission_profile=requested_profile,
         )
     )
-    if context.goal_snapshot is None and delivery_blocker is not None:
-        raise ExpectedProblem(f"automatic launch is unavailable because {delivery_blocker}")
     return context
-
-
-def _require_goal_free_context(context: WakeContext) -> None:
-    if context.goal_snapshot is not None:
-        raise ExpectedProblem(
-            "automatic launch is unavailable because the originating task has "
-            "a persistent goal and app-server lacks an atomic event-wait lease"
-        )
 
 
 def _required_thread_id() -> str:
