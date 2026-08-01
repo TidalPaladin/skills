@@ -1445,14 +1445,16 @@ def test_low_level_app_server_helpers_are_strict(
 def test_wake_prompt_contains_identifiers_but_not_process_arguments(
     tmp_path: Path,
 ) -> None:
+    observed_runtime = timedelta(minutes=11, seconds=5)
     prompt = build_wake_prompt(
-        watch_record(),
+        replace(watch_record(), created_at=NOW - observed_runtime),
         terminal_record(),
         tmp_path / WATCH_ID,
     )
     assert WATCH_ID in prompt
     assert EVENT_ID in prompt
     assert "/tmp/evidence.json" in prompt
+    assert "Elapsed before notification: 665.000 seconds" in prompt
     assert "secret-command-argument" not in prompt
 
 

@@ -158,6 +158,9 @@ test_agent_source_contract() {
   assert_contains "$SYNC_SCRIPT" "--exclude='.ruff_cache/'"
   assert_contains "$NOTIFY_WAKE_SKILL" 'preflight'
   assert_contains "$NOTIFY_WAKE_SKILL" 'turn/start'
+  assert_contains "$NOTIFY_WAKE_SKILL" 'strictly more than 10 minutes'
+  assert_contains "$NOTIFY_WAKE_SKILL" 'Elapsed before notification'
+  assert_contains "$ROOT_GUIDANCE" 'strictly more than 10 minutes'
 }
 
 test_pull_request_contracts() {

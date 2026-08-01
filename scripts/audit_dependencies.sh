@@ -24,5 +24,5 @@ uv run --locked --group ci --python "$PYTHON_VERSION" \
 uv run --locked --group ci --python "$PYTHON_VERSION" \
   pip-audit --strict --requirement <(
     uv export --project notify-wake --locked --format requirements-txt \
-      --no-dev --no-hashes
+      --no-dev --no-hashes --no-emit-project
   )

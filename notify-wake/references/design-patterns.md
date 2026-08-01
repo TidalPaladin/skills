@@ -2,6 +2,12 @@
 
 Use this reference to select an event adapter and review its v2 state, goal ownership, delivery, and security behavior.
 
+## Automatic Invocation Gate
+
+Arm notify-wake automatically only when a defensible prelaunch estimate is strictly more than 10 minutes. Exactly 10 minutes, an unknown runtime, asynchronous execution, or the need for another status check does not qualify by itself. Use an ordinary tool wait or bounded status check instead. Explicit user invocation bypasses this duration gate.
+
+Record the estimate and its basis before launch. Every delivered wake must report `Elapsed before notification: <seconds> seconds` from the registered operation start to its terminal event. For an attached operation whose earlier start cannot be established, use the observation start and record that limitation. Delivery retries must not change the elapsed value.
+
 ## Adapter Patterns
 
 ### Bundled local-process adapter
@@ -205,6 +211,7 @@ Before cutover, prove that no old watch, run, supervisor, or controller is live.
 Reject a design unless it answers:
 
 - What exact operation and attempt are observed?
+- What prelaunch evidence supports automatic use for strictly more than 10 minutes, or did the user explicitly request it?
 - Which source is authoritative?
 - How are registration races and lost dispatch acknowledgments recovered?
 - Which outcomes require attention?
@@ -218,6 +225,7 @@ Reject a design unless it answers:
 - Which code remains provider-specific, and which calls the shared runtime?
 - What happens when the source, watcher, relay, or app-server is unavailable?
 - How does the design avoid model polling?
+- Does every wake report the fixed elapsed time before notification?
 
 ## Acceptance Scenarios
 
@@ -226,6 +234,8 @@ Reject a design unless it answers:
 | Success needs analysis | One accepted wake followed by source-backed analysis |
 | Success completes the objective | Durable silent close |
 | Failure, timeout, cancellation, or stall | One durable attention event and accepted wake |
+| Automatic use estimated at 10 minutes or less, or unknown | Do not arm notify-wake; use an ordinary wait or bounded status check |
+| Delivered wake | Include fixed elapsed seconds from operation or observation start to terminal event |
 | Duplicate source delivery | No second logical event or accepted wake |
 | Lost wake acknowledgment | Match means accepted; complete absence means retry; incomplete history blocks |
 | Idle root task, compatibility policy | Root `turn/start` without model or effort |

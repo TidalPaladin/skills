@@ -1,6 +1,6 @@
 ---
 name: notify-wake
-description: Replace model polling with durable event notifications that wake the originating Codex task. Use before starting long-running or asynchronous compute, I/O, CI, builds, transfers, queued work, or other machine-observable operations that would otherwise require another model turn only to check status; also use when designing, reviewing, or debugging completion, failure, timeout, cancellation, stall, or approval-needed wake delivery.
+description: Replace model polling with durable event notifications that wake the originating Codex task. Invoke automatically only for compute, I/O, CI, builds, transfers, queued work, or other machine-observable operations defensibly estimated before launch to take strictly more than 10 minutes. Also use when the user explicitly requests notify-wake, or when designing, reviewing, or debugging wake delivery regardless of runtime.
 ---
 
 # Notify & Wake
@@ -25,9 +25,13 @@ The runtime supports Python 3.11 through 3.14 and requires Codex app-server 0.14
 
 State contract version 2 is mandatory. Global watches live under `${CODEX_HOME:-$HOME/.codex}/notify-wake/v2/`. Research queues live under the registered root's `.notify-wake/v2/`. Do not parse, migrate, requeue, or conditionally support version-1 contexts, notifications, ledgers, or response shapes. Preserve old files only as inert audit evidence. Report version mismatches as `unsupported notify-wake contract; cutover required`.
 
-## When to Use It
+## Invocation Policy
 
-Apply this skill when an operation is asynchronous, detached, remote, or would otherwise require another model turn only to check its state. A short operation that completes within one ordinary tool wait does not need a notification adapter.
+When deciding automatically, apply this skill only when a defensible prelaunch estimate says the operation will take strictly more than 10 minutes. An estimate of exactly 10 minutes does not qualify. An unknown or weakly supported estimate does not qualify. Use an ordinary tool wait or bounded status check for operations estimated to take 10 minutes or less and for unknown runtimes.
+
+The 10-minute gate does not apply when the user explicitly requests `$notify-wake` or a durable wake path. It also does not prevent design, review, or debugging work that does not arm a watch.
+
+Being asynchronous, detached, remote, or likely to require another status check is not enough by itself to justify automatic invocation. Record the estimate and its basis before selecting this flow so the eventual elapsed time can be compared with the decision.
 
 Invocation does not authorize the underlying operation, network exposure, service installation, schedule creation, credential use, or broader permissions. Obtain that authority through the task's normal workflow.
 
@@ -67,14 +71,15 @@ Use `--format json` for automation. The CLI returns `0` for success, `1` when du
 
 Before launch or attachment:
 
-1. Define the exact operation, immutable target or dispatch identity, attention predicate, and required work for each outcome.
-2. Select and preflight the event source, adapter, authentication, durable v2 root, retry trigger, timeout, fallback, and goal-wait behavior.
-3. Capture the originating task ID, effective non-null permission profile, approval policy, capture time, and current persistent-goal snapshot.
-4. Persist a prepared watch, then arm the event source or watcher.
-5. Launch and bind the returned identifier atomically, or attach an already known exact identifier.
-6. Reconcile the source immediately to close the registration race.
-7. If an active persistent goal has no implementation, analysis, state transition, or other immediate work left, enter notify wait as described below.
-8. Return control only after the controller and any goal-wait ownership record are durable.
+1. Record the expected runtime and its basis. Confirm that automatic use clears the strict 10-minute gate, or record that the user explicitly requested the flow.
+2. Define the exact operation, immutable target or dispatch identity, attention predicate, and required work for each outcome.
+3. Select and preflight the event source, adapter, authentication, durable v2 root, retry trigger, timeout, fallback, and goal-wait behavior.
+4. Capture the originating task ID, effective non-null permission profile, approval policy, capture time, and current persistent-goal snapshot.
+5. Persist a prepared watch, then arm the event source or watcher.
+6. Launch and bind the returned identifier atomically, or attach an already known exact identifier.
+7. Reconcile the source immediately to close the registration race.
+8. If an active persistent goal has no implementation, analysis, state transition, or other immediate work left, enter notify wait as described below.
+9. Return control only after the controller and any goal-wait ownership record are durable.
 
 If dispatch returns its immutable identifier only after starting the operation, require a provider correlation lookup or durable authenticated early-event inbox. Do not launch when a lost dispatch acknowledgment could leave an unidentifiable operation.
 
@@ -136,9 +141,11 @@ Repository and provider adapters retain these responsibilities:
 - registered-root validation, retry timing, and bounded controller lifetime;
 - source reconciliation and closure.
 
-Persist the v2 contract version; watch, operation, attempt, and event IDs; source and immutable target identity; evidence paths; captured task authority; goal-wait lease; lifecycle state; delivery state; request boundary; retry and acceptance metadata.
+Persist the v2 contract version; watch, operation, attempt, and event IDs; source and immutable target identity; operation or observation start time; evidence paths; captured task authority; goal-wait lease; lifecycle state; delivery state; request boundary; retry and acceptance metadata.
 
-Wake input must contain only validated identifiers, status, timestamps, and evidence locations. Do not include raw logs, stack traces, remote output, artifacts, secrets, or untrusted content. The root task reads and validates durable evidence after wake.
+Every wake input must include `Elapsed before notification: <seconds> seconds`, computed from the registered operation start to its terminal event. For an attached operation whose true start is unavailable, compute from the start of observation and label that limitation in durable state. Keep this value fixed across delivery retries. This elapsed value lets the resumed agent compare actual runtime with the automatic-invocation gate.
+
+Wake input must contain only validated identifiers, status, timestamps, the numeric elapsed value, and evidence locations. Do not include raw logs, stack traces, remote output, artifacts, secrets, or untrusted content. The root task reads and validates durable evidence after wake.
 
 ## Cutover and Recovery
 
@@ -148,6 +155,6 @@ On restart, scan only an exact registered v2 root. Reconcile each target from it
 
 In planning mode, return:
 
-`Operation | Target identity | Event source | Adapter | Attention predicate | Watch location | Codex delivery | Fallback | Validation`
+`Operation | Expected runtime and basis | Target identity | Event source | Adapter | Attention predicate | Watch location | Codex delivery | Fallback | Validation`
 
-In execution mode, report the armed adapter, immutable target or correlation identity, attention predicate, v2 watch location, timeout, and fallback before returning control.
+In execution mode, report the runtime estimate and basis or explicit user request, armed adapter, immutable target or correlation identity, attention predicate, v2 watch location, timeout, and fallback before returning control.

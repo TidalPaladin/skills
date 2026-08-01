@@ -1,4 +1,4 @@
 interface:
   display_name: "Notify & Wake"
-  short_description: "Design event-driven task wake lifecycles"
-  default_prompt: "Use $notify-wake to replace model polling with a durable event-driven wake path for this long-running task."
+  short_description: "Wake tasks after very long operations"
+  default_prompt: "Use $notify-wake for this operation estimated to take more than 10 minutes, and report its elapsed runtime in the wake."
