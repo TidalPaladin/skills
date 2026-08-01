@@ -772,6 +772,7 @@ def build_wake_prompt(
 ) -> str:
     """Build a fixed trusted wake input from validated identifiers only."""
 
+    elapsed_seconds = (terminal.occurred_at - watch.created_at).total_seconds()
     evidence = "\n".join(f"- {path}" for path in terminal.evidence_paths)
     evidence_section = evidence or "- none"
     target = terminal.target
@@ -783,6 +784,7 @@ def build_wake_prompt(
         f"Target start ticks: {target.start_ticks}\n"
         f"Status: {terminal.status}\n"
         f"Occurred at: {terminal.occurred_at.isoformat()}\n"
+        f"Elapsed before notification: {elapsed_seconds:.3f} seconds\n"
         f"State: {state_path}\n"
         f"Evidence:\n{evidence_section}\n\n"
         "Read and validate the durable state and evidence before continuing."

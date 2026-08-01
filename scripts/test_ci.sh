@@ -156,6 +156,7 @@ fi
 assert_contains "${AUDIT_SCRIPT}" "npm audit --audit-level=low"
 assert_contains "${AUDIT_SCRIPT}" "uv export --locked"
 assert_contains "${AUDIT_SCRIPT}" "uv export --project notify-wake --locked"
+assert_contains "${AUDIT_SCRIPT}" "--no-emit-project"
 assert_contains "${AUDIT_SCRIPT}" "pip-audit --strict"
 assert_contains "${DEPENDENCY_HEALTH}" "name: Dependency Health"
 assert_contains "${DEPENDENCY_HEALTH}" "schedule:"

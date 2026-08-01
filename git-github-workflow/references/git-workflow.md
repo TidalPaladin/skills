@@ -223,7 +223,9 @@ GitHub requires a manually dispatched workflow file to exist on the default bran
 
 ### Post-run validation and failure-only wake
 
-Use `$notify-wake` as the authoritative contract for registration, source and delivery state, reconciliation, retries, and Codex task delivery. Before dispatching or registering a run, extend its shared watch record with:
+Apply this wake path only when the user explicitly requests it or the exact run is defensibly estimated before dispatch to take strictly more than 10 minutes. Exactly 10 minutes and unknown runtimes do not qualify for automatic invocation. Use the ordinary bounded provider wait/status flow for those runs.
+
+For a qualifying run, use `$notify-wake` as the authoritative contract for registration, source and delivery state, reconciliation, retries, and Codex task delivery. Before dispatching or registering a run, extend its shared watch record with:
 
 `Repository and ID | Workflow file and blob SHA | Run ID | Run attempt | Event | Ref | Head SHA | URL | Expected jobs | Required artifact or smoke evidence | Origin task ID | Permission profile | Approval policy`
 
@@ -231,7 +233,7 @@ Prefer a verified GitHub App webhook ingress for `workflow_run.completed`. A rep
 
 Before applying the attention predicate, require a trusted non-model verifier to record the observed event, ref and head SHA, workflow-file blob SHA, complete job set and conclusions, and required artifact or smoke-test evidence. The verifier may read authenticated provider metadata and predeclared job or step conclusions, but it must not download, execute, or interpret untrusted artifacts. Close literal `success` silently only when that record fully matches the registered contract. If the adapter cannot collect or prove any required evidence, if evidence needs agent inspection, or if any value is missing or mismatched, require attention so the resumed task can complete validation through the GitHub connector or `gh`. Every non-success terminal conclusion also requires attention.
 
-Deduplicate completion events by repository ID, run ID, run attempt, and completion event. Limit wake input to trusted repository and run identifiers, ref and SHA, conclusion, validation-status code, and run URL. The resumed task must fetch jobs, logs, artifacts, and other required evidence through the GitHub connector or `gh` before diagnosis or validation.
+Deduplicate completion events by repository ID, run ID, run attempt, and completion event. Limit wake input to trusted repository and run identifiers, ref and SHA, conclusion, validation-status code, run URL, and elapsed seconds from run start to terminal event. The resumed task must fetch jobs, logs, artifacts, and other required evidence through the GitHub connector or `gh` before diagnosis or validation.
 
 If secure ingress is unavailable, use a bounded local non-model watcher that observes only the registered run ID and follows the same attention predicate. If no such watcher exists, report that automatic wake is unavailable instead of promising notification.
 
