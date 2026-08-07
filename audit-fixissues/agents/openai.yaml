@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit Issue Remediation"
+  short_description: "Plan and implement audited issues as drafts"
+  default_prompt: "Use $audit-fixissues to prioritize audited issues, plan fixes, and open validated draft pull requests for authorized changes."

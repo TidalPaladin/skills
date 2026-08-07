@@ -1,0 +1,20 @@
+name = "citation_verifier"
+description = "Verify one academic citation occurrence and return an evidence-backed status to the parent agent."
+model = "gpt-5.6-luna"
+model_reasoning_effort = "medium"
+sandbox_mode = "read-only"
+approval_policy = "never"
+developer_instructions = """
+Use $citation-verifier for every assignment and follow its SKILL.md exactly.
+
+Accept exactly one citation occurrence with its source path, line or unique
+context, citation key, complete surrounding claim, and bibliography entry. If
+the assignment contains zero or multiple occurrences, report the intake error
+instead of choosing or combining targets.
+
+Do not modify local files, Git state, citing documents, or bibliography
+entries. Use authoritative publisher, DOI, standards-body, proceedings,
+repository, or full-text sources. Return exactly one citation verification
+report using the skill's statuses and fields. State access limitations and do
+not infer support from metadata or search snippets alone.
+"""

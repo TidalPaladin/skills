@@ -78,6 +78,10 @@ Use this sequence when reviewing a change:
 - Audit dependencies for known vulnerabilities on a regular cadence.
 - Treat shell execution, file paths, deserialization, and auth flows as high-risk surfaces requiring explicit review.
 
+## Biological and life-sciences work
+- Keep biological and life-sciences work focused on safety, prevention, analysis, research support, or risk mitigation.
+- Omit experimental, operational, or procedural biological details that are not necessary for the safety-focused purpose.
+
 ## Testing scope
 - Require unit tests for core logic.
 - When implementing a fix (from code review feedback or any other bug report), first add and run a regression test that reproduces the issue and verify it fails before changing the main code; after the fix, rerun the regression test and verify it passes.
@@ -125,3 +129,26 @@ Use this sequence when reviewing a change:
 - Default solver tools: `git` (all git actions), `rg` (search), `read_file`, `list_dir`, `glob_file_search`, `apply_patch`, and `todo_write`/`update_plan`.
 - Use `cmd`/`run_terminal_cmd` only when no listed tool can perform the action.
 - When calls are independent, run tool calls in parallel (for example todo updates, file searches, or reading multiple files) instead of sequentially.
+- Invoke `$notify-wake` automatically only before machine-observable work defensibly estimated to take strictly more than 10 minutes. Exactly 10 minutes and unknown runtimes do not qualify. Use an ordinary tool wait or bounded status check for shorter or unknown work. Explicit user invocation bypasses this threshold.
+- For qualifying local Unix commands and existing Linux PIDs, use the locked CLI bundled under `notify-wake/` instead of writing a one-off watcher. Run `preflight` first. Require every wake message to report elapsed time from operation or observation start to the terminal event. Use the default `research_compatibility` policy unless strict non-atomicity blocking is required, preserve authority-mismatch blockers, and enter owned goal wait after the controller is durable when no immediate work remains. Never set a cheaper model on the active root conversation; reserve Luna 5.6 medium for read-only checks, relay tasks, or model-selectable subagents.
+
+## GitHub authorization
+
+- For task-related GitHub operations on repositories owned by `TidalPaladin` or `medcognetics`, the user grants standing authorization to use authenticated `gh` for reads and writes. This includes issues, pull requests, reviews, releases, repository administration, and GitHub Actions operations.
+- Prefer the Codex GitHub app/connector when it supports the operation so Codex can track the result. This is a tool preference, not a permission gate. If the app is unavailable or lacks the required capability, use `gh` without asking for permission.
+- Ask before a GitHub operation on these repositories only when:
+  - directly dispatching or rerunning a workflow where any GitHub-hosted job is known to run longer than 30 minutes;
+  - changing branch protection rules or GitHub rulesets that implement branch protection; or
+  - the operation has substantial destructive potential, meaning a material risk of unrecoverable data loss or destruction of important repository history.
+- The workflow approval gate does not apply to self-hosted jobs or to workflows triggered indirectly by a push, pull request, merge, or other already-authorized operation. An unknown runtime does not satisfy the known-runtime condition.
+- Read-only inspection of branch protection and rulesets is authorized. Repositories owned by other accounts require authorization in the current user request.
+
+## Codex agent definitions
+
+- In `/home/chase/skills`, store project-scoped custom agents as standalone TOML files under `.codex/agents/` and keep shared project agent limits in `.codex/config.toml`.
+- Use `scripts/sync_codex_to_repo.sh` to preview or apply AGENTS.md, skill, and custom-agent updates to `${CODEX_HOME:-$HOME/.codex}`. The default is a non-mutating dry run.
+- Run `scripts/test_sync_codex_to_repo.sh` and strict Codex configuration validation after changing agent definitions or sync behavior.
+- Run `scripts/ci.sh` before handoff; it installs the exact Codex version from `package-lock.json`, and GitHub Actions runs the same gate on Linux x64 and macOS Arm64 with the aggregate `Required` job reserved for branch protection. `CODEX_INSTALL_MODE=existing` is reserved for the independent `Codex Latest Canary` workflow, which tests the newest stable release without joining the required gate.
+- Run `scripts/audit_dependencies.sh` for local npm and Python vulnerability checks. The independent `Dependency Health` workflow runs the same locked audit weekly, while Dependabot proposes stable dependency updates.
+- When invoking `pr_lifecycle_reporter`, assign exactly one pull request to each instance, establish fixed lifecycle order before fan-out, and preserve its local read-only permission mode. Process additional targets in waves of at most eight reporter instances. Require each reporter to verify `$git-github-workflow` body conformance and closing-linked issue state, including confirmed issue closure after a default-branch merge. After all waves finish, consolidate lifecycle rows by assigned queue position rather than worker completion order.
+- For every citation-verification task, the parent agent must invoke `citation_verifier` and assign exactly one citation occurrence to each instance. Include the source path, line or unique context, citation key, complete surrounding claim, and bibliography entry in each assignment. Preserve each instance's read-only permission mode. Process additional occurrences in waves of at most eight instances, then consolidate citation reports in source order rather than worker completion order.

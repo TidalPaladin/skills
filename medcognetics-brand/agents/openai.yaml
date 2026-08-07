@@ -1,0 +1,4 @@
+interface:
+  display_name: "MedCognetics Brand"
+  short_description: "Style MedCognetics documents and presentations"
+  default_prompt: "Use $medcognetics-brand to style a MedCognetics document or presentation with public brand guidance."

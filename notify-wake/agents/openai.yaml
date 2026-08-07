@@ -1,0 +1,4 @@
+interface:
+  display_name: "Notify & Wake"
+  short_description: "Wake tasks after very long operations"
+  default_prompt: "Use $notify-wake for this operation estimated to take more than 10 minutes, and report its elapsed runtime in the wake."

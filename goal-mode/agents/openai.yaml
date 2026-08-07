@@ -1,0 +1,6 @@
+interface:
+  display_name: "Goal Mode"
+  short_description: "Manage Goal Mode programmatically"
+  default_prompt: "Use $goal-mode to manage a concrete goal for this task."
+policy:
+  allow_implicit_invocation: false

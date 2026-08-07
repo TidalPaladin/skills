@@ -64,7 +64,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Inspect CSV/Parquet structure with bounded filesystem traversal."
     )
-    parser.add_argument("--dataset-root", required=True, help="Dataset root directory path.")
+    parser.add_argument(
+        "--dataset-root", required=True, help="Dataset root directory path."
+    )
     parser.add_argument(
         "--max-files",
         type=int,
@@ -230,11 +232,11 @@ def build_parquet_fallback(path: Path) -> dict[str, Any]:
                 "tool": "duckdb",
                 "commands": [
                     (
-                        "duckdb -c \"DESCRIBE SELECT * FROM "
+                        'duckdb -c "DESCRIBE SELECT * FROM '
                         f"read_parquet('{sql_quoted_path}') LIMIT 0;\""
                     ),
                     (
-                        "duckdb -c \"SELECT * FROM "
+                        'duckdb -c "SELECT * FROM '
                         f"read_parquet('{sql_quoted_path}') LIMIT 5;\""
                     ),
                 ],
@@ -256,9 +258,11 @@ def build_parquet_fallback(path: Path) -> dict[str, Any]:
         {
             "tool": "uv",
             "commands": [
-                "uv run --with pyarrow "
-                "inspect-dataset/scripts/inspect_dataset.py "
-                f"--dataset-root {shlex.quote(str(path.parent))}",
+                (
+                    "uv run --with pyarrow "
+                    "inspect-dataset/scripts/inspect_dataset.py "
+                    f"--dataset-root {shlex.quote(str(path.parent))}"
+                ),
             ],
         }
     )
@@ -350,10 +354,7 @@ def render_text_report(report: dict[str, Any]) -> str:
         f"({', '.join(ALLOWED_SUBDIRECTORIES)}) "
         f"with subdir depth <= {report['subdir_max_depth']}"
     )
-    lines.append(
-        "Files inspected: "
-        f"{len(report['inspections'])}/{report['max_files']}"
-    )
+    lines.append(f"Files inspected: {len(report['inspections'])}/{report['max_files']}")
 
     for warning in report["warnings"]:
         lines.append(f"Warning [{warning['code']}]: {warning['message']}")
@@ -442,7 +443,9 @@ def main() -> int:
         "sample_rows": args.sample_rows,
         "subdir_max_depth": args.subdir_max_depth,
         "inspections": inspections,
-        "warnings": [asdict(warning) for warning in (input_warnings + discovery_warnings)],
+        "warnings": [
+            asdict(warning) for warning in (input_warnings + discovery_warnings)
+        ],
     }
 
     if args.output == "json":
