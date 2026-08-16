@@ -118,7 +118,8 @@ cognidox_api_request() {
   local response
   local http_status
   local response_body
-  local curl_args=()
+  # Keep this array nonempty for macOS Bash 3.2 with `set -u`.
+  local curl_args=(--silent --show-error --config -)
 
   escaped_token="$(cognidox_curl_escape "${token_value}")"
   escaped_url="$(cognidox_curl_escape "${base_url}${path}")"
@@ -127,7 +128,7 @@ cognidox_api_request() {
   fi
 
   if ! response="$(
-    "${curl_bin}" --silent --show-error --config - "${curl_args[@]}" <<EOF
+    "${curl_bin}" "${curl_args[@]}" <<EOF
 url = "${escaped_url}"
 request = "${method}"
 header = "Authorization: Bearer ${escaped_token}"
@@ -460,6 +461,7 @@ cognidox_category_recursive() {
   local base_url="$7"
   local max_categories="$8"
   local seen_file="${temporary_dir}/category-seen.txt"
+  local category_queue_file="${temporary_dir}/category-queue.txt"
   local records_file="${temporary_dir}/category-records.ndjson"
   local start_file="${temporary_dir}/category-start.json"
   local status
@@ -471,8 +473,6 @@ cognidox_category_recursive() {
   local page_category_count
   local page_document_count
   local category_count=0
-  local -a category_queue=()
-  local -a child_ids=()
 
   : >"${seen_file}"
   : >"${records_file}"
@@ -486,11 +486,9 @@ cognidox_category_recursive() {
     document_count: (.documents // [] | length),
     keys: (keys | sort)
   }' "${start_file}" >>"${records_file}"
-  mapfile -t category_queue < <("${jq_bin}" -r '(.categories // [])[]? | .id // .categoryId // empty' "${start_file}" | sort -nu)
+  "${jq_bin}" -r '(.categories // [])[]? | .id // .categoryId // empty' "${start_file}" | sort -nu >"${category_queue_file}"
 
-  while ((${#category_queue[@]} > 0)); do
-    category_id="${category_queue[0]}"
-    category_queue=("${category_queue[@]:1}")
+  while IFS= read -r category_id; do
     if [[ -z "${category_id}" ]]; then
       continue
     fi
@@ -536,12 +534,11 @@ cognidox_category_recursive() {
         document_count: (.documents // [] | length),
         keys: (keys | sort)
       }' "${category_file}" >>"${records_file}"
-      mapfile -t child_ids < <("${jq_bin}" -r '(.categories // [])[]? | .id // .categoryId // empty' "${category_file}" | sort -nu)
-      category_queue+=("${child_ids[@]}")
+      "${jq_bin}" -r '(.categories // [])[]? | .id // .categoryId // empty' "${category_file}" | sort -nu >>"${category_queue_file}"
     else
       "${jq_bin}" -cn --arg id "${category_id}" --arg status "${status}" '{id: $id, status: ($status | tonumber), category_count: 0, document_count: 0, keys: []}' >>"${records_file}"
     fi
-  done
+  done <"${category_queue_file}"
 
   "${jq_bin}" -s '{categories: .}' "${records_file}" >"${output_file}"
 }
