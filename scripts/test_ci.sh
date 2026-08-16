@@ -14,6 +14,8 @@ readonly NOTIFY_WAKE_PROJECT="${REPO_ROOT}/notify-wake/pyproject.toml"
 readonly NOTIFY_WAKE_LOCK="${REPO_ROOT}/notify-wake/uv.lock"
 readonly REQUIRED_CI="${REPO_ROOT}/.github/workflows/ci.yml"
 readonly TOKEN_AUTH_SCRIPT="${REPO_ROOT}/token-file-auth/scripts/token_file_auth.sh"
+readonly COGNIDOX_SCRIPT="${REPO_ROOT}/cognidox-qms/scripts/cognidox_qms.sh"
+readonly COGNIDOX_TEST="${REPO_ROOT}/cognidox-qms/scripts/tests/test_cognidox_qms.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -111,6 +113,13 @@ assert_contains "${CI_SCRIPT}" 'node_modules/.bin'
 assert_contains "${CI_SCRIPT}" "PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1"
 assert_contains "${CI_SCRIPT}" "git diff --cached --check"
 assert_contains "${CI_SCRIPT}" 'git diff --check "${resolved_diff_base}...HEAD"'
+assert_contains "${CI_SCRIPT}" 'cognidox-qms/scripts/cognidox_qms.sh'
+assert_contains "${CI_SCRIPT}" 'cognidox-qms/scripts/tests/test_cognidox_qms.sh'
+if [[ "$(rg --count-matches --fixed-strings -- 'cognidox-qms/scripts/tests/test_cognidox_qms.sh' "${CI_SCRIPT}")" != 2 ]]; then
+  fail "CI must lint and execute the Cognidox test runner"
+fi
+[[ -x "${COGNIDOX_SCRIPT}" ]] || fail "the Cognidox client must be executable"
+[[ -x "${COGNIDOX_TEST}" ]] || fail "the Cognidox test runner must be executable"
 assert_not_contains "${TOKEN_AUTH_SCRIPT}" '[[ -v TOKEN_FILE_AUTH_BASE_DIR ]]'
 assert_not_contains "${REQUIRED_CI}" "npm ci --ignore-scripts"
 assert_contains "${REQUIRED_CI}" "fetch-depth: 0"
