@@ -1,0 +1,3023 @@
+---
+components:
+  examples:
+    category-rename:
+      summary: Rename the category
+      value:
+        name: New name
+    category-reorder:
+      summary: Change list ordering
+      value:
+        sortOrderName: Sort by name
+    document-checkin:
+      summary: Removing the checkout lock from a document.
+      value:
+        action: checkin
+        force: true
+    document-checkout:
+      summary: Adding a checkout lock to a document.
+      value:
+        action: checkout
+        comment: Workflow demands a lock being added.
+    document-draft:
+      summary: Create a new draft.
+      value:
+        count: 5
+        issueComment: Updated following revised information.
+        issueType: draft
+        length: 13400
+        masterFilename: DM-000401-AN.docx
+        name: Quarterly Sales Targets
+        skipPrefilter: false
+    document-draft-with-version:
+      summary: Create a new draft with version specified.
+      value:
+        count: 5
+        issueComment: Updated following revised information.
+        issueType: draft
+        length: 13400
+        masterFilename: DM-000401-AN.docx
+        name: Quarterly Sales Targets
+        skipPrefilter: false
+        version: 42A
+    document-empty:
+      summary: Create an empty document using a plugin.
+      value:
+        application: word
+        issueType: draft
+        plugin: CogniDoxMSOfficePlugin
+        sliceSize: 32000
+    document-issue:
+      summary: Create a new issue.
+      value:
+        count: 5
+        issueComment: Updated following revised information.
+        issueType: issue
+        length: 13400
+        masterFilename: DM-000401-AN.docx
+        name: Quarterly Sales Targets
+        skipPrefilter: false
+    document-rename:
+      summary: Changing the name of an existing document.
+      value:
+        action: rename
+        title: New title
+    document-template:
+      summary: Create document from a template.
+      value:
+        application: excel
+        issueType: draft
+        sliceSize: 10000
+        template: DM-001000-AB
+        version: 1C
+  responses:
+    errorBadRequest:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/errorResult'
+      description: Bad request
+    errorForbidden:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/errorResult'
+      description: The user does not have the necessary permissions for a resource.
+        The request should not be repeated.
+    errorUnauthorized:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/errorResult'
+      description: The user does not have valid authentication credentials for the
+        target resource. Authentication failed, or was not provided.
+  schemas:
+    addVersionSliceResult:
+      additionalProperties: false
+      example:
+        author: Mr Cognidox
+        categories:
+        - - 302
+          - 401
+        cognidoxKey: example-document-key
+        latestApprovedVersion:
+          PDF: DM-000401-AN-1.pdf
+          PDFAccess: true
+          PDFAlt: DM-000401-AN-1-Sales forecast.pdf
+          PDFUrl: https://cognidox.example.net/api/documents/versions/DM-000401-AN/1?format=pdf
+          master: DM-000401-AN-1.docx
+          masterAccess: true
+          masterAlt: DM-000401-AN-1-Sales forecast.docx
+          masterURL: https://cognidox.example.net/api/documents/versions/DM-000401-AN/1?format=native
+          version: 1
+        latestVersion:
+          PDF: DM-000401-AN-1B.pdf
+          PDFAccess: true
+          PDFAlt: DM-000401-AN-1B-Sales forecast.pdf
+          PDFUrl: https://cognidox.example.net/api/documents/versions/DM-000401-AN/1B?format=pdf
+          master: DM-000401-AN-1B.docx
+          masterAccess: true
+          masterAlt: DM-000401-AN-1B-Sales forecast.docx
+          masterURL: https://cognidox.example.net/api/documents/versions/DM-000401-AN/1B?format=native
+          version: 1B
+        partNumber: DM-000401-AN
+        published: false
+        readonly: false
+        title: Sales forecast
+        url: https://cognidox.example.net/DM-000401-AN
+      properties:
+        author:
+          description: The name of the user who created the the document.
+          type: string
+        categories:
+          description: The set of parent category paths. Each path is an array of
+            category identifiers.
+          items:
+            items:
+              format: int64
+              type: integer
+            type: array
+          type: array
+        checkedOutBy:
+          description: An optional value that indicates the user who has exclusive
+            access to the version.
+          nullable: true
+          type: string
+        cognidoxKey:
+          description: A unique assigned to the document by the server.
+          type: string
+        error:
+          $ref: '#/components/schemas/errorResult'
+          description: Details of any error that may have occurred. E.g. File is too
+            large, part number is locked, newer version added.
+          nullable: true
+        isCheckoutUser:
+          description: An optional value that indicates whether the current user has
+            exclusive access or not.
+          nullable: true
+          type: boolean
+        latestApprovedVersion:
+          $ref: '#/components/schemas/versionFileInformation'
+        latestVersion:
+          $ref: '#/components/schemas/versionFileInformation'
+        partNumber:
+          description: The identity of the document.
+          type: string
+        readonly:
+          description: Whether the document can be modified or not.
+          type: boolean
+        title:
+          description: The document's moniker.
+          type: string
+        url:
+          description: The location of the document in the repository.
+          type: string
+      required:
+      - partNumber
+      - title
+      - url
+      - latestVersion
+      - author
+      - readonly
+      - cognidoxKey
+      - categories
+      - checkedOutBy
+      - isCheckoutUser
+      title: AddVersionSliceResult
+      type: object
+    category:
+      additionalProperties: false
+      example:
+        hasChildren: true
+        hasSubCategories: false
+        id: 21
+        name: Leads
+      properties:
+        categoryCount:
+          description: The number of child categories of the category.
+          type: integer
+        documentCount:
+          description: The number of child documents of the category.
+          type: integer
+        id:
+          description: The identity of the category.
+          format: int64
+          type: integer
+        name:
+          description: The moniker assigned to the category.
+          type: string
+      required:
+      - id
+      - name
+      - categoryCount
+      - documentCount
+      title: Category
+      type: object
+    categoryCreateResult:
+      example:
+        id: 103
+        name: Marketing
+        parentId: 50
+      properties:
+        id:
+          description: The identity of the new category.
+          type: integer
+        name:
+          description: The moniker of the new category.
+          type: string
+        parentId:
+          description: The identity of the parent category.
+          type: integer
+      title: CategoryCreateResult
+      type: object
+    categoryDetails:
+      example:
+        canCreateCategories: true
+        canCreateDocuments: true
+        canDelete: true
+        canRename: true
+        categoryForms: []
+        id: 123
+        name: Sales
+        subtitle: An area for sales related documents.
+        workspace:
+          workspaceId: aaa23c31-1f25-495e-8cb8-e46964785ccd
+          workspacePath: An area for sales related documents (category id 123)
+      properties:
+        canCreateCategories:
+          description: Whether the user can create child categories.
+          type: boolean
+        canCreateDocuments:
+          description: Whether the user can create documents in the category.
+          type: boolean
+        canDelete:
+          description: Whether the user can delete the category.
+          type: boolean
+        canRename:
+          description: Whether the user can rename the category.
+          type: boolean
+        categoryForms:
+          items:
+            properties:
+              active:
+                description: Whether the form can be used.
+                type: boolean
+              categoryFormDocType:
+                description: The document type value.
+                type: string
+              categoryFormId:
+                description: The identity of the form within the category.
+                type: string
+              categoryFormTitle:
+                description: The moniker of the form category.
+                type: string
+              formId:
+                description: The identity of the form.
+                type: string
+              formName:
+                description: The moniker of the form.
+                type: string
+            required:
+            - formId
+            - categoryFormId
+            - formName
+            - categoryFormTitle
+            - categoryFormDocType
+            - active
+            title: CategoryForm
+            type: object
+          type: array
+        id:
+          description: The identity of the category.
+          type: integer
+        name:
+          description: The category's moniker.
+          type: string
+        subtitle:
+          description: The additional title of the category.
+          type: string
+        workspace:
+          properties:
+            workspaceId:
+              description: The identity of the workspace.
+              type: string
+            workspacePath:
+              description: A hierarchical path to the workspace.
+              type: string
+          required:
+          - workspaceId
+          - workspacePath
+          title: Workspace
+          type: object
+      required:
+      - canCreateCategories
+      - canCreateDocuments
+      - canDelete
+      - canRename
+      - categoryForms
+      - id
+      - name
+      title: CategoryDetails
+      type: object
+    categoryResult:
+      properties:
+        categories:
+          description: An array of child categories.
+          items:
+            $ref: '#/components/schemas/category'
+          type: array
+        children:
+          description: Details of the number of descendants.
+          example:
+            categories: 1
+            documents: 1
+          properties:
+            categories:
+              description: The number of sub categories in the category.
+              type: integer
+            documents:
+              description: The number of documents in the category.
+              type: integer
+          title: CategoryChildren
+          type: object
+        details:
+          $ref: '#/components/schemas/categoryDetails'
+          description: Optional information about the category.
+          nullable: true
+        documents:
+          description: An array of documents in the category.
+          items:
+            $ref: '#/components/schemas/document'
+          type: array
+      title: CategoryResult
+      type: object
+    categoryUpdateResult:
+      example:
+        id: 73
+        name: New name
+        sortOrderName: Sort by name
+        subtitle: Marketing material.
+      properties:
+        id:
+          description: The identity of the category.
+          type: integer
+        name:
+          description: The current moniker of the category.
+          type: string
+        sortOrderName:
+          description: The optional value used when ordering items in a list.
+          nullable: true
+          type: string
+        subtitle:
+          description: The optional description of the category.
+          nullable: true
+          type: string
+      title: CategoryUpdateResult
+      type: object
+    document:
+      example:
+        filename: VI-403808-LS.xlsx
+        partNumber: VI-403808-LS
+        title: Sales prospects
+        url: https://cognidox.example.net/VI-403808-LS
+      properties:
+        filename:
+          description: The identity of the document including its file extension.
+          type: string
+        partNumber:
+          description: The identity of the document.
+          type: string
+        title:
+          description: The moniker assigned to the document.
+          type: string
+        url:
+          description: The path to the location in the document repository.
+          type: string
+      title: Document
+      type: object
+    documentActionResult:
+      example:
+        allowedFilenameExtensions:
+        - xps
+        - mm
+        - numbers
+        - wma
+        - vssx
+        - dfx
+        - key
+        - vsdm
+        - tbz
+        - rpm
+        - csv
+        - dotx
+        - xlsx
+        canAddDraft: true
+        canAddIssue: true
+        canDelete: true
+        canLock: true
+        canOpen: true
+        canRename: true
+      properties:
+        allowedFilenameExtensions:
+          description: The set of file extensions that can be used.
+          items:
+            description: The file extension value.
+            type: string
+          type: array
+        canAddDraft:
+          description: Whether the authenticated user can add a draft version of the
+            document.
+          type: boolean
+        canAddIssue:
+          description: Whether the authenticated user can add an issue version of
+            the document.
+          type: boolean
+        canDelete:
+          description: Whether the authenticated user can delete the document.
+          type: boolean
+        canLock:
+          description: Whether the authenticated user can lock the document.
+          type: boolean
+        canOpen:
+          description: Whether the authenticated user can open the document.
+          type: boolean
+        canRename:
+          description: Whether the authenticated user can rename the document.
+          type: boolean
+      title: DocumentActionResult
+      type: object
+    documentCreateFormResult:
+      additionalProperties: false
+      example:
+        partNumber: VI-403808-CS
+      properties:
+        partNumber:
+          description: The part number of the document created.
+          type: string
+      required:
+      - partNumber
+      title: documentCreateFormResult
+      type: object
+    documentInformationResult:
+      additionalProperties: false
+      example:
+        author: Mr Cognidox
+        categories:
+        - - 302
+          - 401
+        cognidoxKey: example-document-key
+        latestApprovedVersion:
+          PDF: DM-000401-AN-1.pdf
+          PDFAccess: true
+          PDFAlt: DM-000401-AN-1-Sales forecast.pdf
+          PDFUrl: https://cognidox.example.net/api/documents/versions/DM-000401-AN/1?format=pdf
+          master: DM-000401-AN-1.docx
+          masterAccess: true
+          masterAlt: DM-000401-AN-1-Sales forecast.docx
+          masterURL: https://cognidox.example.net/api/documents/versions/DM-000401-AN/1?format=native
+          version: 1
+        latestVersion:
+          PDF: DM-000401-AN-1B.pdf
+          PDFAccess: true
+          PDFAlt: DM-000401-AN-1B-Sales forecast.pdf
+          PDFUrl: https://cognidox.example.net/api/documents/versions/DM-000401-AN/1B?format=pdf
+          master: DM-000401-AN-1B.docx
+          masterAccess: true
+          masterAlt: DM-000401-AN-1B-Sales forecast.docx
+          masterURL: https://cognidox.example.net/api/documents/versions/DM-000401-AN/1B?format=native
+          version: 1B
+        metadata:
+        - key: CogniDox_Meta_GDPR Classifications
+          name: GDPR Classifications
+          value: None
+        nextDraft: 1C
+        nextIssue: 2
+        partNumber: DM-000401-AN
+        published: false
+        readonly: false
+        title: Sales forecast
+        url: https://cognidox.example.net/DM-000401-AN
+        versions:
+        - approved: false
+          comment: First draft
+          file: DM-000401-AN-A.docx
+          issueTime: 1659375603
+          issuer: Cognidox
+          md5: 00000000000000000000000000000000
+          revision: A
+          versionTags: []
+        - approved: true
+          comment: First issue
+          file: DM-000401-AN-1.docx
+          issueTime: 16593758120
+          issuer: Cognidox
+          md5: 00000000000000000000000000000000
+          revision: 1
+          versionTags: []
+        - approved: false
+          comment: First draft of second issue
+          file: DM-000401-AN-1A.docx
+          issueTime: 1659376019
+          issuer: Cognidox
+          md5: 00000000000000000000000000000000
+          revision: 1A
+          versionTags: []
+        - approved: false
+          comment: Second draft of second issue
+          file: DM-000401-AN-1B.docx
+          issueTime: 1659377510
+          issuer: Cognidox
+          md5: 00000000000000000000000000000000
+          revision: 1B
+          versionTags: []
+      properties:
+        author:
+          description: The name of the user who created the the document.
+          type: string
+        categories:
+          description: The set of parent category paths. Each path is an array of
+            category identifiers.
+          items:
+            items:
+              format: int64
+              type: integer
+            type: array
+          type: array
+        checkedOutBy:
+          description: An optional value that indicates the user who has exclusive
+            access to the version.
+          nullable: true
+          type: string
+        cognidoxKey:
+          description: A unique assigned to the document by the server.
+          type: string
+        isCheckoutUser:
+          description: An optional value that indicates whether the current user has
+            exclusive access or not.
+          nullable: true
+          type: boolean
+        isObsolete:
+          description: An optional flag that indicates whether the version is relevant
+            or not.
+          nullable: true
+          type: boolean
+        latestApprovedVersion:
+          $ref: '#/components/schemas/versionFileInformation'
+          description: Details of the latest approved version of the document.
+          nullable: true
+        latestVersion:
+          $ref: '#/components/schemas/versionFileInformation'
+          description: Details of the latest version of the document.
+          nullable: true
+        licenses:
+          description: The set of licenses associated with the version.
+          items:
+            type: string
+          type: array
+        metadata:
+          $ref: '#/components/schemas/metadata'
+          description: A set of key/value pairs associated with the document.
+        nextDraft:
+          description: The identifier that will be assigned to the next draft of the
+            document.
+          type: string
+        nextIssue:
+          description: The identifier that will be assigned to the next issue of the
+            document.
+          type: string
+        owners:
+          description: The set of users that the version belongs to.
+          items:
+            type: string
+          type: array
+        partNumber:
+          description: The identity of the document.
+          type: string
+        published:
+          description: Whether the document has been published on the extranet.
+          type: boolean
+        readonly:
+          description: Whether the document can be modified or not.
+          type: boolean
+        title:
+          description: The document's moniker.
+          type: string
+        url:
+          description: The location of the document in the repository.
+          type: string
+        versions:
+          description: Details about all of the versions of the document.
+          items:
+            properties:
+              approved:
+                description: Whether the version has been approved or not.
+                type: boolean
+              comment:
+                description: An optional description about the revision.
+                nullable: true
+                type: string
+              file:
+                description: The filename, including the file extension.
+                type: string
+              issueTime:
+                description: When the version was created.
+                format: date-time
+                type: string
+              issuer:
+                description: Who created the version.
+                type: string
+              md5:
+                description: The MD5 hash value of the contents of the version.
+                type: string
+              publicComment:
+                description: An optional description for the wider audience.
+                nullable: true
+                type: string
+              revision:
+                description: The version identifier.
+                type: string
+              versionTags:
+                description: A set of tag values assigned to the version.
+                items:
+                  type: string
+                type: array
+            title: DocumentVersion
+            type: object
+          type: array
+        workspaces:
+          items:
+            description: The set of workspaces and their details associated with the
+              version.
+            properties:
+              workspaceId:
+                type: string
+              workspacePath:
+                type: string
+            title: DocumentWorkspace
+            type: object
+          type: array
+      title: DocumentInformationResult
+      type: object
+    documentLockResult:
+      example:
+        lockRequired: false
+        locked: false
+        partNumber: DM-000401-AN
+        unlockable: true
+      properties:
+        lockComment:
+          description: The optional description of why the lock is in operation.
+          nullable: true
+          type: string
+        lockDate:
+          description: The optional date and time when the lock was applied.
+          format: date-time
+          nullable: true
+          type: string
+        lockRequired:
+          description: Whether a lock is required in order to access the document.
+          type: boolean
+        lockType:
+          description: The optional type of the lock in operation.
+          nullable: true
+          type: string
+        lockUser:
+          description: The optional name of the user who owns the lock.
+          nullable: true
+          type: string
+        locked:
+          description: Whether the document has a lock.
+          type: boolean
+        partNumber:
+          description: The identity of the document.
+          type: string
+        unlockable:
+          description: Whether the lock can be removed or not.
+          type: boolean
+      title: DocumentLockResult
+      type: object
+    documentPermissionsResult:
+      example:
+        partNumber: DM-000401-AN
+        permissions:
+        - granted: true
+          name: view_drafts
+        - granted: true
+          name: add_version
+        - granted: true
+          name: view_review
+        - granted: true
+          name: view_master
+        - granted: true
+          name: add_issue
+        - granted: true
+          name: alter_properties
+        - granted: true
+          name: view
+        - granted: true
+          name: approve_issue
+        - granted: true
+          name: view_old_approved
+      properties:
+        partNumber:
+          description: The identity of the document.
+          type: string
+        permissions:
+          description: The set of permissions that apply to the user.
+          items:
+            properties:
+              granted:
+                type: boolean
+              name:
+                type: string
+            title: Permission
+            type: object
+          type: array
+      title: DocumentPermissionsResult
+      type: object
+    documentTemplatesResult:
+      example:
+        partNumber: DM-000401-AN
+        templates:
+        - filename: KI-000310-CS-1.docx
+          partNumber: KI-000310-CS
+          title: Document template
+        - filename: KI-000220-AR-5.docx
+          partNumber: KI-000220-AR
+          title: Second document template
+      properties:
+        partNumber:
+          description: The identity of the document.
+          type: string
+        templates:
+          description: The set of template documents.
+          items:
+            properties:
+              filename:
+                type: string
+              partNumber:
+                type: string
+              title:
+                type: string
+            title: Template
+            type: object
+          type: array
+      title: DocumentTemplatesResult
+      type: object
+    documentTypesArray:
+      example:
+      - code: AD
+        title: Assembly-Drawing
+      - code: AN
+        title: Application-Note
+      items:
+        properties:
+          code:
+            type: string
+          title:
+            type: string
+        title: DocumentType
+        type: object
+      type: array
+    documentTypesResult:
+      example:
+        documentTypes:
+        - code: AD
+          title: Assembly-Drawing
+        - code: AN
+          title: Application-Note
+        - code: AR
+          title: Approval-Requirement
+        - code: AS
+          title: Artwork-Specification
+        - code: AV
+          title: Approved-Vendor-List
+        - code: AW
+          title: Artwork
+        - code: BM
+          title: Bill-of-Materials
+        extension: docx
+      properties:
+        documentTypes:
+          $ref: '#/components/schemas/documentTypesArray'
+        extension:
+          description: The extension for which the types apply to.
+          type: string
+      title: DocumentTypesResult
+      type: object
+    errorResult:
+      example:
+        error: invalid_request
+        error_description: The server could not carry out the operation as not enough
+          information was provided.
+        timestamp: 2022-11-20T16:55:28Z
+      properties:
+        error:
+          description: A code that provides context to the error.
+          type: string
+        error_description:
+          description: Human readable text providing insight into the problem.
+          type: string
+        timestamp:
+          description: The server date and time when the error occurred.
+          format: date-time
+          type: string
+      required:
+      - error_description
+      - timestamp
+      title: ErrorResult
+      type: object
+    metadata:
+      example:
+      - name: Tags
+        value: First Quarter
+      items:
+        properties:
+          key:
+            description: A unique identity assigned to the metadata item.
+            type: string
+          name:
+            description: The moniker assigned to the metadata item.
+            maxLength: 50
+            minLength: 1
+            type: string
+          value:
+            description: The value of the metadata item.
+            type: string
+        required:
+        - name
+        - value
+        title: Metadatum
+        type: object
+      type: array
+    newDocumentInformationResult:
+      example:
+        categoryId: 23
+        categoryTitles: []
+        documentTypes:
+        - code: AD
+          title: Assembly-Drawing
+        - code: AN
+          title: Application-Note
+        - code: AR
+          title: Approval-Requirement
+        - code: AS
+          title: Artwork-Specification
+        - code: AV
+          title: Approved-Vendor-List
+        - code: AW
+          title: Artwork
+        - code: BM
+          title: Bill-of-Materials
+        - code: BP
+          title: Bill-of-Materials-and-Parts-List
+        - code: BS
+          title: Build-Standard-Document
+        - code: CS
+          title: Contract-Summary
+        - code: DC
+          title: Declaration-of-Conformity
+        - code: DG
+          title: Design Guide
+        - code: DH
+          title: Document Holder
+        - code: DS
+          title: Data-Sheet
+        - code: ES
+          title: Event Signage
+        - code: FD
+          title: Flow-Diagram
+        - code: FM
+          title: Form/Template
+        - code: FN
+          title: Finance Document
+        - code: GR
+          title: Gerber-Files
+        - code: IN
+          title: Index
+        - code: LS
+          title: Licensee-Source/Binary
+        - code: MD
+          title: Mechanical-Drawing
+        - code: MF
+          title: Product-Master-File
+        - code: MS
+          title: Manual-Specification
+        - code: OS
+          title: OEM-Specification
+        - code: PB
+          title: Product Brief
+        - code: PL
+          title: Parts-List
+        - code: PM
+          title: Project-Management
+        - code: PR
+          title: Procedure
+        - code: PS
+          title: Specification
+        - code: QM
+          title: Quality-Manual
+        - code: RC
+          title: Review Comments
+        - code: RL
+          title: Press-Release
+        - code: RN
+          title: Release Note
+        - code: SC
+          title: Schematic
+        - code: SD
+          title: Schematic-Drawing
+        - code: SI
+          title: Software-Information-Sheet
+        - code: SL
+          title: Sales-Material
+        - code: SM
+          title: Software-Master
+        - code: SP
+          title: Product-Specification
+        - code: ST
+          title: Standard
+        - code: SW
+          title: Software-Design
+        - code: TC
+          title: Tech-Doc
+        - code: TE
+          title: Test-Specification
+        - code: TM
+          title: Training-Material
+        - code: TP
+          title: Test-Procedure
+        - code: TR
+          title: Test-Report
+        - code: TS
+          title: Test-Software
+        - code: WA
+          title: Web Archive
+        - code: WI
+          title: Work-Instruction
+        suggestedAuthor: Mr Cognidox
+        suggestedTitle: New Document
+      properties:
+        categoryId:
+          description: The identity of the category.
+          type: integer
+        categoryTitles:
+          description: The set of category monikers.
+          items:
+            properties:
+              documentType:
+                type: string
+              text:
+                type: string
+            title: CategoryTitle
+            type: object
+          type: array
+        documentTypes:
+          description: The set of possible types that can be used for the new document.
+          items:
+            properties:
+              code:
+                type: string
+              title:
+                type: string
+            title: DocumentType
+            type: object
+          type: array
+        suggestedAuthor:
+          description: The name that can be used as the author of the new document.
+          type: string
+        suggestedTitle:
+          description: A moniker that can be used for the new document.
+          type: string
+      title: NewDocumentInformationResult
+      type: object
+    newDocumentResult:
+      example:
+        partNumber: VI-403808-CS
+      properties:
+        partNumber:
+          type: string
+      required:
+      - partNumber
+      title: NewDocumentResult
+      type: object
+    optionsResult:
+      example:
+        commentOnDraft: true
+        commentOnIssue: true
+        requireCheckout: false
+        versionInfoOnDraft: false
+        versionInfoOnIssue: false
+      properties:
+        commentOnDraft:
+          description: Indicates whether all draft documents require comments on submission.
+          type: boolean
+        commentOnIssue:
+          description: Indicates whether all issue documents require comments on submission.
+          type: boolean
+        requireCheckout:
+          description: Indicates whether a document must be checked out in order to
+            change it.
+          type: boolean
+        versionInfoOnDraft:
+          description: Indicates whether version info is required or no not when creating
+            drafts.
+          type: boolean
+        versionInfoOnIssue:
+          description: Indicates whether version info is required or no not when creating
+            issues.
+          type: boolean
+      title: OptionsResult
+      type: object
+    searchResult:
+      example:
+        limit: 2147483647
+        matches:
+        - filename: DM-000401-AN-B.docx
+          metadata:
+          - name: GDPR Classifications
+            value: None
+          partNumber: DM-000401-AN
+          published: false
+          title: Add-in testing
+          url: https://cognidox.example.net/DM-000401-AN
+        - filename: DM-001401-RC-A.msg
+          metadata: []
+          partNumber: DM-001401-RC
+          published: false
+          title: 200305 UI Feedback from Adrian Green (PPC)
+          url: https://cognidox.example.net/DM-001401-RC
+        - filename: KI-000311-CS-1.docx
+          metadata: []
+          partNumber: KI-000311-CS
+          published: false
+          title: 200401 Fabless Semi - Leeds Ltd. - NDA
+          url: https://cognidox.example.net/KI-000311-CS
+        - filename: KI-000310-CS-1.docx
+          metadata: []
+          partNumber: KI-000310-CS
+          published: false
+          title: 200401 Fabless Semi - London Ltd. - NDA
+          url: https://cognidox.example.net/KI-000310-CS
+        - filename: VI-401112-TC-17.pdf
+          metadata: []
+          partNumber: VI-401112-TC
+          published: false
+          title: Cognidox Admin Guide
+          url: https://cognidox.example.net/VI-401112-TC
+        offset: 0
+        total: 5
+      properties:
+        limit:
+          description: The number of items returned.
+          type: integer
+        matches:
+          description: The set of matched items.
+          items:
+            properties:
+              filename:
+                description: The optional name of the file associated with the document.
+                nullable: true
+                type: string
+              metadata:
+                $ref: '#/components/schemas/metadata'
+                description: A set of key/value pairs associated with the document.
+              partNumber:
+                description: The identity of the matched document.
+                type: string
+              published:
+                description: Whether the document has been published or not.
+                type: boolean
+              title:
+                description: The moniker assigned to the document.
+                type: string
+              url:
+                description: The location of the document in the repository.
+                type: string
+            title: Match
+            type: object
+          type: array
+        offset:
+          description: The index of the first item returned.
+          minimum: 0
+          type: integer
+        total:
+          description: The total number of documents that match the search criteria.
+          type: integer
+      title: SearchResult
+      type: object
+    systemInformationResult:
+      example:
+        addInBlocked: false
+        latestAPIVersion: 1.2
+        productName: Cognidox
+        productVersion: 10.2.0 (development)
+        serverUTCTime: 1642530807
+      properties:
+        addInBlocked:
+          description: Whether users can use the Add-in or not for accessing the document
+            repository.
+          type: boolean
+        latestAPIVersion:
+          description: The version number of the application interface.
+          format: float
+          type: number
+        productName:
+          description: The moniker that is assigned by Cognidox to the software.
+          type: string
+        productVersion:
+          description: The version number, in standard major, minor and patch format.
+          type: string
+        serverUTCTime:
+          description: The number of seconds since 1970.
+          format: int64
+          type: integer
+      title: SystemInformationResult
+      type: object
+    versionFileInformation:
+      properties:
+        PDF:
+          description: The optional filename and extension of the PDF version.
+          nullable: true
+          type: string
+        PDFAccess:
+          description: Whether the content of the 'PDF' is available to the user
+          nullable: true
+          type: boolean
+        PDFAlt:
+          description: The optional filename, which includes the version, the document's
+            title and the extension of the PDF format version.
+          nullable: true
+          type: string
+        PDFUrl:
+          description: The location to access the 'PDF' format of the content.
+          nullable: true
+          type: string
+        master:
+          description: The filename and extension.
+          type: string
+        masterAccess:
+          description: Whether the 'native' content is available to the user.
+          type: boolean
+        masterAlt:
+          description: The filename, which includes the version, the document's title
+            and the extension.
+          type: string
+        masterURL:
+          description: The location to access the 'native' format of the content.
+          type: string
+        version:
+          description: The version identifier.
+          type: string
+      title: VersionFileInformation
+      type: object
+    versionResult:
+      example:
+        length: 13400
+        links:
+        - href: https://cognidox.example.net/api/v1.0/documents/versions/VI-410057-TC/1A/0/2000?sliceSize=4500&format=native
+          rel: urn:VI-410057-TC-1A:0
+        - href: https://cognidox.example.net/api/v1.0/documents/versions/VI-410057-TC/1A/1/2000?sliceSize=4500&format=native
+          rel: urn:VI-410057-TC-1A:1
+        - href: https://cognidox.example.net/api/v1.0/documents/versions/VI-410057-TC/1A/2/2000?sliceSize=4500&format=native
+          rel: urn:VI-410057-TC-1A:2
+        partNumber: VI-410057-TC
+        version: 1A
+      properties:
+        length:
+          description: The size of the document in bytes.
+          type: integer
+        links:
+          description: A set of information for each of the individual parts of the
+            version.
+          items:
+            properties:
+              href:
+                description: The URL to retrieve the part of the version.
+                type: string
+              rel:
+                description: A unique reference name that identifies the part.
+                type: string
+            title: Link
+            type: object
+          type: array
+        partNumber:
+          description: The identity of the document.
+          type: string
+        version:
+          description: The version identifier.
+          type: string
+      title: VersionResult
+      type: object
+  securitySchemes:
+    bearerAuth:
+      bearerFormat: JWT
+      description: |
+        API access using Personal Access Tokens generated via the Cognidox web
+        user interface. Tokens using this security scheme must have scopes
+        attached to them. The 'oauth2' scope is not available to Personal
+        Access Tokens.
+      scheme: bearer
+      type: http
+    oauth2:
+      description: |
+        This API uses OAuth2. In order to use the authorizationCode a client_id
+        and client_secret are required. The redirect URI is always
+        https://api.cognidox.com/oauth2/dialog, with domain name
+        adjusted for the local Cognidox server.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://cognidox.example.net/oauth2/dialog
+          scopes:
+            oauth2: |
+              Access to all endpoints, with authorization controlled by
+              standard Cognidox mechanisms.
+          tokenUrl: https://cognidox.example.net/oauth2/token
+      type: oauth2
+info:
+  contact:
+    email: support@cognidox.com
+    name: Cognidox Support
+    url: https://support.cognidox.com/
+  description: |
+    This is the RESTful API to the Cognidox server.<br><br>
+    This version of the API replicates key SOAP operations that are primarily required by the Microsoft
+    Office Add-in:
+    * CogniDoxCategoryCreate
+    * CogniDoxCategoryDelete
+    * CogniDoxCategoryInfo
+    * CogniDoxCategoryList
+    * CogniDoxCategoryNewDocumentInfo
+    * CogniDoxCategoryRename
+    * CogniDoxCheckin
+    * CogniDoxCheckout
+    * CogniDoxCreateDoc
+    * CogniDoxCreateVersionMTOM
+    * CogniDoxDeleteDoc
+    * CogniDoxDocActions
+    * CogniDoxDocFileInfo
+    * CogniDoxDocInfo
+    * CogniDoxDocLockInfo
+    * CogniDoxDocSearch
+    * CogniDoxDocSecurity
+    * CogniDoxDocTemplates
+    * CogniDoxListDocumentTypes
+    * CogniDoxListFilenameExtensions
+    * CogniDoxRenameDoc
+    * CogniDoxSystemInfo
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: https://www.cognidox.com/terms-of-service
+  title: Cognidox
+  version: '1.0'
+openapi: 3.0.2
+paths:
+  /categories:
+    get:
+      description: Retrieve information about the root category, its documents and
+        sub categories.
+      operationId: getRootCategoryInformation
+      parameters:
+      - description: What to retrieve. If not present, then just 'details' are returned.
+        in: query
+        name: filter
+        required: false
+        schema:
+          items:
+            enum:
+            - details
+            - children
+            - documents
+            - categories
+            type: string
+          type: array
+      - description: Offset into the set of documents or categories.
+        in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          minimum: 0
+          type: integer
+      - description: Maximum number of items in the set of documents or categories.
+        in: query
+        name: limit
+        required: false
+        schema:
+          default: 2147483647
+          minimum: 1
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/categoryResult'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+      security:
+      - bearerAuth:
+        - read:categories
+      - oauth2:
+        - oauth2
+      summary: Get root category details.
+      tags:
+      - Categories
+      x-cognidox-ms-office-add-in: true
+    post:
+      operationId: newCategory
+      requestBody:
+        content:
+          application/json:
+            schema:
+              example:
+                name: Marketing
+                parentId: 50
+              properties:
+                name:
+                  description: The new category's moniker.
+                  type: string
+                parentId:
+                  description: The identity of the parent category.
+                  type: integer
+                sortOrderName:
+                  description: An optional moniker that can be used to change where
+                    the category appears in a list, overriding its normal alphabetical
+                    position.
+                  nullable: true
+                  type: string
+                subtitle:
+                  description: An optional value used to identify the new category.
+                  nullable: true
+                  type: string
+              title: NewCategoryRequest
+              type: object
+        description: Where to create the new category and its moniker.
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/categoryCreateResult'
+          description: Category created
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+      security:
+      - bearerAuth:
+        - write:categories
+      - oauth2:
+        - oauth2
+      summary: Create a new sub category.
+      tags:
+      - Categories
+      x-cognidox-ms-office-add-in: true
+  /categories/recommendations/{categoryId}:
+    post:
+      description: Retrieve a set of suggestions to use when creating a new document
+        in the specified category.
+      operationId: newDocumentRecommendations
+      parameters:
+      - description: The identity of the parent category.
+        example: 23
+        in: path
+        name: categoryId
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              example:
+                emailAddress: author@example.com
+                filenameExtension: docx
+                ignoreReplacements: false
+              properties:
+                emailAddress:
+                  description: An optional email address of the person creating the
+                    document.
+                  format: email
+                  nullable: true
+                  type: string
+                filenameExtension:
+                  description: An optional value for document file extension.
+                  nullable: true
+                  type: string
+                ignoreReplacements:
+                  description: An optional boolean to set whether variable expansion
+                    of titles should be ignored. If unset or false, titles will be
+                    returned after variable expansion.
+                  type: boolean
+              title: NewDocumentRecommendationsRequest
+              type: object
+        description: Additional information for the recommendations.
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/newDocumentInformationResult'
+          description: Details of the recommendations for a new document.
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - read:categories
+      - oauth2:
+        - oauth2
+      summary: Retrieve suggestions for a new document.
+      tags:
+      - Categories
+      x-cognidox-ms-office-add-in: true
+  /categories/{categoryId}:
+    delete:
+      operationId: deleteCategory
+      parameters:
+      - description: The identity of the category to remove.
+        example: 201
+        in: path
+        name: categoryId
+        required: true
+        schema:
+          type: integer
+      responses:
+        '204':
+          description: Delete successful
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - write:categories
+      - oauth2:
+        - oauth2
+      summary: Remove the specified category.
+      tags:
+      - Categories
+      x-cognidox-ms-office-add-in: true
+    get:
+      description: Retrieve information about a category, its documents and sub categories.
+      operationId: getCategoryInformation
+      parameters:
+      - description: The identity of the category.
+        example: 123
+        in: path
+        name: categoryId
+        required: true
+        schema:
+          minimum: 0
+          type: integer
+      - description: What to retrieve. If not present, then just 'details' are returned.
+        in: query
+        name: filter
+        required: false
+        schema:
+          items:
+            enum:
+            - details
+            - children
+            - documents
+            - categories
+            type: string
+          type: array
+      - description: Offset into the set of documents or categories.
+        in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          minimum: 0
+          type: integer
+      - description: Maximum number of items in the set of documents or categories.
+        in: query
+        name: limit
+        required: false
+        schema:
+          default: 2147483647
+          minimum: 1
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/categoryResult'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - read:categories
+      - oauth2:
+        - oauth2
+      summary: Get category details.
+      tags:
+      - Categories
+      x-cognidox-ms-office-add-in: true
+    patch:
+      description: Alter one or more attributes of a specific category.
+      operationId: updateCategory
+      parameters:
+      - description: The identity of the category to update.
+        example: 73
+        in: path
+        name: categoryId
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            examples:
+              rename:
+                $ref: '#/components/examples/category-rename'
+              sorting:
+                $ref: '#/components/examples/category-reorder'
+            schema:
+              properties:
+                name:
+                  description: The new moniker.
+                  type: string
+                sortOrderName:
+                  description: An optional new moniker to use to change where the
+                    category appears in a list.
+                  nullable: true
+                  type: string
+                subtitle:
+                  description: An optional new value used to identify the category.
+                  nullable: true
+                  type: string
+              title: UpdateCategoryRequest
+              type: object
+        description: Details of the new values for the category.
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/categoryUpdateResult'
+          description: Current category details.
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - write:categories
+      - oauth2:
+        - oauth2
+      summary: Update the category.
+      tags:
+      - Categories
+      x-cognidox-ms-office-add-in: true
+  /documents:
+    post:
+      description: Creates a new document and assigns it a part number in the specified
+        category.
+      operationId: newDocument
+      requestBody:
+        content:
+          application/json:
+            schema:
+              example:
+                author: Mr Cognidox
+                categoryId: 50
+                documentType: CS
+                title: New document
+              properties:
+                author:
+                  description: The optional name of the person who created the document.
+                  type: string
+                categoryId:
+                  description: The identity of the parent category.
+                  type: integer
+                documentType:
+                  description: The document type. One, or both, of this and manualPartNumber
+                    must be supplied.
+                  pattern: ^[A-Z]{2}$
+                  type: string
+                manualPartNumber:
+                  description: The optional value of the part number to assign. One,
+                    or both, of this and documentType must be supplied.
+                  pattern: ^[A-Z]{2}-\d{6}-[A-Z]{2}$
+                  type: string
+                title:
+                  description: The title of the new document.
+                  maxLength: 255
+                  pattern: ^(?!\s*$)
+                  type: string
+              required:
+              - categoryId
+              - title
+              title: NewDocumentRequest
+              type: object
+        description: The details of the new document.
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/newDocumentResult'
+          description: New document created.
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+      security:
+      - bearerAuth:
+        - write:documents
+      - oauth2:
+        - oauth2
+      summary: Create a new document.
+      tags:
+      - Documents
+      x-cognidox-ms-office-add-in: true
+  /documents/constraints/{partNumber}:
+    get:
+      description: Retrieve the set of operations that can be carried out by the user
+        on the specified document.
+      operationId: getDocumentConstraints
+      parameters:
+      - description: The identity of the document.
+        example: DM-000401-AN
+        in: path
+        name: partNumber
+        required: true
+        schema:
+          type: string
+      - description: The document version, issue or drafts.
+        example: 1B
+        in: query
+        name: issueNumber
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/documentActionResult'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - read:documents
+      - oauth2:
+        - oauth2
+      summary: Retrieve what can be done by the user.
+      tags:
+      - Documents
+      x-cognidox-ms-office-add-in: true
+  /documents/forms/{categoryFormId}:
+    post:
+      description: Creates a document from a form associated with category
+      operationId: newFormDocument
+      parameters:
+      - description: The the identity of the category form
+        example: 16306b8a-f984-11ee-bbba-d9269ad84872
+        in: path
+        name: categoryFormId
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                title:
+                  description: The title to give the newly created form document
+                  nullable: false
+                  type: string
+              required:
+              - title
+              title: NewPartNumberFromCategoryFormRequest
+              type: object
+        description: The details of the new empty document to create.
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/documentCreateFormResult'
+          description: New document created for the appropriate form.
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - write:documents
+      - oauth2:
+        - oauth2
+      summary: Create a form document part number using a category form. This will
+        create a part number of the appropriate document type in the category specified
+        by the category template ID linked to the appropriate form.
+      tags:
+      - Documents
+  /documents/locks/{partNumber}:
+    get:
+      description: Retrieve the details of any locks that have been placed on the
+        document.
+      operationId: getDocumentLock
+      parameters:
+      - description: The identity of the document.
+        example: DM-000401-AN
+        in: path
+        name: partNumber
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/documentLockResult'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - read:documents
+      - oauth2:
+        - oauth2
+      summary: Get document lock details.
+      tags:
+      - Documents
+      x-cognidox-ms-office-add-in: true
+  /documents/permissions/{partNumber}:
+    get:
+      description: Retrieve the details of the security that has been applied to the
+        specified document.
+      operationId: getDocumentPermissions
+      parameters:
+      - description: The identity of the document.
+        example: DM-000401-AN
+        in: path
+        name: partNumber
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/documentPermissionsResult'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - read:documents
+      - oauth2:
+        - oauth2
+      summary: Get document permissions.
+      tags:
+      - Documents
+      x-cognidox-ms-office-add-in: true
+  /documents/templates/{documentId}/{index}:
+    get:
+      description: Download the document content, or a slice of the document content,
+        that was previously created using createFromTemplate. The document can be
+        downloaded in individual slices, by providing query parameter 'sliceSize'.
+        If 'index' is zero, and 'sliceSize' is not supplied, then the entire content
+        of the document will be returned.
+      operationId: getTemplateSlice
+      parameters:
+      - description: The identity of the created document.
+        example: 6d55b44a-7e43-11ee-a2d4-2792ef06602b
+        in: path
+        name: documentId
+        required: true
+        schema:
+          format: uuid
+          type: string
+      - description: The zero-based index of the document slice that be will returned.
+        example: 2
+        in: path
+        name: index
+        required: true
+        schema:
+          minimum: 0
+          type: integer
+      - description: The size in bytes of the document slice to return. If this is
+          the final slice of the document, then fewer bytes might be returned.
+        example: 64000
+        in: query
+        name: sliceSize
+        required: false
+        schema:
+          minimum: 1
+          type: integer
+      responses:
+        '200':
+          content:
+            application/octet-stream:
+              schema:
+                format: binary
+                type: string
+          description: The bytes of the slice.
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - write:documents
+      - oauth2:
+        - oauth2
+      summary: Download document content that was created using createFromTemplate.
+      tags:
+      - Documents
+  /documents/templates/{partNumber}:
+    get:
+      description: Retrieve the list of templates associated with the specified document.
+      operationId: getDocumentTemplates
+      parameters:
+      - description: The identity of the document.
+        example: DM-000401-AN
+        in: path
+        name: partNumber
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/documentTemplatesResult'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - read:documents
+      - oauth2:
+        - oauth2
+      summary: Get Document Templates.
+      tags:
+      - Documents
+      x-cognidox-ms-office-add-in: true
+    post:
+      description: Creates the document content for the specified part number, with
+        the part number and next draft version added to the document as custom properties.
+        The content can be created either from an existing template, or from a blank
+        document supplied by a plugin. If creating the document content from a plugin,
+        then the plugin name must be supplied as a body parameter. If successful,
+        details of where to download the document from are returned in the response.
+      operationId: createFromTemplate
+      parameters:
+      - description: The identity of the created document.
+        example: DM-000401-AN
+        in: path
+        name: partNumber
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            examples:
+              empty:
+                $ref: '#/components/examples/document-empty'
+              template:
+                $ref: '#/components/examples/document-template'
+            schema:
+              additionalProperties: false
+              minProperties: 3
+              properties:
+                application:
+                  description: Which office application we should create the document
+                    for.
+                  enum:
+                  - excel
+                  - powerpoint
+                  - word
+                  example: word
+                  type: string
+                issueType:
+                  description: Is document a draft or an issue?
+                  enum:
+                  - draft
+                  - issue
+                  example: draft
+                  type: string
+                plugin:
+                  description: The plugin that provides a blank template. This is
+                    required in the case where a template part number is not provided.
+                  example: CogniDoxMSOfficePlugin
+                  pattern: ^CogniDox[A-Za-z]+Plugin$
+                  type: string
+                sliceSize:
+                  description: The size in bytes of the document slices to download.
+                  example: 64000
+                  minimum: 1
+                  type: integer
+                template:
+                  description: The optional part number of the template to use. Either
+                    this or 'plugin' is required.
+                  example: KI-000310-CS
+                  pattern: ^[A-Z]{2}-\d{6}-[A-Z]{2}$
+                  type: string
+                version:
+                  description: Optional version number for new document.
+                  example: 42A
+                  pattern: ^[A-Z0-9]{1,4}$
+                  type: string
+                versionInfo:
+                  description: An optional string relating to the version.
+                  example: 47.58-34A (beta)
+                  type: string
+              required:
+              - application
+              - issueType
+              title: NewDocumentFromTemplateRequest
+              type: object
+        description: The details of the new empty document or document from template
+          to create.
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: false
+                example:
+                  expires: 2022-11-20T16:55:28Z
+                  length: 45876
+                  links:
+                  - href: https://example.com/api/v1.0/documents/templates/dcfbde84-7e32-11ee-9a55-b723900a52ec/0?sliceSize=64000
+                    rel: urn:VI-410057-TC:0
+                  - href: https://example.com/api/v1.0/documents/templates/dcfbde84-7e32-11ee-9a55-b723900a52ec/1?sliceSize=64000
+                    rel: urn:VI-410057-TC:1
+                  partNumber: VI-410057-TC
+                  version: A
+                properties:
+                  documentId:
+                    description: The unique ID of the temporary document.
+                    format: uuid
+                    type: string
+                  expires:
+                    description: Expiry date and time of the temporary document, after
+                      which it will no longer be available for download.
+                    format: date-time
+                    type: string
+                  length:
+                    description: The document size in bytes.
+                    type: integer
+                  links:
+                    description: A set of information for each of the individual parts
+                      of the document.
+                    items:
+                      properties:
+                        href:
+                          description: The URL to retrieve the part of the document.
+                          type: string
+                        rel:
+                          description: A unique reference name that identifies the
+                            part.
+                          type: string
+                      title: Link
+                      type: object
+                    type: array
+                  partNumber:
+                    description: The part number of the document.
+                    type: string
+                  template:
+                    description: The part number of the template (if applicable).
+                    type: string
+                  version:
+                    description: The version identifier.
+                    type: string
+                required:
+                - documentId
+                - expires
+                - length
+                - links
+                - partNumber
+                - version
+                title: CreateFromTemplateResponse
+                type: object
+          description: Create document from empty or template download details.
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+      security:
+      - bearerAuth:
+        - write:documents
+      - oauth2:
+        - oauth2
+      summary: Create a temporary document from a template
+      tags:
+      - Documents
+  /documents/versions/slices/{index}/{uploadId}:
+    patch:
+      description: Upload a slice of a version of a document to the repository.
+      operationId: addVersionSlice
+      parameters:
+      - description: The zero based index of the slice being uploaded.
+        example: 1
+        in: path
+        name: index
+        required: true
+        schema:
+          type: integer
+      - description: The identity of the upload session.
+        example: ac2ecd05-d1c5-4cde-957a-5f22ae7b3d3c
+        in: path
+        name: uploadId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/octet-stream:
+            schema:
+              format: binary
+              type: string
+        description: The bytes of the slice of the document that is being transferred.
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/addVersionSliceResult'
+          description: The final slice was uploaded and the new version created.
+        '202':
+          description: The slice was accepted, but was not the final slice to be uploaded.
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - write:files
+      - oauth2:
+        - oauth2
+      summary: Add version slice.
+      tags:
+      - Documents
+      x-cognidox-ms-office-add-in: true
+  /documents/versions/{partNumber}:
+    post:
+      operationId: createVersion
+      parameters:
+      - description: The identity of the document.
+        example: DM-000401-AN
+        in: path
+        name: partNumber
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            examples:
+              draft:
+                $ref: '#/components/examples/document-draft'
+              draft-with-version:
+                $ref: '#/components/examples/document-draft-with-version'
+              issue:
+                $ref: '#/components/examples/document-issue'
+            schema:
+              properties:
+                count:
+                  description: The total number of slices in the document.
+                  type: integer
+                issueComment:
+                  description: An optional description about the issue being created.
+                  type: string
+                issueLicenseeComment:
+                  description: An optional description for the licensee audience.
+                  type: string
+                issueType:
+                  description: The kind of the issue.
+                  enum:
+                  - issue
+                  - draft
+                  type: string
+                length:
+                  description: The size of the document in bytes. i.e. the sum of
+                    all of the bytes in all of the slices.
+                  type: integer
+                masterFilename:
+                  description: The document's filename.
+                  type: string
+                name:
+                  description: Optional logging string that can be used for server-side
+                    diagnostics.
+                  type: string
+                secondaryFilename:
+                  description: The optional value of the second filename assigned.
+                  type: string
+                skipPrefilter:
+                  description: An optional value for whether pre-filtering should
+                    be applied or not.
+                  type: boolean
+                version:
+                  description: The optional new draft/issue version of the document.
+                  type: string
+                versionInformation:
+                  description: An optional string relating to the version
+                  type: string
+              required:
+              - count
+              - issueType
+              - masterFilename
+              title: CreateVersionRequest
+              type: object
+        description: Information about the version to be created.
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                example:
+                  partNumber: DM-000401-AN
+                  uploadId: ac2ecd05-d1c5-4cde-957a-5f22ae7b3d3c
+                  version: 2C
+                properties:
+                  partNumber:
+                    description: The identity of the document.
+                    type: string
+                  uploadId:
+                    description: The identity of a session for uploading the bytes
+                      of a document.
+                    type: string
+                  version:
+                    description: The new version of the document.
+                    type: string
+                title: CreateVersionResponse
+                type: object
+          description: Version created
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - write:documents
+      - oauth2:
+        - oauth2
+      summary: Creates a new version of the document.
+      tags:
+      - Documents
+      x-cognidox-ms-office-add-in: true
+  /documents/versions/{partNumber}/{version}:
+    get:
+      description: Retrieve where to access the component parts of a version of a
+        document.
+      operationId: getDocumentVersion
+      parameters:
+      - description: The identity of the document.
+        example: VI-410057-TC
+        in: path
+        name: partNumber
+        required: true
+        schema:
+          type: string
+      - description: The version of the document.
+        example: 1A
+        in: path
+        name: version
+        required: true
+        schema:
+          type: string
+      - description: The format of the document to return.
+        example: native
+        in: query
+        name: format
+        required: false
+        schema:
+          enum:
+          - native
+          - pdf
+          type: string
+      - description: The size in bytes of the document slices to download
+        example: 2000
+        in: query
+        name: sliceSize
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/versionResult'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - read:documents
+      - oauth2:
+        - oauth2
+      summary: Get a document URL download list.
+      tags:
+      - Documents
+      x-cognidox-ms-office-add-in: true
+  /documents/versions/{partNumber}/{version}/{index}:
+    get:
+      description: Retrieve the bytes of a part of a document version.
+      operationId: getVersionSlice
+      parameters:
+      - description: The identity of the document.
+        example: DM-000401-AN
+        in: path
+        name: partNumber
+        required: true
+        schema:
+          type: string
+      - description: The version of the document.
+        example: 1B
+        in: path
+        name: version
+        required: true
+        schema:
+          type: string
+      - description: The zero-based index of a slice of the document.
+        example: 0
+        in: path
+        name: index
+        required: true
+        schema:
+          type: integer
+      - description: The format of the document to return.
+        example: native
+        in: query
+        name: format
+        schema:
+          enum:
+          - native
+          - pdf
+          type: string
+      - description: The size in bytes of the download slices. Omitting this returns
+          the entire document.
+        example: 2000
+        in: query
+        name: sliceSize
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          content:
+            application/octet-stream:
+              schema:
+                format: binary
+                type: string
+          description: The bytes of the slice.
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - read:files
+      - oauth2:
+        - oauth2
+      summary: Get version slice.
+      tags:
+      - Documents
+      x-cognidox-ms-office-add-in: true
+  /documents/{partNumber}:
+    delete:
+      description: Remove the specified document and its versions from the repository.
+      operationId: deleteDocument
+      parameters:
+      - description: The identity of the document.
+        example: DM-000401-AN
+        in: path
+        name: partNumber
+        required: true
+        schema:
+          type: string
+      - description: An optional description of why the document is being removed.
+        example: This version is no longer required.
+        in: query
+        name: comment
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Delete successful
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - write:documents
+      - oauth2:
+        - oauth2
+      summary: Permanently remove a document.
+      tags:
+      - Documents
+      x-cognidox-ms-office-add-in: true
+    get:
+      operationId: getDocumentInformation
+      parameters:
+      - description: The identity of the document.
+        example: DM-000401-AN
+        in: path
+        name: partNumber
+        required: true
+        schema:
+          type: string
+      - description: The parts of the document information to include. Defaults to
+          just details.
+        example:
+        - details
+        - latest
+        in: query
+        name: filter
+        required: false
+        schema:
+          items:
+            enum:
+            - details
+            - latest
+            - versions
+            - workspaces
+            type: string
+          type: array
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/documentInformationResult'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - read:documents
+      - oauth2:
+        - oauth2
+      summary: Retrieve information about a document.
+      tags:
+      - Documents
+      x-cognidox-ms-office-add-in: true
+    patch:
+      description: Rename, obsolete, unobsolete, add or remove licenses, checkout
+        or checkin the specified document.
+      operationId: updateDocument
+      parameters:
+      - description: The identity of the document.
+        example: DM-000401-AN
+        in: path
+        name: partNumber
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            examples:
+              checkin:
+                $ref: '#/components/examples/document-checkin'
+              checkout:
+                $ref: '#/components/examples/document-checkout'
+              rename:
+                $ref: '#/components/examples/document-rename'
+            schema:
+              properties:
+                action:
+                  description: The kind of change to make.
+                  enum:
+                  - rename
+                  - checkout
+                  - checkin
+                  - obsolete
+                  - unobsolete
+                  - addLicenses
+                  - removeLicenses
+                  type: string
+                comment:
+                  description: An optional description for action 'checkout', 'addLicenses',
+                    'removeLicenses', 'obsolete' or 'unobsolete'.
+                  nullable: true
+                  type: string
+                force:
+                  description: An optional flag for action 'checkin'.
+                  nullable: true
+                  type: boolean
+                licenses:
+                  description: A set of licenses needed for actions 'addLicenses'
+                    and 'removeLicenses'.
+                  items:
+                    type: string
+                  type: array
+                title:
+                  description: The new moniker for action 'rename'.
+                  nullable: true
+                  type: string
+              title: UpdateDocumentRequest
+              type: object
+        description: Details of the change to make.
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/documentInformationResult'
+          description: Current document details.
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - write:documents
+      - oauth2:
+        - oauth2
+      summary: Make changes to a document.
+      tags:
+      - Documents
+      x-cognidox-ms-office-add-in: true
+  /logger:
+    post:
+      description: Access to logger for client-side debugging
+      operationId: log
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                events:
+                  items:
+                    properties:
+                      event:
+                        type: string
+                      level:
+                        enum:
+                        - debug
+                        - info
+                        - warn
+                        - error
+                        type: string
+                      payload:
+                        type: object
+                    required:
+                    - level
+                    - event
+                    - payload
+                    type: object
+                  type: array
+                meta:
+                  type: object
+                tracking:
+                  items:
+                    type: object
+                  type: array
+              required:
+              - events
+              type: object
+        required: true
+      responses:
+        '201':
+          description: Log created
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+      security:
+      - bearerAuth:
+        - write:logger
+      - oauth2:
+        - oauth2
+      summary: Log sink for client-side events
+      tags:
+      - Logger
+      x-cognidox-ms-office-add-in: true
+  /plugin/ms-office/auth:
+    post:
+      description: Given an MS authentication token, create a Cognidox authentication
+        token based on the user's email address retrieved using the MS graph API.
+      operationId: cogniDoxMSOfficePluginPost_auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                token:
+                  description: The MS authentication token value that can be used
+                    to query the graph API for the user and determine if they can
+                    log into Cognidox.
+                  type: string
+              required:
+              - token
+              title: AuthRequest
+              type: object
+        description: The MS authentication token.
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                properties:
+                  cognidox:
+                    properties:
+                      access_token:
+                        description: The cognidox access token that can be used to
+                          call the authenticated REST API.
+                        type: string
+                      expires_at:
+                        description: The time in seconds since 1st Jan 1971 at which
+                          the access token will expire.
+                        type: number
+                      refresh_token:
+                        description: The token that can be used to refresh the access
+                          token.
+                        type: string
+                      scope:
+                        description: The set of comma separated names.
+                        type: string
+                      token_type:
+                        description: The type of the tokens. Typically this is 'Bearer'
+                          indicating tokens are in JWT format.
+                        type: string
+                    type: object
+                  token:
+                    description: The original MS authentication token.
+                    type: string
+                required:
+                - token
+                - cognidox
+                title: AuthResult
+                type: object
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+      summary: Generate an authentication token for the user
+      tags:
+      - Plugins
+      x-cognidox-ms-office-add-in: true
+  /plugin/ms-office/state:
+    get:
+      description: The MS Office add-in needs to be able to determine whether the
+        plugin is enabled, and makes this check via this anonymous endpoint.
+      operationId: cogniDoxMSOfficePluginGet_state
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: false
+                properties:
+                  enabled:
+                    description: Whether the office add-in plugin is enabled or not.
+                    type: boolean
+                  nested_auth_client_id:
+                    description: The Microsoft Entra App Client Id to use for nested
+                      authentication
+                    type: string
+                required:
+                - enabled
+                title: PluginStateResult
+                type: object
+          description: OK
+      summary: Check whether plugin is enabled
+      tags:
+      - Plugins
+      x-cognidox-ms-office-add-in: true
+  /repository:
+    get:
+      description: Retrieve information about the Cognidox server.
+      operationId: getSystemInformation
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/systemInformationResult'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+      security:
+      - bearerAuth:
+        - read:repository
+      - oauth2:
+        - oauth2
+      summary: Get Cognidox server details.
+      tags:
+      - Repository
+      x-cognidox-ms-office-add-in: true
+  /repository/documentTypes:
+    get:
+      description: Retrieve all document types defined in the repository.
+      operationId: getAllDocumentTypes
+      parameters:
+      - example: 0
+        in: query
+        name: showLegacyTypes
+        required: false
+        schema:
+          enum:
+          - 0
+          - 1
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/documentTypesArray'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+      security:
+      - bearerAuth:
+        - read:repository
+      - oauth2:
+        - oauth2
+      summary: Get all document types.
+      tags:
+      - Repository
+      x-cognidox-ms-office-add-in: true
+  /repository/documentTypes/{extension}:
+    get:
+      description: Retrieve the document types associated with the filename extension.
+      operationId: getDocumentTypes
+      parameters:
+      - description: The file extension.
+        example: docx
+        in: path
+        name: extension
+        required: true
+        schema:
+          type: string
+      - example: 0
+        in: query
+        name: showLegacyTypes
+        required: false
+        schema:
+          enum:
+          - 0
+          - 1
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/documentTypesResult'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - read:repository
+      - oauth2:
+        - oauth2
+      summary: Get document types for extension.
+      tags:
+      - Repository
+      x-cognidox-ms-office-add-in: true
+  /repository/documents:
+    post:
+      description: Find documents that match the specified criteria.
+      operationId: search
+      parameters:
+      - description: Offset within the set of matching documents.
+        in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          minimum: 0
+          type: integer
+      - description: Maximum number of matches to return.
+        in: query
+        name: limit
+        required: false
+        schema:
+          default: 2147483647
+          minimum: 1
+          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              example:
+                title: 401
+              properties:
+                categoryId:
+                  description: Optionally locate documents in a specific category.
+                  minimum: 1
+                  nullable: false
+                  type: integer
+                compartmentId:
+                  description: Optionally locate documents that only appear in the
+                    specified compartment.
+                  format: uuid
+                  nullable: false
+                  type: string
+                inMainBriefcase:
+                  description: Optionally locate documents that only appear in the
+                    main briefcase.
+                  enum:
+                  - true
+                  nullable: false
+                  type: boolean
+                license:
+                  description: Optionally locate documents that are assigned to the
+                    license.
+                  maxLength: 80
+                  minLength: 1
+                  nullable: false
+                  type: string
+                metadata:
+                  $ref: '#/components/schemas/metadata'
+                  description: Optionally locate documents using their metadata.
+                  nullable: false
+                partNumber:
+                  description: Optionally locate documents using part of or their
+                    full identity.
+                  items:
+                    pattern: ^[-A-Z0-9]{1,12}$
+                    type: string
+                  nullable: false
+                  type: array
+                published:
+                  description: Optionally locate only published documents.
+                  nullable: false
+                  type: boolean
+                reportId:
+                  description: Optionally locate documents that appear in the specified
+                    report.
+                  format: uuid
+                  nullable: false
+                  type: string
+                savedSearchId:
+                  description: Optionally locate documents using a previous search.
+                  minimum: 1
+                  nullable: false
+                  type: integer
+                title:
+                  description: Optionally locate documents using part of their title.
+                  maxLength: 255
+                  minLength: 1
+                  nullable: false
+                  type: string
+                versionInformation:
+                  description: Optionally locate documents by version information.
+                  minLength: 1
+                  nullable: false
+                  type: string
+              title: SearchRequest
+              type: object
+        description: The search criteria to use.
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/searchResult'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+      security:
+      - bearerAuth:
+        - read:documents
+      - oauth2:
+        - oauth2
+      summary: Locate documents by their attributes.
+      tags:
+      - Repository
+      x-cognidox-ms-office-add-in: true
+  /repository/extensions/{documentType}:
+    get:
+      description: Retrieve the filename extensions for the specified document type.
+      operationId: getFilenameExtensions
+      parameters:
+      - description: The kind of document.
+        example: TC
+        in: path
+        name: documentType
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                example:
+                  documentType: TC
+                  extensions:
+                  - xps
+                  - mm
+                  - numbers
+                  - wma
+                  - vssx
+                  - dfx
+                  - key
+                  - vsdm
+                  - tbz
+                  - rpm
+                  - csv
+                  - dotx
+                properties:
+                  documentType:
+                    type: string
+                  extensions:
+                    items:
+                      type: string
+                    type: array
+                title: DocumentTypesResponse
+                type: object
+          description: OK.
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+        '404':
+          description: Not found
+      security:
+      - bearerAuth:
+        - read:repository
+      - oauth2:
+        - oauth2
+      summary: Get extensions for type.
+      tags:
+      - Repository
+      x-cognidox-ms-office-add-in: true
+  /repository/options:
+    get:
+      description: Retrieve the options configured on the Cognidox server.
+      operationId: getRepositoryOptions
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/optionsResult'
+          description: OK
+        '400':
+          $ref: '#/components/responses/errorBadRequest'
+        '401':
+          $ref: '#/components/responses/errorUnauthorized'
+        '403':
+          $ref: '#/components/responses/errorForbidden'
+      security:
+      - bearerAuth:
+        - read:repository
+      - oauth2:
+        - oauth2
+      summary: Get Cognidox server options.
+      tags:
+      - Repository
+      x-cognidox-ms-office-add-in: true
+servers:
+- url: https://cognidox.example.net/api/v1.0
+tags:
+- description: Set of functions that query the state of the repository.
+  name: Repository
+- description: Set of functions that operate on documents in the repository.
+  name: Documents
+- description: Set of functions that operate on categories in the repository.
+  name: Categories
+- description: endpoints for logging
+  name: Logger
+- description: Functions adds by Cognidox plugins
+  name: Plugins

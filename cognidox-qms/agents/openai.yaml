@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cognidox QMS"
+  short_description: "Read Cognidox QMS records safely"
+  default_prompt: "Use $cognidox-qms to search and inspect Cognidox QMS documents with read-only API calls."

@@ -21,11 +21,13 @@ readonly -a SHELL_FILES=(
   token-file-auth/scripts/tests/test_token_file_auth.sh
   circleci-job-results/scripts/fetch_circleci_job_results.sh
   circleci-job-results/scripts/tests/test_fetch_circleci_job_results.sh
+  cognidox-qms/scripts/cognidox_qms.sh
+  cognidox-qms/scripts/tests/test_cognidox_qms.sh
 )
 
 cd "$REPO_ROOT"
 
-for required_command in bash git node npm rg rsync uv; do
+for required_command in bash git jq node npm rg rsync uv; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Error: ${required_command} is not installed or not in PATH." >&2
     exit 1
@@ -129,6 +131,7 @@ done
 
 token-file-auth/scripts/tests/test_token_file_auth.sh
 circleci-job-results/scripts/tests/test_fetch_circleci_job_results.sh
+cognidox-qms/scripts/tests/test_cognidox_qms.sh
 scripts/test_sync_codex_to_repo.sh
 
 run_ci_tool actionlint
