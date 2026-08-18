@@ -1,0 +1,6 @@
+interface:
+  display_name: "Autoresearch"
+  short_description: "Run reproducible empirical research studies"
+  default_prompt: "Use $autoresearch to run a bounded, reproducible empirical study in this repository."
+policy:
+  allow_implicit_invocation: false

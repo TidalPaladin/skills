@@ -147,6 +147,8 @@ Use this sequence when reviewing a change:
 ## Codex agent definitions
 
 - In `/home/chase/skills`, store project-scoped custom agents as standalone TOML files under `.codex/agents/` and keep shared project agent limits in `.codex/config.toml`.
+- Keep `autoresearch/` as the domain-neutral canonical autoresearch skill. Repository templates may link this repository at an exact commit and must keep domain-specific commands, frameworks, trackers, supervisors, event producers, and CI policy in the downstream repository.
+- Keep app-server transport, authority capture, wake delivery, reconciliation, delivery state, and owned goal waits in `notify-wake-runtime`. Research adapters may own terminal event production, attention predicates, registered roots, controllers, and retry timing.
 - Use `scripts/sync_codex_to_repo.sh` to preview or apply AGENTS.md, skill, and custom-agent updates to `${CODEX_HOME:-$HOME/.codex}`. The default is a non-mutating dry run.
 - Run `scripts/test_sync_codex_to_repo.sh` and strict Codex configuration validation after changing agent definitions or sync behavior.
 - Run `scripts/ci.sh` before handoff; it installs the exact Codex version from `package-lock.json`, and GitHub Actions runs the same gate on Linux x64 and macOS Arm64 with the aggregate `Required` job reserved for branch protection. `CODEX_INSTALL_MODE=existing` is reserved for the independent `Codex Latest Canary` workflow, which tests the newest stable release without joining the required gate.
