@@ -23,6 +23,8 @@ readonly GOAL_SKILL="${REPO_ROOT}/goal-mode/SKILL.md"
 readonly GOAL_INTERFACE="${REPO_ROOT}/goal-mode/agents/openai.yaml"
 readonly REVIEW_SKILL="${REPO_ROOT}/review-fix-loop/SKILL.md"
 readonly REVIEW_INTERFACE="${REPO_ROOT}/review-fix-loop/agents/openai.yaml"
+readonly AUTORESEARCH_SKILL="${REPO_ROOT}/autoresearch/SKILL.md"
+readonly AUTORESEARCH_INTERFACE="${REPO_ROOT}/autoresearch/agents/openai.yaml"
 readonly NOTIFY_WAKE_SKILL="${REPO_ROOT}/notify-wake/SKILL.md"
 readonly NOTIFY_WAKE_SCRIPT="${REPO_ROOT}/notify-wake/scripts/notify_wake.py"
 readonly NOTIFY_WAKE_PROJECT="${REPO_ROOT}/notify-wake/pyproject.toml"
@@ -111,6 +113,8 @@ test_agent_source_contract() {
     fail "notify-wake CLI entrypoint must be executable"
   assert_file_exists "$NOTIFY_WAKE_PROJECT"
   assert_file_exists "$NOTIFY_WAKE_LOCK"
+  assert_file_exists "$AUTORESEARCH_SKILL"
+  assert_file_exists "$AUTORESEARCH_INTERFACE"
   assert_contains "$PR_AGENT_SOURCE" 'name = "pr_lifecycle_reporter"'
   assert_contains "$PR_AGENT_SOURCE" 'model = "gpt-5.6-luna"'
   assert_contains "$PR_AGENT_SOURCE" 'model_reasoning_effort = "medium"'
@@ -164,6 +168,18 @@ test_agent_source_contract() {
   assert_contains "$NOTIFY_WAKE_SKILL" 'turn/start'
   assert_contains "$NOTIFY_WAKE_SKILL" 'strictly more than 10 minutes'
   assert_contains "$NOTIFY_WAKE_SKILL" 'Elapsed before notification'
+  assert_contains "$NOTIFY_WAKE_SKILL" 'https://github.com/TidalPaladin/skills'
+  assert_not_contains "$NOTIFY_WAKE_SKILL" '/home/tidal/skills'
+  assert_contains "$AUTORESEARCH_SKILL" 'keep the goal active'
+  assert_contains "$AUTORESEARCH_SKILL" 'Delegate wake authority capture, delivery state, reconciliation, retries, root delivery, and owned goal waits to `$notify-wake`.'
+  assert_contains "$AUTORESEARCH_SKILL" 'Treat the research terminal record as canonical source truth.'
+  assert_contains "$AUTORESEARCH_SKILL" 'Assign watchdog event delivery to the repository `$notify-wake` adapter or controller.'
+  assert_contains "$AUTORESEARCH_SKILL" 'Provide an automated conformance check for these requirements.'
+  assert_contains "$AUTORESEARCH_SKILL" 'Keep this skill responsible for research discipline, recoverability, and safety.'
+  assert_not_contains "$AUTORESEARCH_SKILL" 'Weights & Biases'
+  assert_not_contains "$AUTORESEARCH_SKILL" '[skip ci]'
+  assert_not_contains "$AUTORESEARCH_SKILL" 'PyTorch'
+  assert_contains "$AUTORESEARCH_INTERFACE" 'allow_implicit_invocation: false'
   assert_contains "$ROOT_GUIDANCE" 'strictly more than 10 minutes'
 }
 
@@ -370,6 +386,8 @@ EOF
   assert_files_equal "$CITATION_SKILL" "${codex_home}/skills/citation-verifier/SKILL.md"
   assert_files_equal "$GOAL_SKILL" "${codex_home}/skills/goal-mode/SKILL.md"
   assert_files_equal "$REVIEW_SKILL" "${codex_home}/skills/review-fix-loop/SKILL.md"
+  assert_files_equal "$AUTORESEARCH_SKILL" "${codex_home}/skills/autoresearch/SKILL.md"
+  assert_files_equal "$AUTORESEARCH_INTERFACE" "${codex_home}/skills/autoresearch/agents/openai.yaml"
   assert_files_equal "$EMEND_SKILL" "${codex_home}/skills/emend/SKILL.md"
   assert_files_equal "$EMEND_INTERFACE" "${codex_home}/skills/emend/agents/openai.yaml"
   assert_files_equal "$EMEND_REFERENCE" "${codex_home}/skills/emend/references/asd-ste100.md"

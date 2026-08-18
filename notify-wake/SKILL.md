@@ -11,7 +11,7 @@ Read `references/design-patterns.md` before selecting an adapter, registering a 
 
 ## Source and Runtime Contract
 
-`/home/tidal/skills/notify-wake` is the source for this skill and the `notify-wake-runtime` Python package. Repository adapters must pin package version `1.0.0` from an exact Git commit. They may own event production, trusted prompts, registered roots, controllers, and retry timing. They must not copy the app-server transport, authority capture, goal lifecycle, wake delivery, or reconciliation code.
+The canonical source for this skill and the `notify-wake-runtime` Python package is `notify-wake/` in [TidalPaladin/skills](https://github.com/TidalPaladin/skills) at the exact commit that contains this file. Resolve that immutable source revision with `git rev-parse HEAD` in the containing repository. Repository adapters must pin package version `1.0.0` from that full commit SHA. They may own event production, trusted prompts, registered roots, controllers, and retry timing. They must not copy the app-server transport, authority capture, goal lifecycle, wake delivery, or reconciliation code.
 
 The runtime supports Python 3.11 through 3.14 and requires Codex app-server 0.146.0 or a later schema-conforming release. It exposes:
 
