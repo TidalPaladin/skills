@@ -8,6 +8,8 @@ readonly CI_SCRIPT="${SCRIPT_DIR}/ci.sh"
 readonly CODEX_CANARY="${REPO_ROOT}/.github/workflows/codex-latest.yml"
 readonly DEPENDENCY_HEALTH="${REPO_ROOT}/.github/workflows/dependency-health.yml"
 readonly DEPENDABOT_CONFIG="${REPO_ROOT}/.github/dependabot.yml"
+readonly EMEND_CHECKER="${REPO_ROOT}/emend/scripts/check_asd_ste100.py"
+readonly EMEND_TEST="${REPO_ROOT}/emend/tests/test_check_asd_ste100.py"
 readonly PACKAGE_MANIFEST="${REPO_ROOT}/package.json"
 readonly PROJECT_CONFIG="${REPO_ROOT}/pyproject.toml"
 readonly NOTIFY_WAKE_PROJECT="${REPO_ROOT}/notify-wake/pyproject.toml"
@@ -95,6 +97,9 @@ assert_contains \
   'run_notify_wake_tool "$PYTHON_VERSION" pytest --cov=notify_wake'
 assert_contains \
   "${CI_SCRIPT}" \
+  'run_ci_tool pytest --cov=emend/scripts --cov-report=term-missing'
+assert_contains \
+  "${CI_SCRIPT}" \
   'run_notify_wake_tool "$notify_wake_python" pytest -q tests'
 assert_contains \
   "${CI_SCRIPT}" \
@@ -107,6 +112,10 @@ assert_contains \
   'run_notify_wake_tool "$PYTHON_VERSION" python -m build --installer uv'
 assert_contains "${NOTIFY_WAKE_PROJECT}" '"websockets==16.1.1"'
 assert_contains "${NOTIFY_WAKE_PROJECT}" 'fail_under = 90'
+assert_contains "${PROJECT_CONFIG}" '"pytest-cov==7.1.0"'
+assert_contains "${PROJECT_CONFIG}" '"pyyaml==6.0.3"'
+[[ -x "${EMEND_CHECKER}" ]] || fail "the ASD-STE100 checker must be executable"
+[[ -f "${EMEND_TEST}" ]] || fail "the ASD-STE100 checker tests must exist"
 assert_contains "${CI_SCRIPT}" "npm ci --ignore-scripts"
 assert_contains "${CI_SCRIPT}" 'CODEX_INSTALL_MODE'
 assert_contains "${CI_SCRIPT}" 'node_modules/.bin'

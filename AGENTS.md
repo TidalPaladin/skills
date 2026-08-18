@@ -10,6 +10,7 @@ This file defines my personal/global engineering standards.
 
 ## Prose quality
 - Use `$emend` for strict prose cleanup or review.
+- Use ASD-STE100 for technical documents and default user communication. Do not apply it to requested nontechnical prose.
 - Prefer concrete, checkable facts over vague claims of importance or impact.
 - Avoid em dashes outside verbatim text, filler openers, empty intensifiers, dramatic headings, and generic marketing phrasing.
 - Use plain verbs and concrete nouns. Check `$emend`'s reference list when cleaning long-form prose.
