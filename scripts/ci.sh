@@ -106,17 +106,21 @@ done
 
 scripts/test_ci.sh
 
-run_ci_tool ruff format --check scripts inspect-dataset review-fix-loop
+run_ci_tool ruff format --check scripts inspect-dataset review-fix-loop emend
 run_ci_tool ruff check --target-version py311 --select E4,E7,E9,F,I,ISC \
-  scripts inspect-dataset review-fix-loop
+  scripts inspect-dataset review-fix-loop emend
 run_ci_tool env PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1 \
   basedpyright --level error \
   scripts/validate_codex_agents.py \
   inspect-dataset/scripts/inspect_dataset.py \
   review-fix-loop/scripts/run_review.py \
-  review-fix-loop/tests/test_run_review.py
+  review-fix-loop/tests/test_run_review.py \
+  emend/scripts/check_asd_ste100.py \
+  emend/tests/test_check_asd_ste100.py
 run_ci_tool shellcheck --severity=error "${SHELL_FILES[@]}"
 run_ci_tool pytest -q review-fix-loop/tests
+run_ci_tool pytest --cov=emend/scripts --cov-report=term-missing \
+  --cov-fail-under=90 -q emend/tests
 
 run_notify_wake_tool "$PYTHON_VERSION" ruff format --check runtime scripts tests
 run_notify_wake_tool "$PYTHON_VERSION" ruff check runtime scripts tests

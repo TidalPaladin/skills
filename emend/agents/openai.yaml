@@ -1,4 +1,4 @@
 interface:
   display_name: "Emend"
-  short_description: "Edit prose to remove AI-like filler and vague claims."
-  default_prompt: "Use $emend on the selected prose or changed docs, replacing vague language with concrete, checkable facts."
+  short_description: "Edit prose with evidence and Simplified Technical English."
+  default_prompt: "Use $emend to make the selected prose factual, natural, and aligned with ASD-STE100 when it is technical."
