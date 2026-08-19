@@ -13,11 +13,25 @@ Preserve the user's scope and authority:
 
 - Read and inspect within the repository and declared experiment environment.
 - Modify code, configuration, state, logs, and managed artifacts only within the study scope.
-- Do not publish, push, delete artifacts, change protected branches, alter production systems, or exceed recorded resource limits without explicit authorization.
+- Explicit `$autoresearch` invocation authorizes this skill to use `$git-github-workflow no pr`.
+- Explicit invocation also authorizes goal inspection, creation, and truthful terminal updates for the current study.
+- Use that workflow only for study branches, task-scoped staging, commits, and pushes.
+- Do not create a pull request.
+- Do not delete artifacts, change protected branches, alter production systems, or exceed recorded resource limits without explicit authorization.
 - Escalate when a decision would change the study design, resource use, retention policy, or authorized scope.
-- Do not treat invocation of this skill as authorization for Git publication or destructive retention.
+- Do not treat invocation as authorization for destructive retention, external tracker writes, or other publication methods.
 
-Allow planning and recovery without an active persistent goal. Before launch, require an active goal that covers the study. If none is active, stop and ask the user to start one.
+Allow planning and recovery without an active persistent goal. Before the first study launch:
+
+1. Call `get_goal` before the first study launch. Track whether this skill creates or reuses the goal.
+2. If no unfinished goal exists, call `create_goal` with a bounded study objective.
+3. Include the outcome, study constraints, and verification evidence in the objective.
+4. Reuse a compatible unfinished goal. Do not replace an existing goal.
+5. If the unfinished goal does not cover the study, explain the mismatch. Ask the user to edit or clear it.
+6. If `create_goal` reports an unfinished goal, call `get_goal` again and reuse that goal when compatible.
+7. If goal tools are unavailable, stop before launch. Tell the user how to start the equivalent goal.
+
+Do not set a goal token budget unless the user explicitly supplied one. Goal authority does not expand other permissions or approval limits.
 
 Use a repository research skill or domain adapter for the experiment mechanics. This includes commands, data, metrics, hardware, checkpoints, and events. If none exists, define and validate a minimal repository adapter before launch. Stop when required mechanics remain undefined.
 
@@ -104,8 +118,9 @@ Before launch:
 - Resolve managed study paths before launch. Reject repository roots, broad parent directories, symlink escapes, and paths that overlap source, configuration, dependencies, or input data.
 - Treat changes confined to recorded managed paths as expected research state. Record their exact paths and prelaunch hashes or inventories.
 - Refuse unrelated dirty changes unless the user authorizes an exception. Record the exact diff for each exception.
-- Refuse a stale, unpushed, or mismatched source environment unless the user authorizes an exception and the exact state is recorded.
-- Do not commit or push merely for recoverability. Obtain authorization and use `$git-github-workflow` for Git publication.
+- Correct stale or unpushed study-scoped source with `$git-github-workflow no pr` when safe.
+- Refuse a mismatched source environment unless the user authorizes an exception and the exact state is recorded.
+- Do not commit or push merely for recoverability. Use the authorized Git workflow only when the study needs immutable provenance or publication.
 
 Record repository commits, branch state, environment hashes, data hashes, seeds, hardware, commands, configuration, runtime versions, tracker identity, and managed paths. Keep uncommitted research records locally recoverable. Publish them only when authorized.
 
@@ -190,6 +205,8 @@ If no candidate qualifies, record that result and stop unless the trial budget a
 ## Completion and Handoff
 
 Complete a study only when all permitted runs are terminal or censored. Require complete evaluation, replication, provenance, logs, retention, and authorized publication. Stored artifacts must reproduce the comparisons.
+
+Call `update_goal` with `status=complete` only when the goal objective is complete. Complete a goal that this skill created after all required work finishes. Leave a reused broader goal active unless its complete objective is also achieved. Keep the existing three-turn rule for `status=blocked`.
 
 Report identifiers, terminal-state counts, record locations, metrics, uncertainty, resources, provenance, artifact retention, notification status, limitations, and next actions.
 
