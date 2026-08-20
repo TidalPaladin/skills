@@ -241,6 +241,25 @@ test_goal_mode_contract() {
   assert_not_contains "$REVIEW_SKILL" '/goal Use $review-fix-loop'
 }
 
+test_autoresearch_contract() {
+  assert_file_exists "$AUTORESEARCH_SKILL"
+  assert_file_exists "$AUTORESEARCH_INTERFACE"
+
+  assert_contains "$AUTORESEARCH_SKILL" 'Explicit `$autoresearch` invocation authorizes this skill to use `$git-github-workflow no pr`.'
+  assert_contains "$AUTORESEARCH_SKILL" 'Explicit invocation also authorizes goal inspection, creation, and truthful terminal updates for the current study.'
+  assert_contains "$AUTORESEARCH_SKILL" 'Do not create a pull request.'
+  assert_contains "$AUTORESEARCH_SKILL" 'Call `get_goal` before the first study launch.'
+  assert_contains "$AUTORESEARCH_SKILL" 'call `create_goal`'
+  assert_contains "$AUTORESEARCH_SKILL" 'Do not replace an existing goal.'
+  assert_contains "$AUTORESEARCH_SKILL" 'Call `update_goal` with `status=complete`'
+  assert_contains "$AUTORESEARCH_SKILL" 'Do not set a goal token budget unless the user explicitly supplied one.'
+  assert_not_contains "$AUTORESEARCH_SKILL" 'Do not treat invocation of this skill as authorization for Git publication'
+  assert_not_contains "$AUTORESEARCH_SKILL" 'stop and ask the user to start one'
+  assert_not_contains "$AUTORESEARCH_SKILL" 'Obtain authorization and use `$git-github-workflow` for Git publication.'
+  assert_contains "$AUTORESEARCH_INTERFACE" 'starts Goal Mode when needed and commits and pushes study changes without creating a pull request'
+  assert_contains "$AUTORESEARCH_INTERFACE" 'allow_implicit_invocation: false'
+}
+
 test_root_alias_codex_home_is_rejected() {
   local codex_home="${TEST_ROOT}/root-codex-home"
   local output="${TEST_ROOT}/root-codex-home.out"
@@ -631,6 +650,7 @@ test_invalid_source_agents_are_rejected_before_sync() {
 test_agent_source_contract
 test_pull_request_contracts
 test_goal_mode_contract
+test_autoresearch_contract
 test_root_alias_codex_home_is_rejected
 test_sync_does_not_require_gnu_realpath
 test_agent_validation_requires_python_with_tomllib
