@@ -1,96 +1,86 @@
 # Cognidox REST API Guide
 
-## Basics
+## Connection And Scopes
 
-- Base URL: set `COGNIDOX_QMS_BASE_URL` or pass `--base-url`; include `/api/v1.0`
-- OpenAPI file: `references/openapi.yml`
-- Auth: bearer Personal Access Token from `~/.codex/env/cognidox`
-- Required v1 scopes: `read:repository`, `read:categories`, `read:documents`; add `read:files` for version downloads
-- OAuth2 authorization-code auth also exists, but v1 uses the PAT path.
+- Set `COGNIDOX_QMS_BASE_URL` or use `--base-url`.
+- Include `/api/v1.0` in the URL.
+- Load the bearer PAT from `~/.codex/env/cognidox`.
+- Use read scopes for preflight checks and `write:documents` for document writes.
+- Use `write:files` for version slices.
+- Use `read:files` for template and version downloads.
 
-## Read-Only Endpoints
+The client does not retry `401` or `403` responses. It reports the status and stops.
 
-| Purpose | Method | Path | Scope |
-| --- | --- | --- | --- |
-| Server metadata | `GET` | `/repository` | `read:repository` |
-| Server options | `GET` | `/repository/options` | `read:repository` |
-| Document types | `GET` | `/repository/documentTypes` | `read:repository` |
-| Types for extension | `GET` | `/repository/documentTypes/{extension}` | `read:repository` |
-| Extensions for type | `GET` | `/repository/extensions/{documentType}` | `read:repository` |
-| Root category | `GET` | `/categories` | `read:categories` |
-| Category by ID | `GET` | `/categories/{categoryId}` | `read:categories` |
-| New-document recommendations | `POST` | `/categories/recommendations/{categoryId}` | `read:categories` |
-| Document search | `POST` | `/repository/documents` | `read:documents` |
-| Document info | `GET` | `/documents/{partNumber}` | `read:documents` |
-| Document constraints | `GET` | `/documents/constraints/{partNumber}` | `read:documents` |
-| Document lock | `GET` | `/documents/locks/{partNumber}` | `read:documents` |
-| Document permissions | `GET` | `/documents/permissions/{partNumber}` | `read:documents` |
-| Document templates | `GET` | `/documents/templates/{partNumber}` | `read:documents` |
-| Version metadata | `GET` | `/documents/versions/{partNumber}/{version}` | `read:documents` |
-| Version slice | `GET` | `/documents/versions/{partNumber}/{version}/{index}` | `read:files` |
+## Supported Endpoints
 
-## Search
+- Server metadata: `GET /repository` with `read:repository`.
+- Server options: `GET /repository/options` with `read:repository`.
+- Document types: `GET /repository/documentTypes` with `read:repository`.
+- Category details: `GET /categories/{categoryId}` with `read:categories`.
+- Category recommendations: `POST /categories/recommendations/{categoryId}` with `read:categories`.
+- Document search: `POST /repository/documents` with `read:documents`.
+- Document details: `GET /documents/{partNumber}` with `read:documents`.
+- Constraints: `GET /documents/constraints/{partNumber}` with `read:documents`.
+- Lock status: `GET /documents/locks/{partNumber}` with `read:documents`.
+- Version metadata: `GET /documents/versions/...` with `read:documents`.
+- Version slices: `GET /documents/versions/...` with `read:files`.
+- Document creation: `POST /documents` with `write:documents`.
+- Native form creation: `POST /documents/forms/{categoryFormId}` with `write:documents`.
+- Office template copy: `POST /documents/templates/{partNumber}` with `write:documents`.
+- Version session: `POST /documents/versions/{partNumber}` with `write:documents`.
+- Version slice upload: `PATCH /documents/versions/slices/{index}/{uploadId}` with `write:files`.
+- Test-document deletion: `DELETE /documents/{partNumber}` with `write:documents`.
 
-`POST /repository/documents` requires a non-empty request body. Cognidox returned `400` for `{}` during live exploration.
+For `POST /documents/templates/{partNumber}`, omit request field `version` so Cognidox assigns the target draft version. That field controls the new target version. It does not select the approved source-template version. The response download contains Cognidox custom properties for the assigned part number and draft version; preserve them when filling the Office package.
 
-Common criteria:
+Category changes, document updates, publication, obsolescence, approval, and signature actions are not supported.
 
-```json
-{
-  "title": "quality manual",
-  "partNumber": ["DM-000401-AN"],
-  "categoryId": 123,
-  "published": true,
-  "versionInformation": "1A"
-}
-```
+## Search And Category Preflight
 
-Other supported criteria in the OpenAPI include `metadata`, `license`, `savedSearchId`, `reportId`, `compartmentId`, and `inMainBriefcase`.
+`POST /repository/documents` requires a non-empty request body. Use an exact title and category ID for duplicate checks.
 
-## Category Browsing
+Use repeated `filter` query parameters for category and document sections. Use `offset` and `limit` for each category page.
 
-Use `filter` query parameters to choose returned sections:
+Before document creation:
 
-- `details`
-- `children`
-- `documents`
-- `categories`
+1. Get category details and confirm `canCreateDocuments`.
+2. Resolve the full category path from the root.
+3. Get live document recommendations.
+4. Confirm that the selected document type appears in `documentTypes`.
+5. Search for an exact title in that category.
 
-Repeat `filter` for multiple values, for example:
+The create request must omit `manualPartNumber`. Cognidox assigns the part number.
 
-```text
-/categories?filter=details&filter=categories&filter=documents&limit=25
-```
+## Version Preflight
 
-Use `offset` and `limit` for paged `documents` and `categories` arrays.
+Before a version session:
 
-## Document Inspection
+1. Get repository options.
+2. Get document details, including `nextDraft` and `nextIssue`.
+3. Get document constraints and the allowed filename extensions.
+4. Get the current lock state.
+5. Hash the complete local file and calculate the slice count.
+6. Enforce comment and version-information requirements.
+7. Stop when the repository requires checkout. The skill does not perform checkout.
 
-`GET /documents/{partNumber}` accepts repeated `filter` values:
+Treat all issue uploads as notification-capable. Tenant routing can start an approval workflow after issue creation.
 
-- `details`
-- `latest`
-- `versions`
-- `workspaces`
+The final plan includes the tenant API base URL and expected next version. `--apply-plan` rejects a tenant mismatch before network access. It then repeats these checks and rejects a version race.
 
-Some visible documents may not have a latest version available to the token; handle missing versions as a normal response.
+For Office template creation, download and fill the approved template during planning. Record the generated hash, size, slice count, and part-number filename rule. Repeat the preflight before document creation.
 
-## Future Write Surfaces
+## Binary Transfer Rules
 
-Document but do not call these in v1:
+Use `application/octet-stream` for `PATCH /documents/versions/slices/...`. Keep the bearer header in the curl configuration input. Do not add it to command arguments.
 
-| Operation | Method/path | Scope |
-| --- | --- | --- |
-| Create category | `POST /categories` | `write:categories` |
-| Update category | `PATCH /categories/{categoryId}` | `write:categories` |
-| Delete category | `DELETE /categories/{categoryId}` | `write:categories` |
-| Create document | `POST /documents` | `write:documents` |
-| Create form document | `POST /documents/forms/{categoryFormId}` | `write:documents` |
-| Create temporary document from template | `POST /documents/templates/{partNumber}` | `write:documents` |
-| Create document version | `POST /documents/versions/{partNumber}` | `write:documents` |
-| Upload version slice | `PATCH /documents/versions/slices/{index}/{uploadId}` | `write:files` |
-| Update document | `PATCH /documents/{partNumber}` | `write:documents` |
-| Delete document | `DELETE /documents/{partNumber}` | `write:documents` |
-| Client logger | `POST /logger` | `write:logger` |
+Require `202` for each non-final slice. Require `200` for the final slice. Confirm that the final response identifies the target document and its latest version.
 
-Before implementing any write surface, require user approval, define dry-run behavior, and validate against a sandbox or intentionally selected non-production record.
+Validate every download link before use. The link must use HTTPS and the same origin as the configured base URL.
+
+Do not print or store document bytes in logs. Do not print `cognidoxKey` values.
+
+## Error And Recovery Rules
+
+Keep the created part number after any later failure. Write the status to `~/.codex/state/cognidox-qms/`. Do not delete the document as an automatic rollback.
+
+For a failed slice upload, report the slice index and ledger path. Generate a new plan only after you inspect the document and existing upload result.

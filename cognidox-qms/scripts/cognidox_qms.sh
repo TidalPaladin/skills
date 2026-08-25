@@ -6,6 +6,11 @@ COGNIDOX_QMS_EXIT_USAGE=2
 COGNIDOX_QMS_DEFAULT_TOKEN_NAME="cognidox"
 COGNIDOX_QMS_DEFAULT_SLICE_SIZE=4194304
 COGNIDOX_QMS_CATEGORY_PAGE_SIZE=25
+COGNIDOX_QMS_DOCUMENT_SEARCH_PAGE_SIZE=100
+COGNIDOX_QMS_CATEGORY_TRAVERSAL_LIMIT="${COGNIDOX_QMS_CATEGORY_TRAVERSAL_LIMIT:-1000}"
+
+# shellcheck source=cognidox_write.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cognidox_write.sh"
 
 cognidox_usage() {
   cat <<'EOF'
@@ -23,6 +28,13 @@ Usage:
   cognidox_qms.sh --document-templates <part-number>
   cognidox_qms.sh --document-version <part-number> --version <version> [--version-format native|pdf] [--slice-size <bytes>]
   cognidox_qms.sh --document-version <part-number> --version <version> --download-version --output <path>
+  cognidox_qms.sh --category-recommendations <id> [--extension <ext>]
+  cognidox_qms.sh --create-document --category-id <id> --document-type <type> --title <title> [--author <name>] [--plan-out <path>]
+  cognidox_qms.sh --create-form-document --category-id <id> --category-form-id <uuid> --title <title> [--plan-out <path>]
+  cognidox_qms.sh --create-from-template --category-id <id> --document-type <type> --title <title> --template-part-number <part-number> --field-data <json-file> [--field-manifest <json-file>] [--author <name>] [--plan-out <path>]
+  cognidox_qms.sh --create-version <part-number> --issue-type draft|issue --file <path> [--comment <text>] [--version-information <text>] [--slice-size <bytes>] [--plan-out <path>]
+  cognidox_qms.sh --delete-document <part-number> --comment <reason> [--plan-out <path>]
+  cognidox_qms.sh --apply-plan <path> (--confirm|--confirm-notify|--confirm-destructive) <plan-id>
 
 Search criteria:
   --title <text>
@@ -41,12 +53,20 @@ Global options:
   --base-url <url>       Required unless COGNIDOX_QMS_BASE_URL is set.
   --token-name <name>    Secret file under ~/.codex/env (default: cognidox)
   --format text|json     Default: text
+  --plan-out <path>      Write a new deterministic mutation plan; never overwrite.
+  --confirm <plan-id>    Apply an approved normal-risk plan.
+  --confirm-notify <plan-id>
+                         Apply an approved notification-capable plan.
+  --confirm-destructive <plan-id>
+                         Apply an approved destructive cleanup plan.
+  --notification-capable Mark a draft plan as notification-capable when live preflight shows routing.
   -h, --help             Show this help text
 
 Environment:
   COGNIDOX_QMS_BASE_URL  Cognidox REST base URL, including /api/v1.0.
 
-V1 is read-only. Mutating Cognidox operations are intentionally not implemented.
+Mutation commands only plan by default. Applying a plan requires the matching
+risk-specific confirmation with the exact plan ID.
 EOF
 }
 
@@ -240,9 +260,16 @@ cognidox_render_response() {
   local output_format="$2"
   local body_file="$3"
   local jq_bin="$4"
+  local redacted_body_file="${body_file}.redacted"
+
+  "${jq_bin}" 'walk(if type == "object" then del(.cognidoxKey) else . end)' \
+    "${body_file}" >"${redacted_body_file}"
+  chmod 600 "${redacted_body_file}"
+  body_file="${redacted_body_file}"
 
   if [[ "${output_format}" == "json" ]]; then
     "${jq_bin}" . "${body_file}"
+    rm -f "${redacted_body_file}"
     return 0
   fi
 
@@ -362,6 +389,7 @@ cognidox_render_response() {
       printf 'mode=%s\nkeys=%s\n' "${mode}" "$(cognidox_json_keys "${body_file}" "${jq_bin}")"
       ;;
   esac
+  rm -f "${redacted_body_file}"
 }
 
 cognidox_add_search_field() {
@@ -558,6 +586,11 @@ cognidox_download_version() {
   local href
   local part_file
 
+  if [[ -e "${output_path}" || -L "${output_path}" ]]; then
+    cognidox_error "refusing to overwrite existing artifact: ${output_path}"
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+
   link_count="$("${jq_bin}" -r '.links // [] | length' "${metadata_file}")"
   if [[ "${link_count}" -lt 1 ]]; then
     cognidox_error "version metadata did not include downloadable links."
@@ -601,6 +634,22 @@ cognidox_main() {
   local extension=""
   local document_type=""
   local part_number=""
+  local title=""
+  local author=""
+  local category_form_id=""
+  local template_part_number=""
+  local field_data=""
+  local field_manifest=""
+  local input_file=""
+  local issue_type=""
+  local comment=""
+  local version_information=""
+  local plan_out=""
+  local apply_plan=""
+  local normal_confirmation=""
+  local notify_confirmation=""
+  local destructive_confirmation=""
+  local notification_capable="false"
   local version=""
   local version_format="native"
   local slice_size="${COGNIDOX_QMS_DEFAULT_SLICE_SIZE}"
@@ -637,6 +686,12 @@ cognidox_main() {
         mode="repository_options"
         shift
         ;;
+      --category-recommendations)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--category-recommendations requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        mode="recommendations"
+        category_id="$2"
+        shift 2
+        ;;
       --document-types)
         mode="document_types"
         shift
@@ -649,7 +704,9 @@ cognidox_main() {
       --document-type)
         if [[ "$#" -lt 2 ]]; then cognidox_error "--document-type requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
         document_type="$2"
-        mode="extensions"
+        if [[ -z "${mode}" || "${mode}" == "document_types" ]]; then
+          mode="extensions"
+        fi
         shift 2
         ;;
       --show-legacy-types)
@@ -688,6 +745,7 @@ cognidox_main() {
         ;;
       --title)
         if [[ "$#" -lt 2 ]]; then cognidox_error "--title requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        title="$2"
         cognidox_add_search_field "${search_file}" "title" "$2" "${jq_bin}"
         search_has_criteria="true"
         shift 2
@@ -698,8 +756,103 @@ cognidox_main() {
         search_has_criteria="true"
         shift 2
         ;;
+      --author)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--author requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        author="$2"
+        shift 2
+        ;;
+      --category-form-id)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--category-form-id requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        category_form_id="$2"
+        shift 2
+        ;;
+      --template-part-number)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--template-part-number requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        template_part_number="$2"
+        shift 2
+        ;;
+      --field-data)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--field-data requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        field_data="$2"
+        shift 2
+        ;;
+      --field-manifest)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--field-manifest requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        field_manifest="$2"
+        shift 2
+        ;;
+      --file)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--file requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        input_file="$2"
+        shift 2
+        ;;
+      --issue-type)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--issue-type requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        issue_type="$2"
+        shift 2
+        ;;
+      --comment)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--comment requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        comment="$2"
+        shift 2
+        ;;
+      --plan-out)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--plan-out requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        plan_out="$2"
+        shift 2
+        ;;
+      --apply-plan)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--apply-plan requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        mode="apply_plan"
+        apply_plan="$2"
+        shift 2
+        ;;
+      --confirm)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--confirm requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        normal_confirmation="$2"
+        shift 2
+        ;;
+      --confirm-notify)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--confirm-notify requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        notify_confirmation="$2"
+        shift 2
+        ;;
+      --confirm-destructive)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--confirm-destructive requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        destructive_confirmation="$2"
+        shift 2
+        ;;
+      --notification-capable)
+        notification_capable="true"
+        shift
+        ;;
+      --create-document)
+        mode="create_document"
+        shift
+        ;;
+      --create-form-document)
+        mode="create_form_document"
+        shift
+        ;;
+      --create-from-template)
+        mode="create_from_template"
+        shift
+        ;;
+      --create-version)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--create-version requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        mode="create_version"
+        part_number="$2"
+        shift 2
+        ;;
+      --delete-document)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--delete-document requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        mode="delete_document"
+        part_number="$2"
+        shift 2
+        ;;
       --category-id)
         if [[ "$#" -lt 2 ]]; then cognidox_error "--category-id requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        category_id="$2"
         cognidox_add_search_number_field "${search_file}" "categoryId" "$2" "${jq_bin}"
         search_has_criteria="true"
         shift 2
@@ -724,6 +877,7 @@ cognidox_main() {
         ;;
       --version-information)
         if [[ "$#" -lt 2 ]]; then cognidox_error "--version-information requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        version_information="$2"
         cognidox_add_search_field "${search_file}" "versionInformation" "$2" "${jq_bin}"
         search_has_criteria="true"
         shift 2
@@ -842,8 +996,8 @@ cognidox_main() {
         output_format="$2"
         shift 2
         ;;
-      --create-document|--update-document|--delete-document|--create-version|--upload-version|--approve-document|--sign-document|--create-category|--update-category|--delete-category)
-        cognidox_error "mutating operation '$1' is intentionally disabled in cognidox-qms v1."
+      --update-document|--upload-version|--approve-document|--sign-document|--create-category|--update-category|--delete-category|--obsolete-document|--publish-document)
+        cognidox_error "mutating operation '$1' is outside the supported Cognidox safety boundary."
         return "${COGNIDOX_QMS_EXIT_USAGE}"
         ;;
       -h|--help)
@@ -898,6 +1052,22 @@ cognidox_main() {
     cognidox_error "--version-format must be native or pdf."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
+  if [[ -n "${plan_out}" && "${mode}" == "apply_plan" ]]; then
+    cognidox_error "--plan-out cannot be combined with --apply-plan."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ -n "${normal_confirmation}${notify_confirmation}${destructive_confirmation}" && "${mode}" != "apply_plan" ]]; then
+    cognidox_error "confirmation flags can only be used with --apply-plan."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ "${notification_capable}" == "true" && "${mode}" != "create_version" && "${mode}" != "create_from_template" ]]; then
+    cognidox_error "--notification-capable is only valid for a draft version or template plan."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ -n "${field_manifest}" && "${mode}" != "create_from_template" ]]; then
+    cognidox_error "--field-manifest is only valid with --create-from-template."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
   if [[ -z "${base_url}" ]]; then
     cognidox_error "set --base-url or COGNIDOX_QMS_BASE_URL."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
@@ -933,6 +1103,16 @@ cognidox_main() {
     repository_options)
       status="$(cognidox_api_request "GET" "/repository/options" "${body_file}" "" "${curl_bin}" "${cognidox_token}" "${base_url}")"
       cognidox_require_success "repository-options" "${status}" "${body_file}" "${jq_bin}" || return $?
+      cognidox_render_response "${mode}" "${output_format}" "${body_file}" "${jq_bin}"
+      ;;
+    recommendations)
+      printf '{}' >"${search_file}"
+      if [[ -n "${extension}" ]]; then
+        "${jq_bin}" -n --arg extension "${extension}" '{filenameExtension: $extension}' >"${search_file}"
+      fi
+      status="$(cognidox_api_request "POST" "/categories/recommendations/$(cognidox_urlencode "${category_id}")" \
+        "${body_file}" "${search_file}" "${curl_bin}" "${cognidox_token}" "${base_url}")"
+      cognidox_require_success "category-recommendations" "${status}" "${body_file}" "${jq_bin}" || return $?
       cognidox_render_response "${mode}" "${output_format}" "${body_file}" "${jq_bin}"
       ;;
     document_types)
@@ -1030,6 +1210,37 @@ cognidox_main() {
       else
         cognidox_render_response "${mode}" "${output_format}" "${body_file}" "${jq_bin}"
       fi
+      ;;
+    create_document)
+      cognidox_write_build_create_plan "${category_id}" "${document_type}" "${title}" "${author}" \
+        "${body_file}" "${temporary_dir}" "${curl_bin}" "${jq_bin}" "${cognidox_token}" "${base_url}"
+      cognidox_write_finalize_plan "${body_file}" "${plan_out}" "${output_format}" "${jq_bin}"
+      ;;
+    create_form_document)
+      cognidox_write_build_form_plan "${category_id}" "${category_form_id}" "${title}" \
+        "${body_file}" "${temporary_dir}" "${curl_bin}" "${jq_bin}" "${cognidox_token}" "${base_url}"
+      cognidox_write_finalize_plan "${body_file}" "${plan_out}" "${output_format}" "${jq_bin}"
+      ;;
+    create_from_template)
+      cognidox_write_build_template_plan "${category_id}" "${document_type}" "${title}" "${author}" \
+        "${template_part_number}" "${field_data}" "${field_manifest}" "${slice_size}" "${body_file}" "${temporary_dir}" \
+        "${curl_bin}" "${jq_bin}" "${cognidox_token}" "${base_url}" "${notification_capable}"
+      cognidox_write_finalize_plan "${body_file}" "${plan_out}" "${output_format}" "${jq_bin}"
+      ;;
+    create_version)
+      cognidox_write_build_version_plan "${part_number}" "${issue_type}" "${input_file}" "${comment}" \
+        "${version_information}" "${slice_size}" "${body_file}" "${temporary_dir}" "${curl_bin}" "${jq_bin}" "${cognidox_token}" "${base_url}" "${notification_capable}"
+      cognidox_write_finalize_plan "${body_file}" "${plan_out}" "${output_format}" "${jq_bin}"
+      ;;
+    delete_document)
+      cognidox_write_build_delete_plan "${part_number}" "${comment}" "${body_file}" "${temporary_dir}" \
+        "${curl_bin}" "${jq_bin}" "${cognidox_token}" "${base_url}"
+      cognidox_write_finalize_plan "${body_file}" "${plan_out}" "${output_format}" "${jq_bin}"
+      ;;
+    apply_plan)
+      cognidox_write_apply "${apply_plan}" "${normal_confirmation}" "${notify_confirmation}" \
+        "${destructive_confirmation}" "${output_format}" "${temporary_dir}" "${curl_bin}" "${jq_bin}" \
+        "${cognidox_token}" "${base_url}"
       ;;
     *)
       cognidox_error "unsupported mode: ${mode}"
