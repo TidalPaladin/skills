@@ -146,6 +146,8 @@ Use this sequence when reviewing a change:
 
 ## Codex agent definitions
 
+- For `cognidox-qms` writes, show the complete deterministic plan and obtain approval for its exact plan ID. Require `--confirm-notify` for issue uploads and `--confirm-destructive` for test cleanup. Never delete a partial record automatically.
+
 - In `/home/chase/skills`, store project-scoped custom agents as standalone TOML files under `.codex/agents/` and keep shared project agent limits in `.codex/config.toml`.
 - Keep `autoresearch/` as the domain-neutral canonical autoresearch skill. Repository templates may link this repository at an exact commit and must keep domain-specific commands, frameworks, trackers, supervisors, event producers, and CI policy in the downstream repository.
 - Keep app-server transport, authority capture, wake delivery, reconciliation, delivery state, and owned goal waits in `notify-wake-runtime`. Research adapters may own terminal event production, attention predicates, registered roots, controllers, and retry timing.

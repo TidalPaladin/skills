@@ -166,10 +166,10 @@ case "${method} ${url}" in
     fi
     ;;
   "GET https://mock.cognidox.example/api/v1.0/documents/DM-000401-AN?filter=details&filter=latest&filter=versions")
-    response_body='{"partNumber":"DM-000401-AN","title":"Quality Manual","published":true,"readonly":false,"latestVersion":{"version":"1A"},"latestApprovedVersion":{"version":"1"},"versions":[{"revision":"1A"}],"categories":[[1,2]]}'
+    response_body='{"partNumber":"DM-000401-AN","title":"Quality Manual","cognidoxKey":"server-key-must-not-print","published":true,"readonly":false,"latestVersion":{"version":"1A"},"latestApprovedVersion":{"version":"1"},"versions":[{"revision":"1A"}],"categories":[[1,2]]}'
     ;;
   "GET https://mock.cognidox.example/api/v1.0/documents/constraints/DM-000401-AN")
-    response_body='{"canOpen":true,"canRename":false,"canDelete":false,"canAddDraft":false,"canAddIssue":false,"allowedFilenameExtensions":["pdf"]}'
+    response_body='{"canOpen":true,"canRename":false,"canDelete":false,"canAddDraft":false,"canAddIssue":false,"allowedFilenameExtensions":["pdf"],"cognidoxKey":"server-key-must-not-print"}'
     ;;
   "GET https://mock.cognidox.example/api/v1.0/documents/locks/DM-000401-AN")
     response_body='{"partNumber":"DM-000401-AN","locked":false,"lockRequired":false,"unlockable":false}'
@@ -234,6 +234,7 @@ run_tests() {
   local mock_curl
   local log_file
   local download_file
+  local dangling_target
 
   temporary_root="$(mktemp -d)"
   secret_dir="${temporary_root}/secrets"
@@ -298,9 +299,14 @@ run_tests() {
   assert_equals "0" "${LAST_EXIT_CODE}" "document details should succeed"
   assert_contains "${LAST_STDOUT}" "latestVersion=1A" "document output should include latest version"
 
+  run_with_mock "${secret_dir}" "${mock_curl}" "${log_file}" --document DM-000401-AN --format json
+  assert_equals "0" "${LAST_EXIT_CODE}" "document JSON should succeed"
+  assert_not_contains "${LAST_STDOUT}" "server-key-must-not-print" "document JSON must omit server-side keys"
+
   run_with_mock "${secret_dir}" "${mock_curl}" "${log_file}" --document-constraints DM-000401-AN
   assert_equals "0" "${LAST_EXIT_CODE}" "constraints should succeed"
   assert_contains "${LAST_STDOUT}" "canOpen=true" "constraints output should include canOpen"
+  assert_not_contains "${LAST_STDOUT}" "server-key-must-not-print" "constraints text must omit server-side keys"
 
   run_with_mock "${secret_dir}" "${mock_curl}" "${log_file}" --document-lock DM-000401-AN
   assert_equals "0" "${LAST_EXIT_CODE}" "lock should succeed"
@@ -324,6 +330,22 @@ run_tests() {
   assert_contains "${LAST_STDOUT}" "mode=download-version" "download output should summarize mode"
   assert_equals "slice-zero-slice-one" "$(<"${download_file}")" "download should concatenate slices"
 
+  run_with_mock "${secret_dir}" "${mock_curl}" "${log_file}" --document-version DM-000401-AN --version 1A --version-format pdf --slice-size 10 --download-version --output "${download_file}"
+  assert_equals "1" "${LAST_EXIT_CODE}" "download should refuse to overwrite an existing artifact"
+  assert_contains "${LAST_STDERR}" "refusing to overwrite" "overwrite failure should explain the safety boundary"
+
+  download_file="${temporary_root}/dangling-download.pdf"
+  dangling_target="${temporary_root}/dangling-download-target.pdf"
+  ln -s "${dangling_target}" "${download_file}"
+  run_with_mock "${secret_dir}" "${mock_curl}" "${log_file}" --document-version DM-000401-AN --version 1A --version-format pdf --slice-size 10 --download-version --output "${download_file}"
+  assert_equals "1" "${LAST_EXIT_CODE}" "download should refuse to replace a dangling symlink"
+  assert_contains "${LAST_STDERR}" "refusing to overwrite" "dangling symlink failure should explain the safety boundary"
+  [[ -L "${download_file}" ]] || {
+    printf 'FAIL: download should preserve a dangling output symlink\n' >&2
+    TEST_FAIL_COUNT=$((TEST_FAIL_COUNT + 1))
+  }
+  assert_path_missing "${dangling_target}" "download must not create a dangling symlink target"
+
   download_file="${temporary_root}/cross-origin.pdf"
   MOCK_CROSS_ORIGIN_LINK=true run_with_mock "${secret_dir}" "${mock_curl}" "${log_file}" --document-version DM-000401-AN --version 1A --version-format pdf --slice-size 10 --download-version --output "${download_file}"
   assert_equals "1" "${LAST_EXIT_CODE}" "cross-origin version link should fail"
@@ -331,8 +353,8 @@ run_tests() {
   assert_path_missing "${download_file}" "cross-origin download should not create output"
 
   run_with_mock "${secret_dir}" "${mock_curl}" "${log_file}" --delete-document DM-000401-AN
-  assert_equals "2" "${LAST_EXIT_CODE}" "mutating operation should be blocked"
-  assert_contains "${LAST_STDERR}" "intentionally disabled" "mutating operation should explain read-only v1"
+  assert_equals "2" "${LAST_EXIT_CODE}" "delete planning should require a cleanup reason"
+  assert_contains "${LAST_STDERR}" "requires a non-empty --comment" "delete planning should explain the missing safety input"
 
   rm -rf "${temporary_root}"
 }

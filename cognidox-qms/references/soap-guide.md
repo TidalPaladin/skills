@@ -1,67 +1,38 @@
-# Cognidox SOAP Guide
+# Cognidox SOAP Integration Boundary
 
-## Use REST First
+## Current Boundary
 
-The REST API covers the v1 read workflows. Use SOAP as reference material when a user asks for workflows that REST does not expose or when comparing legacy behavior.
+Use REST for all supported skill operations. Do not execute Cognidox SOAP requests from this skill.
 
-SOAP endpoints and WSDLs are tenant-specific. Obtain the current WSDL from Cognidox support or the configured tenant when SOAP research is required. Do not commit tenant hostnames or tenant-derived WSDLs to a public repository.
+The REST PAT does not authenticate the tested SOAP service. Review requests, approval queues, policy tasks, and signatures require a separate SOAP authentication path.
 
-## Useful SOAP Capability Map
+The available Cognidox CLI can access these workflows. Its license is proprietary and all rights are reserved. Do not copy or include that CLI in this repository.
 
-Read/search:
-- `CogniDoxDocSearch`
-- `CogniDoxDocInfo`
-- `CogniDoxDocSecurity`
-- `CogniDoxDocLockInfo`
-- `CogniDoxDocFileInfo`
-- `CogniDoxDocRelationships`
-- `CogniDoxDocTemplates`
-- `CogniDoxDocReviewStatus`
+SOAP endpoints and WSDL files contain tenant-specific data. Do not commit a hostname, WSDL, document identifier, or policy record.
 
-Categories and repository:
-- `CogniDoxCategorySearch`
-- `CogniDoxCategoryList`
-- `CogniDoxCategoryInfo`
-- `CogniDoxCategoryTitles`
-- `CogniDoxSystemInfo`
-- `CogniDoxListDocumentTypes`
-- `CogniDoxListFilenameExtensions`
+## Deferred Capabilities
 
-Tasks, reviews, policy work:
-- `CogniDoxListReviewRequests`
-- `CogniDoxListApprovalRequests`
-- `CogniDoxListPolicyTasks`
-- `CogniDoxTasksListTypes`
-- `CogniDoxTasksListDocumentTaskRequests`
-- `CogniDoxTasksListDocumentTasks`
-- `CogniDoxTasksListUserTasks`
-- `CogniDoxTasksListUserTaskRequests`
+The SOAP service describes operations for:
 
-Forms and reports:
-- `CogniDoxListForms`
-- `CogniDoxDocFormData`
-- `CogniDoxDocFormSearch`
-- `CogniDoxCustomReportList`
-- `CogniDoxDocCustomReportSearch`
-- `CogniDoxListCustomReports`
+- Review request creation, cancellation, and status.
+- Approval request lists and approval queues.
+- Document signatures.
+- Policy and document tasks.
+- Native form data and form searches.
+- Reports, briefcases, and saved searches.
+- Document publication and obsolescence.
 
-Briefcases and saved searches:
-- `CogniDoxBriefcaseList`
-- `CogniDoxBriefcaseCompartmentsList`
-- `CogniDoxListSavedSearches`
-- `CogniDoxDocSavedSearch`
+These operations are not authorized or implemented by this skill.
 
-Write and workflow actions to keep disabled in v1:
-- create/delete/rename category
-- create/delete/rename/obsolete/unobsolete/publish/unpublish document
-- create versions or add PDF versions
-- checkout/checkin
-- create/cancel reviews
-- sign documents
-- create/forward/cancel/set task state
-- briefcase add/remove/rename actions
-- license creation/deletion
+## Prerequisites For A Licensed Integration
 
-## SOAP Implementation Notes
+Before implementation:
 
-Do not add SOAP execution unless REST lacks a required read-only operation. If SOAP execution is needed later, first determine the authentication mechanism from Cognidox support or a known working client. Do not assume the REST PAT applies to SOAP.
+1. Obtain a licensed Cognidox client or written permission to implement the required protocol.
+2. Obtain a supported SOAP authentication method from Cognidox.
+3. Retrieve the current WSDL at run time.
+4. Define the exact request, notification, and cancellation semantics.
+5. Add deterministic plans and exact approval gates.
+6. Test only with an intentionally selected non-production record.
+
+Any action that sends a request to another user must require current approval for the exact plan ID. The integration must use a notification-specific confirmation flag.
