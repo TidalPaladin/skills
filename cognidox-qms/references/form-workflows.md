@@ -73,13 +73,25 @@ The helper rejects missing, extra, invalid, and blank required values. Date valu
 
 ## Native Cognidox Forms
 
-The REST API can create a document from an active category form. It cannot register a new form definition.
+The REST API can create a document from an active category form. It cannot register a new form definition or fill the native UI fields.
 
 For a new native form definition:
 
 1. Inspect or author the Office template.
 2. Save the field manifest.
-3. Give both artifacts to an authorized Cognidox administrator.
-4. Register the definition in the Cognidox UI.
-5. Retrieve the active category form ID from live category details.
-6. Use `--create-form-document` to prepare a guarded creation plan.
+3. If a reusable authenticated Cognidox browser is available, create a `register_native_form` browser plan. Set `intendedChanges.templateFile` and `intendedChanges.fieldManifestFile` to absolute `path`, `sha256`, and `size` descriptors. Add the unique `fieldIdentifiers`, observed UI state, effects, and preconditions. Do not include field values.
+4. The client makes private artifact snapshots and verifies both snapshots before it creates the plan. Show the readable plan and obtain approval for its exact plan ID.
+5. Recheck the visible target, state, artifact hashes and sizes. Complete the approved registration in the same browser session. Stop before submission if any state changed.
+6. If browser automation is unavailable, give both artifacts to an authorized Cognidox administrator for manual registration.
+7. Retrieve the active category form ID from live category details.
+8. Use `--create-form-document` to prepare a guarded REST creation plan.
+
+To fill an existing native form through the UI:
+
+1. Put values in a protected JSON file. Do not put them in the plan, command arguments, agent messages, or logs.
+2. Create a `fill_native_form` browser plan. Its `intendedChanges` must contain a `valuesFile` object with only `path`, `sha256`, and `size`, plus the unique `fieldIdentifiers` array.
+3. Show the readable plan and obtain approval for its exact plan ID.
+4. In the retained browser session, recheck the target, current form state, field identifiers, effects, and preconditions.
+5. Read the protected values locally and enter them without echoing them. Stop before the final submission if the visible state differs from the plan.
+
+Follow `browser-workflows.md` for session retention, approval, submission, and ambiguous-result handling.

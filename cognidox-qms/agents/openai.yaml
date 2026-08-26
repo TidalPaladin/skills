@@ -1,4 +1,4 @@
 interface:
   display_name: "Cognidox QMS"
-  short_description: "Manage Cognidox QMS documents safely"
-  default_prompt: "Use $cognidox-qms to inspect Cognidox QMS records or prepare a guarded document write plan."
+  short_description: "Manage Cognidox QMS records with guarded plans"
+  default_prompt: "Use $cognidox-qms to inspect Cognidox QMS records or prepare a readable guarded REST or browser plan."

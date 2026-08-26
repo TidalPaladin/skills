@@ -147,6 +147,11 @@ Use this sequence when reviewing a change:
 ## Codex agent definitions
 
 - For `cognidox-qms` writes, show the complete deterministic plan and obtain approval for its exact plan ID. Require `--confirm-notify` for issue uploads and `--confirm-destructive` for test cleanup. Never delete a partial record automatically.
+- Present Cognidox plans as readable Markdown by default. Keep canonical JSON for plan validation, saved artifacts, and machine-readable requests.
+- Keep Cognidox REST as the first operational channel. For an allowed API gap, use a reusable authenticated browser session only after creating a browser plan and obtaining approval for its exact plan ID. Preserve the page, session handle, local plan, and pending plan ID while follow-up work or an ambiguous submission remains. Never apply a browser plan through REST. Validate every browser-plan section against its action-specific schema so an allowed action cannot carry a prohibited nested operation.
+- Dispatch to `cognidox_qms_worker` when a search or independent review covers at least three Cognidox documents, a broad search divides cleanly by category, result page, or explicit document set, or at least two independent normal-risk REST writes are required. The main agent must fix target order and supply policy, naming, and categorization decisions before dispatch.
+- Assign one bounded read partition, one deterministic plan, or one exact approved normal-risk REST plan to each worker. Use up to eight `cognidox_qms_worker` instances per ordered wave and consolidate results in target order. The main agent must present readable plans and obtain user approval.
+- Keep notification, destructive, browser, policy-sensitive, ambiguous-recovery, and cross-document synthesis work with the main agent.
 
 - In `/home/chase/skills`, store project-scoped custom agents as standalone TOML files under `.codex/agents/` and keep shared project agent limits in `.codex/config.toml`.
 - Keep `autoresearch/` as the domain-neutral canonical autoresearch skill. Repository templates may link this repository at an exact commit and must keep domain-specific commands, frameworks, trackers, supervisors, event producers, and CI policy in the downstream repository.

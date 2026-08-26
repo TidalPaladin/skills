@@ -1,13 +1,13 @@
 ---
 name: cognidox-qms
-description: Read and manage Cognidox quality-management-system records through guarded REST workflows. Use when Codex must search QMS documents, inspect categories and versions, create server-numbered documents or form records, fill Office forms, upload drafts or issues, or prepare approved test-document cleanup without sending review or approval requests.
+description: Read and manage Cognidox quality-management-system records through guarded REST and browser workflows. Use when Codex must search or review QMS documents, inspect categories and versions, create server-numbered documents or form records, fill Office or native forms, upload drafts or issues, prepare review or approval requests, register forms, check out documents, or prepare approved test-document cleanup.
 ---
 
 # Cognidox QMS
 
 ## Overview
 
-Use this skill to inspect Cognidox QMS records and run guarded document writes. Use REST for supported reads and writes. Review and approval requests remain unavailable because they require a licensed SOAP integration.
+Use this skill to inspect Cognidox QMS records and run guarded document operations. Use REST first. Use the authenticated Cognidox browser UI only for an allowed operation that the REST client cannot perform.
 
 ## Authentication
 
@@ -25,6 +25,8 @@ The PAT can use these scopes:
 - `read:files` for downloads
 - `write:documents` for document records and version sessions
 - `write:files` for version slices
+
+Browser-plan creation is local. It requires the tenant HTTPS base URL for plan binding, but it does not load or require the REST PAT. Complete the approved action with the retained authenticated browser session.
 
 ## Read Workflows
 
@@ -46,11 +48,13 @@ All mutation commands create a deterministic plan by default. They do not send a
 
 Each plan records the tenant API base URL, target, and preconditions. It also records the risk, source hash, expected version, and plan ID. The client refuses to overwrite an existing plan file.
 
-Before you apply a plan:
+Before you apply a REST plan or submit a browser plan:
 
-1. Show the complete plan to the user.
+1. Show the complete plan as the default readable Markdown summary.
 2. Obtain current approval for the exact plan ID.
 3. Use only the confirmation flag for the plan risk.
+
+Do not show raw plan JSON unless the user requests machine-readable output. `--plan-out` always saves canonical JSON even when the terminal output uses the readable default. Use `--format json` only for automation or an explicit machine-readable request.
 
 Use these gates:
 
@@ -59,6 +63,8 @@ Use these gates:
 | `normal` | Document creation, native form creation, template draft creation, draft upload | `--confirm <plan-id>` |
 | `notify` | Every issue upload | `--confirm-notify <plan-id>` |
 | `destructive` | Test-document deletion | `--confirm-destructive <plan-id>` |
+
+Browser plans use the same `normal` or `notify` risk labels, but `--apply-plan` rejects them. Complete an approved browser plan only in the authenticated browser after the visible-state recheck in `references/browser-workflows.md`.
 
 Do not infer approval from an earlier request. Do not supply `--confirm-notify` or `--confirm-destructive` until the user approves that exact plan ID.
 
@@ -84,14 +90,14 @@ Plan a server-numbered document:
 ```bash
 cognidox-qms/scripts/cognidox_qms.sh \
   --create-document --category-id <id> --document-type <type> \
-  --title "<title>" --author "<author>" --plan-out /tmp/create-plan.json --format json
+  --title "<title>" --author "<author>" --plan-out /tmp/create-plan.json
 ```
 
 After approval, apply the exact plan:
 
 ```bash
 cognidox-qms/scripts/cognidox_qms.sh \
-  --apply-plan /tmp/create-plan.json --confirm <plan-id> --format json
+  --apply-plan /tmp/create-plan.json --confirm <plan-id>
 ```
 
 Read `references/write-workflows.md` for all write commands and recovery rules.
@@ -110,22 +116,44 @@ cognidox-qms/scripts/cognidox_office_form.py fill template.docx \
 
 Supply values only through a JSON file. Use the authoring manifest during fill when it defines field types or optional fields. The helper requires a new output path. It preserves unrelated OOXML parts and does not overwrite the source.
 
-The REST API cannot register a native Cognidox form definition. Create the field manifest and reusable Office template locally. Then give them to an authorized user for manual registration in the Cognidox UI.
+The REST API cannot register a native Cognidox form definition or fill native form fields. Create the field manifest and reusable Office template locally. A registration browser plan must bind both artifacts by absolute path, SHA-256 hash, and size, plus the field identifiers. A fill browser plan must bind the protected values file the same way and must not copy any form value into other plan metadata. When an authenticated reusable browser is available, prepare a guarded browser plan for registration or filling. Otherwise, stop and give the artifacts to an authorized user for manual UI work.
 
 Read `references/form-workflows.md` before you create or fill a form.
 
-## Unsupported Workflow Actions
+## Browser Fallback
+
+Allowed browser actions are `request_review`, `request_approval`, `register_native_form`, `fill_native_form`, and `checkout_document`. Create a browser plan with `--create-browser-plan`, save it, show its readable summary, and stop before the final UI submission.
+
+Each browser action has fixed target, observed-state, intended-change, effect, and precondition schemas. Reject extra nested fields even when the top-level action is allowed. For native-form filling, require the intended field identifiers to equal the identifiers in both visible-state objects. Do not infer disclosure by comparing form values with legitimate state scalars.
+
+Reuse one authenticated Cognidox tab or session. Preserve its handle, current page, and pending plan ID in task state across turns. Keep the local plan. Do not close the tab or sign out until you are certain that the user has no follow-up operation. Before submission, recheck the target, recipients, effects, preconditions, and visible state. Any difference makes the plan stale.
+
+If reusable browser automation or authenticated state is unavailable, report the limitation and stop. Do not use web search or undocumented SOAP automation as a substitute. After an interrupted or ambiguous submission, retain the tab and plan and inspect the current state. Never retry blindly.
+
+Read `references/browser-workflows.md` before you plan or perform a browser operation.
+
+## Delegation
+
+The main agent must first interpret policy, fix target order, and decide naming and categorization. Then dispatch one bounded assignment to `cognidox_qms_worker` when:
+
+- A search or independent review covers at least three documents.
+- A broad search divides cleanly by category, result page, or explicit document set.
+- At least two independent normal-risk REST writes are required.
+
+Give each worker one read partition, one deterministic-plan preparation assignment, or one exact approved normal-risk REST plan. For a write, supply the exact plan path and plan ID and state that the user approved that ID. Process up to eight workers per ordered wave and consolidate results in target order.
+
+Keep policy interpretation, naming, categorization, readable plan presentation, approval, notifications, destructive operations, browser work, ambiguous recovery, and cross-document synthesis with the main agent.
+
+## Prohibited Workflow Actions
 
 Do not use this skill to:
 
-- Create or send a review request.
-- Add a document to an approval queue.
-- Approve, sign, obsolete, publish, or unpublish a document.
+- Approve or reject content, provide an electronic signature, or perform the approval itself.
+- Publish, unpublish, or make a document obsolete.
 - Delete or change a category.
 - Use a manual part number.
-- Register a native form definition.
 
-Review and approval workflows require SOAP authentication and a licensed vendor client. The available vendor CLI is proprietary and cannot be included in this repository. Read `references/soap-guide.md` for the integration boundary.
+Do not implement these operations through SOAP. The available vendor CLI is proprietary and cannot be included in this repository. Read `references/soap-guide.md` for the SOAP boundary.
 
 ## Recovery And Test Cleanup
 
@@ -142,5 +170,6 @@ Temporary local files use restrictive permissions. The client removes them after
 - `references/openapi.yml`: Cognidox REST OpenAPI specification.
 - `references/rest-api-guide.md`: REST endpoints, scopes, and response rules.
 - `references/write-workflows.md`: plan, apply, upload, and recovery commands.
+- `references/browser-workflows.md`: allowed UI fallback, browser state, and submission gates.
 - `references/form-workflows.md`: Office and native Cognidox form workflows.
-- `references/soap-guide.md`: deferred review and approval integration boundary.
+- `references/soap-guide.md`: prohibited and deferred SOAP integration boundary.

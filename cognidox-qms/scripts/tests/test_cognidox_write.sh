@@ -4,11 +4,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly COGNIDOX_SCRIPT="${SCRIPT_DIR}/../cognidox_qms.sh"
+readonly COGNIDOX_WRITE_SCRIPT="${SCRIPT_DIR}/../cognidox_write.sh"
 readonly OFFICE_FORM_HELPER="${SCRIPT_DIR}/../cognidox_office_form.py"
 readonly SECRET_SENTINEL="write-secret-token-for-tests"
 readonly CATEGORY_FORM_ID="16306b8a-f984-11ee-bbba-d9269ad84872"
 readonly BASE_URL="https://mock.cognidox.example/api/v1.0"
 readonly OTHER_BASE_URL="https://other.cognidox.example/api/v1.0"
+REAL_SHA256SUM_BIN=""
+REAL_SHA256SUM_IS_SHASUM=false
+if REAL_SHA256SUM_BIN="$(command -v sha256sum)"; then
+  :
+elif REAL_SHA256SUM_BIN="$(command -v shasum)"; then
+  REAL_SHA256SUM_IS_SHASUM=true
+else
+  printf 'Error: sha256sum or shasum is required.\n' >&2
+  exit 1
+fi
+readonly REAL_SHA256SUM_BIN
+readonly REAL_SHA256SUM_IS_SHASUM
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -20,6 +33,13 @@ assert_contains() {
   local needle="$2"
   local message="$3"
   [[ "${haystack}" == *"${needle}"* ]] || fail "${message}"
+}
+
+assert_not_contains() {
+  local haystack="$1"
+  local needle="$2"
+  local message="$3"
+  [[ "${haystack}" != *"${needle}"* ]] || fail "${message}"
 }
 
 assert_equals() {
@@ -37,6 +57,42 @@ sha256_file() {
   else
     shasum -a 256 "${input_path}" | awk '{print $1}'
   fi
+}
+
+assert_readable_saved_plan() {
+  local plan_file="$1"
+  local expected_action="$2"
+  local expected_confirmation="$3"
+  local first_render="${TEMPORARY_ROOT}/render-one.txt"
+  local second_render="${TEMPORARY_ROOT}/render-two.txt"
+  local expected_action_fragment
+  local expected_confirmation_fragment
+  local rendered
+  local scalar_count
+  local rendered_line_count
+
+  bash -c 'source "$1"; cognidox_write_render_plan "$2" jq' \
+    bash "${COGNIDOX_WRITE_SCRIPT}" "${plan_file}" >"${first_render}"
+  bash -c 'source "$1"; cognidox_write_render_plan "$2" jq' \
+    bash "${COGNIDOX_WRITE_SCRIPT}" "${plan_file}" >"${second_render}"
+  cmp -s "${first_render}" "${second_render}" || fail "plan rendering should be deterministic for ${expected_action}"
+  rendered="$(<"${first_render}")"
+  expected_action_fragment="$(printf '`"%s"`' "${expected_action}")"
+  expected_confirmation_fragment="$(printf '`"%s"`' "${expected_confirmation}")"
+  assert_contains "${rendered}" '# Cognidox mutation plan' "${expected_action} should use the readable plan heading"
+  assert_contains "${rendered}" "- **Action**: ${expected_action_fragment}" \
+    "${expected_action} should identify its action"
+  assert_contains "${rendered}" "- **Required confirmation**: ${expected_confirmation_fragment}" \
+    "${expected_action} should show its exact confirmation guidance"
+  assert_not_contains "${rendered}" 'schemaVersion=' "${expected_action} should not use flattened path=value output"
+  assert_equals '# Cognidox mutation plan' "$(sed -n '1p' "${first_render}")" \
+    "${expected_action} should keep a stable heading position"
+  assert_contains "$(sed -n '2,6p' "${first_render}")" '- **Plan ID**:' \
+    "${expected_action} should put the plan ID before plan details"
+  scalar_count="$(jq '[paths(scalars)] | length' "${plan_file}")"
+  rendered_line_count="$(wc -l <"${first_render}" | tr -d ' ')"
+  assert_equals "$((scalar_count + 2))" "${rendered_line_count}" \
+    "${expected_action} should render every scalar once plus the heading and confirmation guidance"
 }
 
 build_mock_curl() {
@@ -308,6 +364,56 @@ with zipfile.ZipFile(output, "w") as archive:
 PY
 }
 
+build_mutating_jq() {
+  local mock_path="$1"
+
+  cat >"${mock_path}" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+
+saw_action_read="false"
+saw_original_spec="false"
+for argument in "$@"; do
+  if [[ "${argument}" == *'.action // ""'* ]]; then
+    saw_action_read="true"
+  elif [[ "${argument}" == "${MOCK_BROWSER_SPEC}" ]]; then
+    saw_original_spec="true"
+  fi
+done
+
+jq "$@"
+status=$?
+if [[ "${status}" -eq 0 && "${saw_action_read}" == "true" && "${saw_original_spec}" == "true" ]]; then
+  cp "${MOCK_BROWSER_REPLACEMENT_SPEC}" "${MOCK_BROWSER_SPEC}"
+fi
+exit "${status}"
+EOF
+  chmod 700 "${mock_path}"
+}
+
+build_mutating_sha256sum() {
+  local mock_path="$1"
+
+  cat >"${mock_path}" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+
+if [[ "${REAL_SHA256SUM_IS_SHASUM}" == "true" ]]; then
+  "${REAL_SHA256SUM}" -a 256 "$@"
+else
+  "${REAL_SHA256SUM}" "$@"
+fi
+status=$?
+if [[ "${status}" -eq 0 && "${MOCK_MUTATE_HASHED_FILE:-false}" == "true" ]]; then
+  cp "${MOCK_VALUES_REPLACEMENT_FILE}" "${1}"
+elif [[ "${status}" -eq 0 && "${1:-}" == "${MOCK_VALUES_FILE}" ]]; then
+  cp "${MOCK_VALUES_REPLACEMENT_FILE}" "${MOCK_VALUES_FILE}"
+fi
+exit "${status}"
+EOF
+  chmod 700 "${mock_path}"
+}
+
 run_client() {
   local stdout_file="$1"
   local stderr_file="$2"
@@ -315,11 +421,19 @@ run_client() {
   env \
     TOKEN_FILE_AUTH_BASE_DIR="${SECRET_DIR}" \
     COGNIDOX_CURL_BIN="${MOCK_CURL}" \
+    COGNIDOX_JQ_BIN="${COGNIDOX_JQ_BIN:-jq}" \
     COGNIDOX_QMS_STATE_DIR="${STATE_DIR}" \
     COGNIDOX_QMS_CATEGORY_TRAVERSAL_LIMIT="${COGNIDOX_QMS_CATEGORY_TRAVERSAL_LIMIT:-1000}" \
     MOCK_MODE="${MOCK_MODE:-}" \
     MOCK_MUTATE_FILE="${MOCK_MUTATE_FILE:-}" \
     MOCK_MUTATE_CONTENT="${MOCK_MUTATE_CONTENT:-}" \
+    MOCK_BROWSER_SPEC="${MOCK_BROWSER_SPEC:-}" \
+    MOCK_BROWSER_REPLACEMENT_SPEC="${MOCK_BROWSER_REPLACEMENT_SPEC:-}" \
+    MOCK_VALUES_FILE="${MOCK_VALUES_FILE:-}" \
+    MOCK_VALUES_REPLACEMENT_FILE="${MOCK_VALUES_REPLACEMENT_FILE:-}" \
+    MOCK_MUTATE_HASHED_FILE="${MOCK_MUTATE_HASHED_FILE:-false}" \
+    REAL_SHA256SUM="${REAL_SHA256SUM:-/usr/bin/sha256sum}" \
+    REAL_SHA256SUM_IS_SHASUM="${REAL_SHA256SUM_IS_SHASUM}" \
     MOCK_TEMPLATE_PACKAGE="${TEMPLATE_PACKAGE}" \
     MOCK_SERVER_TEMPLATE_PACKAGE="${SERVER_TEMPLATE_PACKAGE}" \
     EXPECTED_TOKEN="${SECRET_SENTINEL}" \
@@ -369,6 +483,7 @@ readonly LOG_FILE="${TEMPORARY_ROOT}/requests.log"
 readonly STDOUT_FILE="${TEMPORARY_ROOT}/stdout"
 readonly STDERR_FILE="${TEMPORARY_ROOT}/stderr"
 readonly PLAN_FILE="${TEMPORARY_ROOT}/create-plan.json"
+readonly MARKDOWN_ESCAPE_PLAN="${TEMPORARY_ROOT}/markdown-escape-plan.json"
 readonly DANGLING_PLAN_LINK="${TEMPORARY_ROOT}/dangling-plan.json"
 readonly DANGLING_PLAN_TARGET="${TEMPORARY_ROOT}/dangling-plan-target.json"
 readonly CREATE_FAILURE_PLAN="${TEMPORARY_ROOT}/create-failure-plan.json"
@@ -389,17 +504,209 @@ readonly EXPECTED_SERVER_FILLED="${TEMPORARY_ROOT}/expected-server-filled.docx"
 readonly FORM_VALUE_SENTINEL="form-value-must-remain-private"
 readonly FORM_PLAN="${TEMPORARY_ROOT}/native-form-plan.json"
 readonly NOTIFY_DRAFT_PLAN="${TEMPORARY_ROOT}/notify-draft-plan.json"
+readonly BROWSER_NOTIFY_SPEC="${TEMPORARY_ROOT}/browser-notify-spec.json"
+readonly BROWSER_NOTIFY_PLAN="${TEMPORARY_ROOT}/browser-notify-plan.json"
+readonly BROWSER_NO_TOKEN_PLAN="${TEMPORARY_ROOT}/browser-no-token-plan.json"
+readonly BROWSER_APPROVAL_SPEC="${TEMPORARY_ROOT}/browser-approval-spec.json"
+readonly BROWSER_NORMAL_SPEC="${TEMPORARY_ROOT}/browser-normal-spec.json"
+readonly BROWSER_NORMAL_PLAN="${TEMPORARY_ROOT}/browser-normal-plan.json"
+readonly BROWSER_CHECKOUT_SPEC="${TEMPORARY_ROOT}/browser-checkout-spec.json"
+readonly BROWSER_REGISTER_SPEC="${TEMPORARY_ROOT}/browser-register-spec.json"
+readonly BROWSER_REGISTER_PLAN="${TEMPORARY_ROOT}/browser-register-plan.json"
+readonly BROWSER_INVALID_SPEC="${TEMPORARY_ROOT}/browser-invalid-spec.json"
+readonly BROWSER_RACE_SPEC="${TEMPORARY_ROOT}/browser-race-spec.json"
+readonly BROWSER_RACE_REPLACEMENT_SPEC="${TEMPORARY_ROOT}/browser-race-replacement-spec.json"
+readonly BROWSER_RACE_PLAN="${TEMPORARY_ROOT}/browser-race-plan.json"
+readonly MUTATING_JQ="${TEMPORARY_ROOT}/mutating-jq.sh"
+readonly MOCK_BIN="${TEMPORARY_ROOT}/mock-bin"
+readonly MUTATING_SHA256SUM="${MOCK_BIN}/sha256sum"
+readonly PROTECTED_VALUES_PATH="${TEMPORARY_ROOT}/protected-native-form-values.json"
+readonly PROTECTED_VALUES_REPLACEMENT_PATH="${TEMPORARY_ROOT}/replacement-native-form-values.json"
+readonly MULTI_DOCUMENT_VALUES_PATH="${TEMPORARY_ROOT}/multiple-native-form-values.json"
+readonly COMMON_FORM_VALUES_PATH="${TEMPORARY_ROOT}/protected-common-form-values.json"
+readonly FORM_VALUE_COLLISION_SPEC="${TEMPORARY_ROOT}/browser-form-value-collision-spec.json"
+readonly FORM_VALUE_COLLISION_PLAN="${TEMPORARY_ROOT}/browser-form-value-collision-plan.json"
+readonly NATIVE_FORM_VALUE_SENTINEL="native-form-value-must-remain-private"
+readonly NATIVE_FORM_DECOY_SENTINEL="native-form-decoy-must-remain-private"
 
-mkdir -p "${SECRET_DIR}" "${STATE_DIR}"
+mkdir -p "${SECRET_DIR}" "${STATE_DIR}" "${MOCK_BIN}"
 printf '%s\n' "${SECRET_SENTINEL}" >"${SECRET_DIR}/cognidox"
 printf 'synthetic-docx-bytes' >"${INPUT_FILE}"
 build_template_package "${TEMPLATE_PACKAGE}"
 build_server_template_package "${SERVER_TEMPLATE_PACKAGE}"
 build_mock_curl "${MOCK_CURL}"
+build_mutating_jq "${MUTATING_JQ}"
+build_mutating_sha256sum "${MUTATING_SHA256SUM}"
+
+if command -v shasum >/dev/null 2>&1; then
+  expected_fallback_hash="$(sha256_file "${INPUT_FILE}")"
+  actual_fallback_hash="$(
+    env REAL_SHA256SUM="$(command -v shasum)" \
+      REAL_SHA256SUM_IS_SHASUM=true \
+      MOCK_VALUES_FILE="${TEMPORARY_ROOT}/unused-values-file" \
+      MOCK_VALUES_REPLACEMENT_FILE="${TEMPORARY_ROOT}/unused-replacement-file" \
+      "${MUTATING_SHA256SUM}" "${INPUT_FILE}" | awk '{print $1}'
+  )"
+  assert_equals "${expected_fallback_hash}" "${actual_fallback_hash}" \
+    "the mutable SHA-256 test helper should support the macOS shasum fallback"
+fi
 
 printf '{"text1":"%s"}\n' "${FORM_VALUE_SENTINEL}" >"${FIELD_DATA}"
 printf '{"fields":[{"id":"text1","label":"Test value","required":true,"type":"text"}]}\n' >"${FIELD_MANIFEST}"
 printf '{"unknown":"invalid"}\n' >"${INVALID_FIELD_DATA}"
+printf '{"validation_scope":"synthetic","owner":"%s"}\n' \
+  "${NATIVE_FORM_VALUE_SENTINEL}" >"${PROTECTED_VALUES_PATH}"
+printf '{"owner":"%s"}\n' "${NATIVE_FORM_DECOY_SENTINEL}" >"${PROTECTED_VALUES_REPLACEMENT_PATH}"
+printf '%s\n%s\n' \
+  '{"validation_scope":"synthetic","owner":"first"}' \
+  '{"validation_scope":"synthetic","owner":"second"}' >"${MULTI_DOCUMENT_VALUES_PATH}"
+printf '{"confirmed":true,"lifecycle":"draft"}\n' >"${COMMON_FORM_VALUES_PATH}"
+protected_values_hash="$(sha256_file "${PROTECTED_VALUES_PATH}")"
+protected_values_size="$(wc -c <"${PROTECTED_VALUES_PATH}" | tr -d ' ')"
+replacement_values_hash="$(sha256_file "${PROTECTED_VALUES_REPLACEMENT_PATH}")"
+replacement_values_size="$(wc -c <"${PROTECTED_VALUES_REPLACEMENT_PATH}" | tr -d ' ')"
+multi_document_values_hash="$(sha256_file "${MULTI_DOCUMENT_VALUES_PATH}")"
+multi_document_values_size="$(wc -c <"${MULTI_DOCUMENT_VALUES_PATH}" | tr -d ' ')"
+common_form_values_hash="$(sha256_file "${COMMON_FORM_VALUES_PATH}")"
+common_form_values_size="$(wc -c <"${COMMON_FORM_VALUES_PATH}" | tr -d ' ')"
+template_package_hash="$(sha256_file "${TEMPLATE_PACKAGE}")"
+template_package_size="$(wc -c <"${TEMPLATE_PACKAGE}" | tr -d ' ')"
+field_manifest_hash="$(sha256_file "${FIELD_MANIFEST}")"
+field_manifest_size="$(wc -c <"${FIELD_MANIFEST}" | tr -d ' ')"
+cat >"${BROWSER_NOTIFY_SPEC}" <<'EOF'
+{
+  "action": "request_review",
+  "target": {"partNumber": "TS-000010-FM", "title": "Validation Plan"},
+  "observedState": {"latestVersion": "1"},
+  "intendedChanges": {
+    "requestType": "document review",
+    "instructions": "Review the current draft.\nConfirm the evidence."
+  },
+  "recipients": ["Quality Reviewer"],
+  "effects": [
+    "Notify the selected recipients.",
+    "Create one pending review request."
+  ],
+  "preconditions": {"latestVersion": "1", "recipientVisible": true}
+}
+EOF
+cat >"${BROWSER_APPROVAL_SPEC}" <<'EOF'
+{
+  "action": "request_approval",
+  "target": {"partNumber": "TS-000010-FM", "title": "Validation Plan"},
+  "observedState": {"latestVersion": "1"},
+  "intendedChanges": {
+    "requestType": "approval request",
+    "approvalQueue": "Quality approval",
+    "dueDate": "2028-02-29"
+  },
+  "recipients": ["Quality Approver"],
+  "effects": [
+    "Notify the selected recipients.",
+    "Create one pending approval request."
+  ],
+  "preconditions": {"latestVersion": "1", "recipientVisible": true}
+}
+EOF
+cp "${BROWSER_NOTIFY_SPEC}" "${BROWSER_RACE_SPEC}"
+cat >"${BROWSER_RACE_REPLACEMENT_SPEC}" <<'EOF'
+{
+  "action": "approve_document",
+  "target": {"partNumber": "TS-000010-FM", "title": "Validation Plan"},
+  "observedState": {"latestVersion": "1"},
+  "intendedChanges": {"approval": "approve"},
+  "recipients": ["Quality Reviewer"],
+  "effects": ["Approve the document."],
+  "preconditions": {"latestVersion": "1", "recipientVisible": true}
+}
+EOF
+cat >"${BROWSER_NORMAL_SPEC}" <<EOF
+{
+  "action": "fill_native_form",
+  "target": {"partNumber": "TS-000011-FM", "title": "Validation Master List"},
+  "observedState": {
+    "status": "draft",
+    "editable": true,
+    "fieldIdentifiers": ["validation_scope", "owner"]
+  },
+  "intendedChanges": {
+    "valuesFile": {
+      "path": "${PROTECTED_VALUES_PATH}",
+      "sha256": "${protected_values_hash}",
+      "size": ${protected_values_size}
+    },
+    "fieldIdentifiers": ["validation_scope", "owner"]
+  },
+  "effects": ["Update the listed native form fields."],
+  "preconditions": {
+    "status": "draft",
+    "editable": true,
+    "fieldIdentifiers": ["validation_scope", "owner"]
+  }
+}
+EOF
+cat >"${FORM_VALUE_COLLISION_SPEC}" <<EOF
+{
+  "action": "fill_native_form",
+  "target": {"partNumber": "TS-000012-FM", "title": "Boolean Native Form"},
+  "observedState": {
+    "status": "draft",
+    "editable": true,
+    "fieldIdentifiers": ["confirmed", "lifecycle"]
+  },
+  "intendedChanges": {
+    "valuesFile": {
+      "path": "${COMMON_FORM_VALUES_PATH}",
+      "sha256": "${common_form_values_hash}",
+      "size": ${common_form_values_size}
+    },
+    "fieldIdentifiers": ["confirmed", "lifecycle"]
+  },
+  "effects": ["Update the listed native form fields."],
+  "preconditions": {
+    "status": "draft",
+    "editable": true,
+    "fieldIdentifiers": ["confirmed", "lifecycle"]
+  }
+}
+EOF
+cat >"${BROWSER_CHECKOUT_SPEC}" <<'EOF'
+{
+  "action": "checkout_document",
+  "target": {"partNumber": "TS-000013-FM", "title": "Checkout Test"},
+  "observedState": {"checkedOut": false},
+  "intendedChanges": {"checkout": true},
+  "effects": ["Check out the target document."],
+  "preconditions": {"checkedOut": false, "canCheckout": true}
+}
+EOF
+cat >"${BROWSER_REGISTER_SPEC}" <<EOF
+{
+  "action": "register_native_form",
+  "target": {"categoryId": 10, "categoryPath": "Cognidox > Testing", "formName": "Synthetic Native Form"},
+  "observedState": {"categoryId": 10, "definitionPresent": false},
+  "intendedChanges": {
+    "templateFile": {
+      "path": "${TEMPLATE_PACKAGE}",
+      "sha256": "${template_package_hash}",
+      "size": ${template_package_size}
+    },
+    "fieldManifestFile": {
+      "path": "${FIELD_MANIFEST}",
+      "sha256": "${field_manifest_hash}",
+      "size": ${field_manifest_size}
+    },
+    "fieldIdentifiers": ["text1"]
+  },
+  "effects": ["Register one native Cognidox form definition."],
+  "preconditions": {
+    "categoryId": 10,
+    "definitionPresent": false,
+    "canManageForms": true,
+    "duplicateName": false
+  }
+}
+EOF
 "${OFFICE_FORM_HELPER}" fill "${SERVER_TEMPLATE_PACKAGE}" --values "${FIELD_DATA}" \
   --manifest "${FIELD_MANIFEST}" --output "${EXPECTED_SERVER_FILLED}" >/dev/null
 run_client_xtrace "${STDOUT_FILE}" "${STDERR_FILE}" \
@@ -509,11 +816,380 @@ assert_contains "$(<"${STDERR_FILE}")" "refusing to overwrite" \
 
 run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
   --create-document --category-id 10 --document-type FM --title "Temporary Form"
-assert_contains "$(<"${STDOUT_FILE}")" 'category.id=10' "text plans should include the category ID"
-assert_contains "$(<"${STDOUT_FILE}")" 'documentType.code="FM"' "text plans should include the document type"
-assert_contains "$(<"${STDOUT_FILE}")" 'documentType.valid=true' "text plans should include document-type validation"
-assert_contains "$(<"${STDOUT_FILE}")" 'duplicateTitle.exactMatches=0' "text plans should include duplicate-title results"
-assert_contains "$(<"${STDOUT_FILE}")" 'request.title="Temporary Form"' "text plans should include the mutation request"
+text_plan="$(<"${STDOUT_FILE}")"
+assert_contains "${text_plan}" '# Cognidox mutation plan' "text plans should use a readable heading"
+assert_contains "${text_plan}" '- **Plan ID**: `"sha256:' "text plans should show the plan ID"
+assert_contains "${text_plan}" '- **Action**: `"create_document"`' "text plans should show the action"
+assert_contains "${text_plan}" '- **Required confirmation**: `"--confirm"`' "normal plans should show their exact confirmation flag"
+assert_contains "${text_plan}" '- **Category ID**: `10`' "text plans should include the category ID"
+assert_contains "${text_plan}" '- **Document type code**: `"FM"`' "text plans should include the document type"
+assert_contains "${text_plan}" '- **Document type valid**: `true`' "text plans should include document-type validation"
+assert_contains "${text_plan}" '- **Duplicate exact matches**: `0`' "text plans should include duplicate-title results"
+assert_contains "${text_plan}" '- **Requested title**: `"Temporary Form"`' "text plans should include the mutation request"
+assert_not_contains "${text_plan}" 'category.id=' "text plans should not use flattened path=value output"
+text_plan_id="$(sed -n 's/^- \*\*Plan ID\*\*: `"\(sha256:[0-9a-f]*\)"`$/\1/p' "${STDOUT_FILE}")"
+assert_equals "${plan_id:-$(jq -r '.planId' "${PLAN_FILE}")}" "${text_plan_id}" \
+  "text and JSON rendering should preserve the same deterministic plan ID"
+canonical_plan_hash="$(jq -Sc 'del(.planId)' "${PLAN_FILE}" | tr -d '\n' | {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum | awk '{print $1}'; else shasum -a 256 | awk '{print $1}'; fi
+})"
+assert_equals "sha256:${canonical_plan_hash}" "$(jq -r '.planId' "${PLAN_FILE}")" \
+  "plan IDs must remain the hash of the unchanged canonical JSON"
+
+jq '
+  .request.title = "[Review](https://untrusted.example) `code` <tag>" |
+  .preconditions.unlocked = true
+' \
+  "${PLAN_FILE}" >"${MARKDOWN_ESCAPE_PLAN}"
+bash -c 'source "$1"; cognidox_write_render_plan "$2" jq' \
+  bash "${COGNIDOX_WRITE_SCRIPT}" "${MARKDOWN_ESCAPE_PLAN}" >"${STDOUT_FILE}"
+assert_contains "$(<"${STDOUT_FILE}")" \
+  '- **Requested title**: ``"[Review](https://untrusted.example) `code` <tag>"``' \
+  "untrusted plan values should render inside a non-executable Markdown code span"
+assert_contains "$(<"${STDOUT_FILE}")" '- **Preconditions / unlocked**: `true`' \
+  "generic plan labels should preserve ordinary field names"
+
+: >"${LOG_FILE}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_NOTIFY_SPEC}" \
+  --plan-out "${BROWSER_NOTIFY_PLAN}"
+browser_text_plan="$(<"${STDOUT_FILE}")"
+assert_contains "${browser_text_plan}" '- **Channel**: `"browser"`' "browser plans should identify their execution channel"
+assert_contains "${browser_text_plan}" '- **Risk**: `"notify"`' "review requests should derive notification risk"
+assert_contains "${browser_text_plan}" '- **Required confirmation**: `"explicit approval for this exact plan ID"`' \
+  "browser plans should explain their exact approval gate"
+assert_contains "${browser_text_plan}" 'Review the current draft.\nConfirm the evidence.' \
+  "multiline browser plan values should be escaped on one line"
+assert_equals "1" "$(rg -c --fixed-strings 'Review the current draft.\nConfirm the evidence.' "${STDOUT_FILE}")" \
+  "multiline values should be rendered exactly once"
+[[ ! -s "${LOG_FILE}" ]] || fail "browser planning must not make Cognidox REST requests"
+jq -e --arg base_url "${BASE_URL}" '
+  .action == "request_review" and .channel == "browser" and .risk == "notify" and
+  .repository.baseUrl == $base_url and .recipients == ["Quality Reviewer"] and
+  (.planId | startswith("sha256:"))
+' "${BROWSER_NOTIFY_PLAN}" >/dev/null || fail "review browser plans should be tenant-bound notification plans"
+
+jq '.intendedChanges.dueDate = "2026-02-31"' \
+  "${BROWSER_NOTIFY_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/impossible-due-date-browser-plan.json"; then
+  fail "browser plans should reject impossible calendar due dates"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "valid calendar date" \
+  "impossible due dates should report the calendar validation failure"
+
+jq '.preconditions.latestVersion = "2"' \
+  "${BROWSER_NOTIFY_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/conflicting-browser-state-plan.json"; then
+  fail "browser plans should reject observed state that conflicts with preconditions"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "observed state and preconditions must agree" \
+  "conflicting browser state should explain the stale-plan contract"
+
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --token-name unavailable-browser-plan-token \
+  --create-browser-plan --browser-plan-spec "${BROWSER_NOTIFY_SPEC}" \
+  --plan-out "${BROWSER_NO_TOKEN_PLAN}" --format json
+jq -e '
+  .action == "request_review" and .channel == "browser" and .risk == "notify"
+' "${BROWSER_NO_TOKEN_PLAN}" >/dev/null ||
+  fail "browser planning should not require a Cognidox REST token"
+[[ ! -s "${LOG_FILE}" ]] || fail "token-free browser planning must not make Cognidox REST requests"
+
+COGNIDOX_JQ_BIN="${MUTATING_JQ}" \
+  MOCK_BROWSER_SPEC="${BROWSER_RACE_SPEC}" \
+  MOCK_BROWSER_REPLACEMENT_SPEC="${BROWSER_RACE_REPLACEMENT_SPEC}" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_RACE_SPEC}" \
+  --plan-out "${BROWSER_RACE_PLAN}" --format json
+assert_equals "request_review" "$(jq -r '.action' "${BROWSER_RACE_PLAN}")" \
+  "browser planning should validate and build from one private specification snapshot"
+
+browser_notify_plan_id="$(jq -r '.planId' "${BROWSER_NOTIFY_PLAN}")"
+: >"${LOG_FILE}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --token-name unavailable-browser-apply-token \
+  --apply-plan "${BROWSER_NOTIFY_PLAN}" --confirm-notify "${browser_notify_plan_id}"; then
+  fail "browser plans must not be applied through REST"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "must be completed through the authenticated browser" \
+  "browser plan application should explain the channel boundary"
+[[ ! -s "${LOG_FILE}" ]] || fail "rejecting a browser plan must not make Cognidox REST requests"
+
+: >"${LOG_FILE}"
+run_client_xtrace "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_NORMAL_SPEC}" \
+  --plan-out "${BROWSER_NORMAL_PLAN}" --format json
+jq -e --arg values_path "${PROTECTED_VALUES_PATH}" '
+  .action == "fill_native_form" and .channel == "browser" and .risk == "normal" and
+  .intendedChanges.fieldIdentifiers == ["validation_scope", "owner"] and
+  .intendedChanges.valuesFile.path == $values_path and
+  (.intendedChanges | has("values") | not)
+' "${BROWSER_NORMAL_PLAN}" >/dev/null || fail "native form browser plans should protect values and derive normal risk"
+[[ ! -s "${LOG_FILE}" ]] || fail "normal browser planning must not make Cognidox REST requests"
+if rg -q --fixed-strings "${NATIVE_FORM_VALUE_SENTINEL}" \
+  "${STDOUT_FILE}" "${STDERR_FILE}" "${BROWSER_NORMAL_PLAN}" "${LOG_FILE}"; then
+  fail "native form values must not be disclosed by browser planning or bash xtrace"
+fi
+
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${FORM_VALUE_COLLISION_SPEC}" \
+  --plan-out "${FORM_VALUE_COLLISION_PLAN}" --format json
+jq -e '
+  .action == "fill_native_form" and .risk == "normal" and
+  .observedState.status == "draft" and
+  .preconditions.editable == true and
+  .intendedChanges.fieldIdentifiers == ["confirmed", "lifecycle"]
+' "${FORM_VALUE_COLLISION_PLAN}" >/dev/null ||
+  fail "legitimate form values should not collide with allowed browser metadata"
+
+jq '
+  .observedState.fieldIdentifiers = ["owner"] |
+  .preconditions.fieldIdentifiers = .intendedChanges.fieldIdentifiers
+' "${BROWSER_NORMAL_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/mismatched-native-form-fields-plan.json"; then
+  fail "native form plans should reject field identifiers that differ from visible state"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "fieldIdentifiers must match" \
+  "field-identifier mismatches should explain the stale-state contract"
+
+jq --arg path "${PROTECTED_VALUES_REPLACEMENT_PATH}" \
+  --arg sha256 "${replacement_values_hash}" \
+  --argjson size "${replacement_values_size}" '
+    .intendedChanges.valuesFile = {path: $path, sha256: $sha256, size: $size}
+  ' "${BROWSER_NORMAL_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/mismatched-values-keys-plan.json"; then
+  fail "native form plans should bind values-file keys to the approved fields"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "values-file keys must exactly match" \
+  "values-file key mismatches should explain the approved-field boundary"
+
+jq --arg path "${MULTI_DOCUMENT_VALUES_PATH}" \
+  --arg sha256 "${multi_document_values_hash}" \
+  --argjson size "${multi_document_values_size}" '
+    .intendedChanges.valuesFile = {path: $path, sha256: $sha256, size: $size}
+  ' "${BROWSER_NORMAL_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/multiple-values-documents-plan.json"; then
+  fail "native form plans should reject values files containing multiple JSON documents"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "one nonempty JSON object" \
+  "multiple protected values documents should fail the single-object contract"
+
+jq '.intendedChanges.valuesFile.sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"' \
+  "${BROWSER_NORMAL_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/mismatched-values-file-plan.json"; then
+  fail "native form browser plans should reject a mismatched protected values file"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "protected values file changed" \
+  "protected values-file mismatch should require a new browser plan"
+assert_not_contains "$(<"${STDERR_FILE}")" "${NATIVE_FORM_VALUE_SENTINEL}" \
+  "protected values-file mismatch errors must not disclose form values"
+
+for browser_action in request_approval register_native_form checkout_document; do
+  expected_browser_risk="normal"
+  source_browser_spec="${BROWSER_NORMAL_SPEC}"
+  if [[ "${browser_action}" == "request_approval" ]]; then
+    expected_browser_risk="notify"
+    source_browser_spec="${BROWSER_APPROVAL_SPEC}"
+  elif [[ "${browser_action}" == "register_native_form" ]]; then
+    source_browser_spec="${BROWSER_REGISTER_SPEC}"
+  elif [[ "${browser_action}" == "checkout_document" ]]; then
+    source_browser_spec="${BROWSER_CHECKOUT_SPEC}"
+  fi
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${source_browser_spec}" \
+    --plan-out "${TEMPORARY_ROOT}/${browser_action}-plan.json" --format json
+  jq -e --arg action "${browser_action}" --arg risk "${expected_browser_risk}" \
+    '.action == $action and .risk == $risk and .channel == "browser"' \
+    "${STDOUT_FILE}" >/dev/null || fail "${browser_action} should be an allowed ${expected_browser_risk}-risk browser action"
+done
+
+for unsafe_browser_case in \
+  register_definition_present register_permission register_duplicate checkout_already checkout_permission fill_not_editable; do
+  case "${unsafe_browser_case}" in
+    register_definition_present)
+      source_browser_spec="${BROWSER_REGISTER_SPEC}"
+      unsafe_filter='.preconditions.definitionPresent = true'
+      ;;
+    register_permission)
+      source_browser_spec="${BROWSER_REGISTER_SPEC}"
+      unsafe_filter='.preconditions.canManageForms = false'
+      ;;
+    register_duplicate)
+      source_browser_spec="${BROWSER_REGISTER_SPEC}"
+      unsafe_filter='.preconditions.duplicateName = true'
+      ;;
+    checkout_already)
+      source_browser_spec="${BROWSER_CHECKOUT_SPEC}"
+      unsafe_filter='.observedState.checkedOut = true'
+      ;;
+    checkout_permission)
+      source_browser_spec="${BROWSER_CHECKOUT_SPEC}"
+      unsafe_filter='.preconditions.canCheckout = false'
+      ;;
+    fill_not_editable)
+      source_browser_spec="${BROWSER_NORMAL_SPEC}"
+      unsafe_filter='.observedState.editable = false'
+      ;;
+  esac
+  jq "${unsafe_filter}" "${source_browser_spec}" >"${BROWSER_INVALID_SPEC}"
+  if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/${unsafe_browser_case}-plan.json"; then
+    fail "browser plans should reject unsafe state: ${unsafe_browser_case}"
+  fi
+  assert_contains "$(<"${STDERR_FILE}")" "safe-state preconditions" \
+    "unsafe state should explain the browser action availability contract"
+done
+
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_REGISTER_SPEC}" \
+  --plan-out "${BROWSER_REGISTER_PLAN}" --format json
+jq -e --arg template_path "${TEMPLATE_PACKAGE}" --arg manifest_path "${FIELD_MANIFEST}" '
+  .action == "register_native_form" and
+  .intendedChanges.templateFile.path == $template_path and
+  .intendedChanges.fieldManifestFile.path == $manifest_path and
+  .intendedChanges.fieldIdentifiers == ["text1"]
+' "${BROWSER_REGISTER_PLAN}" >/dev/null || fail "registration plans should bind the exact form artifacts"
+
+jq '.intendedChanges.templateFile.sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"' \
+  "${BROWSER_REGISTER_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/mismatched-registration-artifact-plan.json"; then
+  fail "registration browser plans should reject a mismatched template artifact"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "registration template file changed" \
+  "registration artifact mismatches should require a new browser plan"
+
+cat >"${BROWSER_INVALID_SPEC}" <<'EOF'
+{"action":"register_native_form","target":{"categoryId":10,"categoryPath":"Cognidox > Testing","formName":"Unbound Form"},"observedState":{"categoryId":10,"definitionPresent":false},"intendedChanges":{"definition":"use unspecified files"},"effects":["Register one native Cognidox form definition."],"preconditions":{"categoryId":10,"canManageForms":true,"duplicateName":false}}
+EOF
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/unbound-registration-plan.json"; then
+  fail "registration browser plans should require bound template and manifest artifacts"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "register_native_form requires" \
+  "unbound registration errors should explain the artifact contract"
+
+cat >"${BROWSER_INVALID_SPEC}" <<'EOF'
+{"action":"request_approval","target":{"partNumber":"TS-1"},"observedState":{"version":"1"},"intendedChanges":{"queue":"approval"},"effects":["Notify approver"],"preconditions":{"version":"1","recipientVisible":true}}
+EOF
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/missing-recipients-plan.json"; then
+  fail "notification browser plans should require recipients"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "recipients" "missing browser recipients should be explicit"
+
+cat >"${BROWSER_INVALID_SPEC}" <<'EOF'
+{"action":"approve_document","target":{"partNumber":"TS-1"},"observedState":{"version":"1"},"intendedChanges":{"approval":"approve"},"effects":["Approve"],"preconditions":{"version":"1"}}
+EOF
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/prohibited-browser-plan.json"; then
+  fail "browser plans should reject prohibited actions"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "allowed browser action" "prohibited browser actions should be explicit"
+
+for metadata_section in target observedState preconditions; do
+  jq --arg section "${metadata_section}" '.[$section].publish = true' \
+    "${BROWSER_NOTIFY_SPEC}" >"${BROWSER_INVALID_SPEC}"
+  if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/prohibited-${metadata_section}-browser-plan.json"; then
+    fail "browser plans must reject prohibited fields in ${metadata_section}"
+  fi
+  assert_contains "$(<"${STDERR_FILE}")" "request_review metadata" \
+    "${metadata_section} should use the action-specific metadata schema"
+done
+
+jq '.intendedChanges.publish = true' "${BROWSER_NOTIFY_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/nested-prohibited-browser-plan.json"; then
+  fail "allowed browser actions must reject nested prohibited changes"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "request_review intended changes" \
+  "nested prohibited changes should fail the action-specific schema"
+
+jq '.effects = ["Publish the document and notify the selected reviewer."]' \
+  "${BROWSER_NOTIFY_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/prohibited-effect-browser-plan.json"; then
+  fail "allowed browser actions must reject prohibited effects"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "request_review effects" \
+  "prohibited effects should fail the action-specific schema"
+
+jq '.intendedChanges.approve = true' "${BROWSER_APPROVAL_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/nested-approval-browser-plan.json"; then
+  fail "approval requests must not authorize the approval itself"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "request_approval intended changes" \
+  "actual approval should fail the action-specific schema"
+
+cat >"${BROWSER_INVALID_SPEC}" <<'EOF'
+{"action":"fill_native_form","target":{"partNumber":"TS-1"},"observedState":{"status":"draft"},"intendedChanges":{"values":{"owner":"private"},"fieldIdentifiers":["owner"]},"effects":["Fill form"],"preconditions":{"status":"draft"}}
+EOF
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/disclosing-browser-plan.json"; then
+  fail "browser plans should reject embedded form values"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "form values" "embedded form-value rejection should be explicit"
+assert_not_contains "$(<"${STDERR_FILE}")" "private" "form-value errors must not disclose the rejected value"
+
+jq --arg private_value "${NATIVE_FORM_VALUE_SENTINEL}" \
+  '.observedState.ownerAnswer = $private_value' \
+  "${BROWSER_NORMAL_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client_xtrace "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/misnamed-form-value-plan.json"; then
+  fail "native form plans should reject protected values stored under arbitrary metadata keys"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "form values" \
+  "misnamed form-value rejection should explain the protected-data boundary"
+if rg -q --fixed-strings "${NATIVE_FORM_VALUE_SENTINEL}" \
+  "${STDOUT_FILE}" "${STDERR_FILE}" "${TEMPORARY_ROOT}/misnamed-form-value-plan.json" 2>/dev/null; then
+  fail "misnamed form values must not be disclosed by browser planning or bash xtrace"
+fi
+
+printf '{"validation_scope":"synthetic","owner":"%s"}\n' \
+  "${NATIVE_FORM_VALUE_SENTINEL}" >"${PROTECTED_VALUES_PATH}"
+if PATH="${MOCK_BIN}:${PATH}" \
+  MOCK_VALUES_FILE="${PROTECTED_VALUES_PATH}" \
+  MOCK_VALUES_REPLACEMENT_FILE="${PROTECTED_VALUES_REPLACEMENT_PATH}" \
+  MOCK_MUTATE_HASHED_FILE=true \
+  REAL_SHA256SUM="${REAL_SHA256SUM_BIN}" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${BROWSER_NORMAL_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/raced-form-value-plan.json"; then
+  fail "native form planning should reject a protected values snapshot changed during verification"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "protected values file changed" \
+  "protected values-file races should fail at artifact verification"
+if rg -q --fixed-strings "${NATIVE_FORM_VALUE_SENTINEL}" \
+  "${STDOUT_FILE}" "${STDERR_FILE}" "${TEMPORARY_ROOT}/raced-form-value-plan.json" 2>/dev/null ||
+  rg -q --fixed-strings "${NATIVE_FORM_DECOY_SENTINEL}" \
+  "${STDOUT_FILE}" "${STDERR_FILE}" "${TEMPORARY_ROOT}/raced-form-value-plan.json" 2>/dev/null; then
+  fail "raced form values must not be disclosed by browser planning"
+fi
 
 plan_id="$(jq -r '.planId' "${PLAN_FILE}")"
 : >"${LOG_FILE}"
@@ -737,5 +1413,15 @@ assert_equals "deleted" "$(jq -r '.status' "${STDOUT_FILE}")" "exact destructive
 assert_equals "complete" "$(jq -r '.cleanupStatus' "${STATE_DIR}/${plan_id#sha256:}.json")" "approved cleanup should reconcile the creation ledger"
 assert_equals "${delete_plan_id}" "$(jq -r '.cleanupPlanId' "${STATE_DIR}/${plan_id#sha256:}.json")" "the creation ledger should identify the approved cleanup plan"
 assert_contains "$(<"${LOG_FILE}")" "/documents/TS-000001-FM?filter=details" "cleanup should confirm that the document is unavailable"
+
+assert_readable_saved_plan "${PLAN_FILE}" "create_document" "--confirm"
+assert_readable_saved_plan "${FORM_PLAN}" "create_form_document" "--confirm"
+assert_readable_saved_plan "${TEMPLATE_PLAN}" "create_from_template" "--confirm"
+assert_readable_saved_plan "${DRAFT_PLAN}" "create_version" "--confirm"
+assert_readable_saved_plan "${VERSION_PLAN}" "create_version" "--confirm-notify"
+assert_readable_saved_plan "${DELETE_PLAN}" "delete_document" "--confirm-destructive"
+assert_readable_saved_plan "${BROWSER_NORMAL_PLAN}" "fill_native_form" "explicit approval for this exact plan ID"
+assert_readable_saved_plan "${BROWSER_NOTIFY_PLAN}" "request_review" "explicit approval for this exact plan ID"
+assert_readable_saved_plan "${BROWSER_REGISTER_PLAN}" "register_native_form" "explicit approval for this exact plan ID"
 
 printf 'test_cognidox_write.sh: all tests passed.\n'

@@ -34,6 +34,7 @@ Usage:
   cognidox_qms.sh --create-from-template --category-id <id> --document-type <type> --title <title> --template-part-number <part-number> --field-data <json-file> [--field-manifest <json-file>] [--author <name>] [--plan-out <path>]
   cognidox_qms.sh --create-version <part-number> --issue-type draft|issue --file <path> [--comment <text>] [--version-information <text>] [--slice-size <bytes>] [--plan-out <path>]
   cognidox_qms.sh --delete-document <part-number> --comment <reason> [--plan-out <path>]
+  cognidox_qms.sh --create-browser-plan --browser-plan-spec <json-file> --plan-out <path>
   cognidox_qms.sh --apply-plan <path> (--confirm|--confirm-notify|--confirm-destructive) <plan-id>
 
 Search criteria:
@@ -54,6 +55,8 @@ Global options:
   --token-name <name>    Secret file under ~/.codex/env (default: cognidox)
   --format text|json     Default: text
   --plan-out <path>      Write a new deterministic mutation plan; never overwrite.
+  --browser-plan-spec <path>
+                         Define one allowed browser action and its observed state.
   --confirm <plan-id>    Apply an approved normal-risk plan.
   --confirm-notify <plan-id>
                          Apply an approved notification-capable plan.
@@ -67,6 +70,7 @@ Environment:
 
 Mutation commands only plan by default. Applying a plan requires the matching
 risk-specific confirmation with the exact plan ID.
+Browser plans cannot be applied through this REST client.
 EOF
 }
 
@@ -645,6 +649,7 @@ cognidox_main() {
   local comment=""
   local version_information=""
   local plan_out=""
+  local browser_plan_spec=""
   local apply_plan=""
   local normal_confirmation=""
   local notify_confirmation=""
@@ -801,6 +806,11 @@ cognidox_main() {
         plan_out="$2"
         shift 2
         ;;
+      --browser-plan-spec)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--browser-plan-spec requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        browser_plan_spec="$2"
+        shift 2
+        ;;
       --apply-plan)
         if [[ "$#" -lt 2 ]]; then cognidox_error "--apply-plan requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
         mode="apply_plan"
@@ -843,6 +853,10 @@ cognidox_main() {
         mode="create_version"
         part_number="$2"
         shift 2
+        ;;
+      --create-browser-plan)
+        mode="create_browser_plan"
+        shift
         ;;
       --delete-document)
         if [[ "$#" -lt 2 ]]; then cognidox_error "--delete-document requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
@@ -1056,6 +1070,18 @@ cognidox_main() {
     cognidox_error "--plan-out cannot be combined with --apply-plan."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
+  if [[ "${mode}" == "create_browser_plan" && -z "${browser_plan_spec}" ]]; then
+    cognidox_error "--create-browser-plan requires --browser-plan-spec <json-file>."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ "${mode}" == "create_browser_plan" && -z "${plan_out}" ]]; then
+    cognidox_error "--create-browser-plan requires --plan-out <path>."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ -n "${browser_plan_spec}" && "${mode}" != "create_browser_plan" ]]; then
+    cognidox_error "--browser-plan-spec is only valid with --create-browser-plan."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
   if [[ -n "${normal_confirmation}${notify_confirmation}${destructive_confirmation}" && "${mode}" != "apply_plan" ]]; then
     cognidox_error "confirmation flags can only be used with --apply-plan."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
@@ -1078,19 +1104,25 @@ cognidox_main() {
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
 
-  cognidox_require_command "${curl_bin}"
   cognidox_require_command "${jq_bin}"
-  cognidox_load_token_helper
+  if [[ "${mode}" == "apply_plan" ]]; then
+    cognidox_write_validate_plan_id "${apply_plan}" "${jq_bin}" || return $?
+    cognidox_write_reject_browser_apply "${apply_plan}" "${jq_bin}" || return $?
+  fi
+  if [[ "${mode}" != "create_browser_plan" ]]; then
+    cognidox_require_command "${curl_bin}"
+    cognidox_load_token_helper
 
-  case "$-" in
-    *x*)
-      set +x
-      ;;
-  esac
+    case "$-" in
+      *x*)
+        set +x
+        ;;
+    esac
 
-  if ! load_token_from_file "${token_name}" "cognidox_token" >/dev/null; then
-    cognidox_error "token load failed for secret '${token_name}' at '$(token_file_path "${token_name}")'."
-    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+    if ! load_token_from_file "${token_name}" "cognidox_token" >/dev/null; then
+      cognidox_error "token load failed for secret '${token_name}' at '$(token_file_path "${token_name}")'."
+      return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+    fi
   fi
 
   case "${mode}" in
@@ -1214,6 +1246,10 @@ cognidox_main() {
     create_document)
       cognidox_write_build_create_plan "${category_id}" "${document_type}" "${title}" "${author}" \
         "${body_file}" "${temporary_dir}" "${curl_bin}" "${jq_bin}" "${cognidox_token}" "${base_url}"
+      cognidox_write_finalize_plan "${body_file}" "${plan_out}" "${output_format}" "${jq_bin}"
+      ;;
+    create_browser_plan)
+      cognidox_write_build_browser_plan "${browser_plan_spec}" "${body_file}" "${jq_bin}" "${base_url}"
       cognidox_write_finalize_plan "${body_file}" "${plan_out}" "${output_format}" "${jq_bin}"
       ;;
     create_form_document)

@@ -1,5 +1,7 @@
 # Cognidox REST API Guide
 
+Use REST as the first operational channel. If an allowed action is absent from this API, follow `browser-workflows.md`. Do not infer a REST endpoint from browser traffic or use undocumented SOAP automation.
+
 ## Connection And Scopes
 
 - Set `COGNIDOX_QMS_BASE_URL` or use `--base-url`.
@@ -33,7 +35,7 @@ The client does not retry `401` or `403` responses. It reports the status and st
 
 For `POST /documents/templates/{partNumber}`, omit request field `version` so Cognidox assigns the target draft version. That field controls the new target version. It does not select the approved source-template version. The response download contains Cognidox custom properties for the assigned part number and draft version; preserve them when filling the Office package.
 
-Category changes, document updates, publication, obsolescence, approval, and signature actions are not supported.
+Review requests, approval requests, checkout, native-form registration, and native-form filling are not supported by this REST client. The guarded browser path covers only those allowed operational gaps. Category changes, publication, unpublication, obsolescence, actual approval, rejection, and signature remain prohibited.
 
 ## Search And Category Preflight
 
@@ -61,7 +63,7 @@ Before a version session:
 4. Get the current lock state.
 5. Hash the complete local file and calculate the slice count.
 6. Enforce comment and version-information requirements.
-7. Stop when the repository requires checkout. The skill does not perform checkout.
+7. Stop REST planning when the repository requires checkout. If checkout is appropriate, prepare and approve a separate `checkout_document` browser plan. After checkout, repeat REST preflight and generate a new version plan.
 
 Treat all issue uploads as notification-capable. Tenant routing can start an approval workflow after issue creation.
 
