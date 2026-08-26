@@ -34,6 +34,128 @@ cognidox_write_require_new_output() {
   mkdir -p "$(dirname "${output_path}")"
 }
 
+cognidox_write_render_plan() {
+  local plan_file="$1"
+  local jq_bin="$2"
+
+  "${jq_bin}" -r '
+    def key($path): $path | map(tostring) | join(".");
+    def rank($key):
+      if $key == "planId" then 0
+      elif $key == "action" then 10
+      elif $key == "channel" then 20
+      elif $key == "risk" then 30
+      elif $key == "schemaVersion" then 40
+      elif ($key | startswith("repository.")) then 50
+      elif ($key | startswith("target.")) then 60
+      elif ($key | startswith("category.")) then 70
+      elif ($key | startswith("documentType.")) then 80
+      elif ($key | startswith("duplicateTitle.")) then 90
+      elif $key == "issueType" or $key == "expectedNextVersion" then 100
+      elif ($key | startswith("template.")) then 110
+      elif ($key | startswith("file.")) then 120
+      elif (($key | startswith("fieldData.")) or ($key | startswith("fieldManifest."))) then 130
+      elif ($key | startswith("intendedChanges.valuesFile.")) then 140
+      elif (($key | startswith("intendedChanges.templateFile.")) or
+        ($key | startswith("intendedChanges.fieldManifestFile."))) then 140
+      elif ($key | startswith("intendedChanges.fieldIdentifiers.")) then 150
+      elif (($key | startswith("notification.")) or ($key | startswith("recipients."))) then 160
+      elif ($key | startswith("preconditions.")) then 900
+      else 500
+      end;
+    def words:
+      gsub("(?<lower>[a-z0-9])(?<upper>[A-Z])"; "\(.lower) \(.upper)")
+        | gsub("_"; " ");
+    def capitalize: (.[0:1] | ascii_upcase) + .[1:];
+    def generic_label($key):
+      $key | split(".")
+        | map(words | gsub("[\u0000-\u001f\u007f]"; "?") | gsub("\\*"; "\\*"))
+        | join(" / ") | capitalize;
+    def friendly_label($key): ({
+      "planId": "Plan ID",
+      "action": "Action",
+      "channel": "Channel",
+      "risk": "Risk",
+      "schemaVersion": "Schema version",
+      "repository.baseUrl": "Tenant API base URL",
+      "target.partNumber": "Target part number",
+      "target.title": "Target title",
+      "category.id": "Category ID",
+      "category.path": "Category path",
+      "documentType.code": "Document type code",
+      "documentType.title": "Document type title",
+      "documentType.valid": "Document type valid",
+      "duplicateTitle.checked": "Duplicate title checked",
+      "duplicateTitle.exactMatches": "Duplicate exact matches",
+      "duplicateTitle.totalSearched": "Duplicate records searched",
+      "issueType": "Issue type",
+      "expectedNextVersion": "Expected next version",
+      "template.partNumber": "Template part number",
+      "template.approvedVersion": "Template approved version",
+      "template.fileName": "Template file name",
+      "template.application": "Template application",
+      "file.path": "File path",
+      "file.name": "File name",
+      "file.extension": "File extension",
+      "file.sha256": "File SHA-256",
+      "file.size": "File size in bytes",
+      "fieldData.path": "Protected form-values file path",
+      "fieldData.sha256": "Protected form-values file SHA-256",
+      "fieldData.size": "Protected form-values file size in bytes",
+      "fieldManifest.path": "Field manifest path",
+      "fieldManifest.sha256": "Field manifest SHA-256",
+      "fieldManifest.size": "Field manifest size in bytes",
+      "intendedChanges.valuesFile.path": "Protected form-values file path",
+      "intendedChanges.valuesFile.sha256": "Protected form-values file SHA-256",
+      "intendedChanges.valuesFile.size": "Protected form-values file size in bytes",
+      "intendedChanges.templateFile.path": "Registration template file path",
+      "intendedChanges.templateFile.sha256": "Registration template file SHA-256",
+      "intendedChanges.templateFile.size": "Registration template file size in bytes",
+      "intendedChanges.fieldManifestFile.path": "Registration field manifest path",
+      "intendedChanges.fieldManifestFile.sha256": "Registration field manifest SHA-256",
+      "intendedChanges.fieldManifestFile.size": "Registration field manifest size in bytes",
+      "notification.capable": "Notification capable",
+      "preconditions.notificationCapable": "Notification capable precondition",
+      "request.title": "Requested title",
+      "request.version": "Requested version",
+      "request.issueType": "Requested issue type",
+      "request.issueComment": "Requested issue comment",
+      "request.versionInformation": "Requested version information"
+    }[$key] //
+      (if ($key | startswith("recipients.")) then
+        "Recipient \(($key | split(".")[1] | tonumber) + 1)"
+      elif ($key | startswith("effects.")) then
+        "Expected effect \(($key | split(".")[1] | tonumber) + 1)"
+      elif ($key | startswith("intendedChanges.fieldIdentifiers.")) then
+        "Field identifier \(($key | split(".")[2] | tonumber) + 1)"
+      else generic_label($key)
+      end));
+    def confirmation($plan):
+      if ($plan.channel // "rest") == "browser" then
+        "explicit approval for this exact plan ID"
+      elif $plan.risk == "normal" then "--confirm"
+      elif $plan.risk == "notify" then "--confirm-notify"
+      elif $plan.risk == "destructive" then "--confirm-destructive"
+      else "unsupported risk class"
+      end;
+    def markdown_code($value):
+      ($value | tojson) as $json |
+      ([ $json | scan("`+") | length ] | max // 0) as $longest_run |
+      ("`" * ($longest_run + 1)) as $fence |
+      "\($fence)\($json)\($fence)";
+    . as $plan |
+    [paths(scalars)]
+      | sort_by((key(.) as $key | [rank($key), $key]))[] as $path
+      | key($path) as $key
+      | if $key == "risk" then
+          "- **\(friendly_label($key))**: \(markdown_code($plan | getpath($path)))",
+          "- **Required confirmation**: \(markdown_code(confirmation($plan)))"
+        else
+          "- **\(friendly_label($key))**: \(markdown_code($plan | getpath($path)))"
+        end
+  ' "${plan_file}" | { printf '# Cognidox mutation plan\n'; cat; }
+}
+
 cognidox_write_finalize_plan() {
   local raw_plan="$1"
   local plan_output="$2"
@@ -58,11 +180,472 @@ cognidox_write_finalize_plan() {
   if [[ "${output_format}" == "json" ]]; then
     "${jq_bin}" . "${completed_plan}"
   else
-    "${jq_bin}" -r '
-      paths(scalars) as $path |
-      "\($path | map(tostring) | join("."))=\(getpath($path) | tojson)"
-    ' "${completed_plan}"
+    cognidox_write_render_plan "${completed_plan}" "${jq_bin}"
   fi
+}
+
+cognidox_write_snapshot_browser_artifact() {
+  local specification_file="$1"
+  local descriptor_key="$2"
+  local artifact_label="$3"
+  local jq_bin="$4"
+  local artifact_snapshot="$5"
+  local artifact_path
+  local planned_hash
+  local planned_size
+  local actual_hash
+  local actual_size
+
+  artifact_path="$("${jq_bin}" -r --arg key "${descriptor_key}" '.intendedChanges[$key].path' "${specification_file}")"
+  planned_hash="$("${jq_bin}" -r --arg key "${descriptor_key}" '.intendedChanges[$key].sha256' "${specification_file}")"
+  planned_size="$("${jq_bin}" -r --arg key "${descriptor_key}" '.intendedChanges[$key].size' "${specification_file}")"
+  if [[ ! -f "${artifact_path}" || ! -r "${artifact_path}" ]]; then
+    cognidox_error "${artifact_label} changed or is unavailable; create a new browser plan."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+  if ! cp "${artifact_path}" "${artifact_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "could not create a private ${artifact_label} snapshot."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+  if ! chmod 600 "${artifact_snapshot}"; then
+    cognidox_error "could not protect the ${artifact_label} snapshot."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+  actual_hash="$(cognidox_write_sha256_file "${artifact_snapshot}")" || return $?
+  actual_size="$(wc -c <"${artifact_snapshot}" | tr -d ' ')"
+  if [[ "${planned_hash}" != "${actual_hash}" || "${planned_size}" != "${actual_size}" ]]; then
+    cognidox_error "${artifact_label} changed or does not match its descriptor; create a new browser plan."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+}
+
+cognidox_write_validate_fill_native_form_boundary() {
+  local specification_file="$1"
+  local jq_bin="$2"
+  local values_snapshot="$3"
+
+  if ! "${jq_bin}" -e -s '
+    length == 1 and
+    (.[0] |
+      type == "object" and length > 0 and
+      all(to_entries[]; (.key | test("\\S"))))
+  ' "${values_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "protected values file must contain one nonempty JSON object."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e --slurpfile protected_values "${values_snapshot}" '
+    ($protected_values | length) == 1 and
+    (.intendedChanges.fieldIdentifiers | sort) == ($protected_values[0] | keys)
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "protected values-file keys must exactly match fill_native_form fieldIdentifiers."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e '
+    .intendedChanges.fieldIdentifiers as $field_identifiers |
+    .observedState.fieldIdentifiers == $field_identifiers and
+    .preconditions.fieldIdentifiers == $field_identifiers
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "fill_native_form fieldIdentifiers must match the observed state and preconditions."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e '
+    .observedState.editable == true and .preconditions.editable == true
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "fill_native_form requires editable: true safe-state preconditions."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e '
+    def nonblank: type == "string" and test("\\S");
+    def identifiers:
+      type == "array" and length > 0 and
+      all(.[]; nonblank) and (unique | length) == length;
+    def form_state:
+      (keys - ["editable", "fieldIdentifiers", "formDefinitionId", "latestVersion", "status", "version"] | length) == 0 and
+      all(to_entries[];
+        if .key == "editable" then .value | type == "boolean"
+        elif .key == "fieldIdentifiers" then .value | identifiers
+        else .value | nonblank
+        end);
+    (.target |
+      (.partNumber | nonblank) and
+      (keys - ["partNumber", "title", "version"] | length) == 0 and
+      all(to_entries[]; .value | nonblank)) and
+    (.observedState | form_state) and
+    (.preconditions | form_state)
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "fill_native_form metadata contains unsupported fields that could disclose form values."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+}
+
+cognidox_write_validate_browser_state_consistency() {
+  local specification_file="$1"
+  local jq_bin="$2"
+
+  if ! "${jq_bin}" -e '
+    .observedState as $observed_state |
+    .preconditions as $preconditions |
+    [
+      $observed_state
+      | to_entries[]
+      | . as $entry
+      | select(
+          ($preconditions | has($entry.key)) and
+          ($preconditions[$entry.key] != $entry.value)
+        )
+    ] | length == 0
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "browser-plan observed state and preconditions must agree on shared fields."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+}
+
+cognidox_write_is_calendar_date() {
+  local due_date="$1"
+  local year
+  local month
+  local day
+  local maximum_day
+
+  if [[ ! "${due_date}" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})$ ]]; then
+    return 1
+  fi
+  year="$((10#${BASH_REMATCH[1]}))"
+  month="$((10#${BASH_REMATCH[2]}))"
+  day="$((10#${BASH_REMATCH[3]}))"
+  if ((year < 1 || month < 1 || month > 12 || day < 1)); then
+    return 1
+  fi
+
+  case "${month}" in
+    2)
+      maximum_day=28
+      if ((year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))); then
+        maximum_day=29
+      fi
+      ;;
+    4|6|9|11) maximum_day=30 ;;
+    *) maximum_day=31 ;;
+  esac
+  ((day <= maximum_day))
+}
+
+cognidox_write_validate_browser_metadata_contract() {
+  local action="$1"
+  local specification_file="$2"
+  local jq_bin="$3"
+
+  case "${action}" in
+    request_review|request_approval)
+      if ! "${jq_bin}" -e '
+        def nonblank: type == "string" and test("\\S");
+        def document_target:
+          (.partNumber | nonblank) and
+          (keys - ["partNumber", "title", "version"] | length) == 0 and
+          all(to_entries[]; .value | nonblank);
+        def request_state:
+          (keys - ["approvalStatus", "checkedOut", "editable", "latestVersion", "locked", "recipientVisible", "reviewStatus", "version"] | length) == 0 and
+          all(to_entries[];
+            if .key == "checkedOut" or .key == "editable" or .key == "locked" or .key == "recipientVisible"
+            then .value | type == "boolean"
+            else .value | nonblank
+            end);
+        (.target | document_target) and
+        (.observedState | request_state) and
+        (.preconditions | request_state)
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} metadata must match the supported target, observedState, and preconditions schema."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      if ! "${jq_bin}" -e '
+        .preconditions.recipientVisible == true
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} requires recipientVisible: true safe-state preconditions."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
+    register_native_form)
+      if ! "${jq_bin}" -e '
+        def nonblank: type == "string" and test("\\S");
+        def category_id: type == "number" and . >= 0 and floor == .;
+        def registration_target:
+          (.categoryId | category_id) and
+          (.categoryPath | nonblank) and
+          (.formName | nonblank) and
+          (keys - ["categoryFormId", "categoryId", "categoryPath", "formId", "formName"] | length) == 0 and
+          ((has("categoryFormId") | not) or (.categoryFormId | nonblank)) and
+          ((has("formId") | not) or (.formId | nonblank));
+        def registration_state:
+          (keys - ["canManageForms", "categoryId", "definitionPresent", "duplicateName"] | length) == 0 and
+          all(to_entries[];
+            if .key == "categoryId" then .value | category_id
+            else .value | type == "boolean"
+            end);
+        (.target | registration_target) and
+        (.observedState | registration_state) and
+        (.preconditions | registration_state)
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} metadata must match the supported target, observedState, and preconditions schema."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      if ! "${jq_bin}" -e '
+        .target.categoryId as $category_id |
+        .observedState.categoryId == $category_id and
+        .preconditions.categoryId == $category_id and
+        .observedState.definitionPresent == false and
+        .preconditions.definitionPresent == false and
+        .preconditions.canManageForms == true and
+        .preconditions.duplicateName == false
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} requires an absent definition, no duplicate, and management permission as safe-state preconditions."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
+    fill_native_form)
+      ;;
+    checkout_document)
+      if ! "${jq_bin}" -e '
+        def nonblank: type == "string" and test("\\S");
+        def document_target:
+          (.partNumber | nonblank) and
+          (keys - ["partNumber", "title", "version"] | length) == 0 and
+          all(to_entries[]; .value | nonblank);
+        def checkout_state:
+          (keys - ["canCheckout", "checkedOut", "checkedOutBy", "latestVersion", "lockState", "version"] | length) == 0 and
+          all(to_entries[];
+            if .key == "canCheckout" or .key == "checkedOut"
+            then .value | type == "boolean"
+            else .value | nonblank
+            end);
+        (.target | document_target) and
+        (.observedState | checkout_state) and
+        (.preconditions | checkout_state)
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} metadata must match the supported target, observedState, and preconditions schema."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      if ! "${jq_bin}" -e '
+        .observedState.checkedOut == false and
+        .preconditions.checkedOut == false and
+        .preconditions.canCheckout == true
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} requires an available, not-checked-out document as safe-state preconditions."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
+  esac
+}
+
+cognidox_write_validate_browser_action_contract() {
+  local action="$1"
+  local specification_file="$2"
+  local jq_bin="$3"
+  local due_date
+  local expected_effects
+
+  case "${action}" in
+    request_review)
+      if ! "${jq_bin}" -e '
+        def nonblank: type == "string" and test("\\S");
+        def optional_nonblank($key): (has($key) | not) or (.[$key] | nonblank);
+        def optional_date($key):
+          (has($key) | not) or (.[$key] | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"));
+        .intendedChanges |
+          (keys - ["dueDate", "instructions", "requestType"] | length) == 0 and
+          .requestType == "document review" and
+          optional_nonblank("instructions") and optional_date("dueDate")
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "request_review intended changes must use the supported requestType, instructions, and dueDate fields."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      expected_effects='["Notify the selected recipients.","Create one pending review request."]'
+      ;;
+    request_approval)
+      if ! "${jq_bin}" -e '
+        def nonblank: type == "string" and test("\\S");
+        def optional_nonblank($key): (has($key) | not) or (.[$key] | nonblank);
+        def optional_date($key):
+          (has($key) | not) or (.[$key] | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"));
+        .intendedChanges |
+          (keys - ["approvalQueue", "dueDate", "instructions", "requestType"] | length) == 0 and
+          .requestType == "approval request" and
+          optional_nonblank("approvalQueue") and optional_nonblank("instructions") and optional_date("dueDate")
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "request_approval intended changes must use the supported requestType, approvalQueue, instructions, and dueDate fields."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      expected_effects='["Notify the selected recipients.","Create one pending approval request."]'
+      ;;
+    register_native_form)
+      if ! "${jq_bin}" -e '
+        def descriptor:
+          type == "object" and
+          (keys | sort) == ["path", "sha256", "size"] and
+          (.path | type == "string" and startswith("/")) and
+          (.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
+          (.size | type == "number" and . >= 0 and floor == .);
+        (.intendedChanges | keys | sort) == ["fieldIdentifiers", "fieldManifestFile", "templateFile"] and
+        (.intendedChanges.templateFile | descriptor) and
+        (.intendedChanges.fieldManifestFile | descriptor) and
+        (.intendedChanges.fieldIdentifiers | type == "array" and length > 0 and
+          all(.[]; type == "string" and test("\\S")) and (unique | length) == length)
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "register_native_form requires bound templateFile and fieldManifestFile descriptors and unique fieldIdentifiers."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      expected_effects='["Register one native Cognidox form definition."]'
+      ;;
+    fill_native_form)
+      if ! "${jq_bin}" -e '
+        (.intendedChanges | keys | sort) == ["fieldIdentifiers", "valuesFile"] and
+        (.intendedChanges.valuesFile | type == "object") and
+        (.intendedChanges.valuesFile | keys | sort) == ["path", "sha256", "size"] and
+        (.intendedChanges.valuesFile.path | type == "string" and startswith("/")) and
+        (.intendedChanges.valuesFile.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
+        (.intendedChanges.valuesFile.size | type == "number" and . >= 0 and floor == .) and
+        (.intendedChanges.fieldIdentifiers | type == "array" and length > 0 and
+          all(.[]; type == "string" and test("\\S")) and (unique | length) == length)
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "fill_native_form requires a protected valuesFile descriptor and unique fieldIdentifiers."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      expected_effects='["Update the listed native form fields."]'
+      ;;
+    checkout_document)
+      if ! "${jq_bin}" -e '
+        .intendedChanges == {checkout: true}
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "checkout_document intended changes must contain only checkout: true."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      expected_effects='["Check out the target document."]'
+      ;;
+  esac
+
+  if [[ "${action}" == "request_review" || "${action}" == "request_approval" ]] &&
+    "${jq_bin}" -e '.intendedChanges | has("dueDate")' "${specification_file}" >/dev/null 2>&1; then
+    due_date="$("${jq_bin}" -r '.intendedChanges.dueDate' "${specification_file}")"
+    if ! cognidox_write_is_calendar_date "${due_date}"; then
+      cognidox_error "${action} dueDate must be a valid calendar date in YYYY-MM-DD form."
+      return "${COGNIDOX_QMS_EXIT_USAGE}"
+    fi
+  fi
+
+  if ! "${jq_bin}" -e --argjson expected_effects "${expected_effects}" \
+    '.effects == $expected_effects' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "${action} effects must match the supported action-specific effect set."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+}
+
+cognidox_write_build_browser_plan() {
+  local specification_file="$1"
+  local raw_plan="$2"
+  local jq_bin="$3"
+  local base_url="$4"
+  local specification_snapshot="${raw_plan}.browser-specification"
+  local protected_values_snapshot="${raw_plan}.protected-values"
+  local registration_template_snapshot="${raw_plan}.registration-template"
+  local registration_manifest_snapshot="${raw_plan}.registration-manifest"
+  local action
+  local risk
+
+  if [[ ! -f "${specification_file}" || ! -r "${specification_file}" ]]; then
+    cognidox_error "--browser-plan-spec must identify a readable JSON file."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! cp "${specification_file}" "${specification_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "could not create a private browser-plan specification snapshot."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+  if ! chmod 600 "${specification_snapshot}"; then
+    cognidox_error "could not protect the browser-plan specification snapshot."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+  specification_file="${specification_snapshot}"
+  if ! "${jq_bin}" -e 'type == "object"' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "--browser-plan-spec must contain one valid JSON object."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e '
+    (keys - ["action", "target", "observedState", "intendedChanges", "recipients", "effects", "preconditions"] | length) == 0
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "--browser-plan-spec contains an unsupported top-level field."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+
+  action="$("${jq_bin}" -r '.action // ""' "${specification_file}")"
+  case "${action}" in
+    request_review|request_approval) risk="notify" ;;
+    register_native_form|fill_native_form|checkout_document) risk="normal" ;;
+    *)
+      cognidox_error "--browser-plan-spec action is not an allowed browser action."
+      return "${COGNIDOX_QMS_EXIT_USAGE}"
+      ;;
+  esac
+
+  if ! "${jq_bin}" -e '
+    (.target | type == "object" and length > 0) and
+    (.observedState | type == "object" and length > 0) and
+    (.intendedChanges | type == "object" and length > 0) and
+    (.effects | type == "array" and length > 0 and all(.[]; type == "string" and test("\\S"))) and
+    (.preconditions | type == "object" and length > 0)
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "--browser-plan-spec requires nonempty target, observedState, intendedChanges, effects, and preconditions fields."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  cognidox_write_validate_browser_metadata_contract \
+    "${action}" "${specification_file}" "${jq_bin}" || return $?
+  if "${jq_bin}" -e '
+    [.. | objects | keys[] | ascii_downcase]
+      | any(. == "value" or . == "values" or . == "formvalue" or . == "formvalues" or
+        . == "fieldvalue" or . == "fieldvalues")
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "--browser-plan-spec must not contain form values; use a protected values-file descriptor."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ "${risk}" == "notify" ]]; then
+    if ! "${jq_bin}" -e '
+      .recipients | type == "array" and length > 0 and all(.[]; type == "string" and test("\\S"))
+    ' "${specification_file}" >/dev/null 2>&1; then
+      cognidox_error "notification browser actions require one or more explicit recipients."
+      return "${COGNIDOX_QMS_EXIT_USAGE}"
+    fi
+  elif ! "${jq_bin}" -e '(.recipients // []) | type == "array" and length == 0' \
+    "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "normal-risk browser actions must not include recipients."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  cognidox_write_validate_browser_action_contract "${action}" "${specification_file}" "${jq_bin}" || return $?
+  if [[ "${action}" == "fill_native_form" ]]; then
+    cognidox_write_snapshot_browser_artifact "${specification_file}" "valuesFile" \
+      "protected values file" "${jq_bin}" "${protected_values_snapshot}" || return $?
+    cognidox_write_validate_fill_native_form_boundary "${specification_file}" "${jq_bin}" \
+      "${protected_values_snapshot}" || return $?
+  elif [[ "${action}" == "register_native_form" ]]; then
+    cognidox_write_snapshot_browser_artifact "${specification_file}" "templateFile" \
+      "registration template file" "${jq_bin}" "${registration_template_snapshot}" || return $?
+    cognidox_write_snapshot_browser_artifact "${specification_file}" "fieldManifestFile" \
+      "registration field manifest file" "${jq_bin}" "${registration_manifest_snapshot}" || return $?
+  fi
+  cognidox_write_validate_browser_state_consistency \
+    "${specification_file}" "${jq_bin}" || return $?
+
+  "${jq_bin}" -S --arg base_url "${base_url}" --arg risk "${risk}" '
+    {
+      schemaVersion: 1,
+      action: .action,
+      channel: "browser",
+      risk: $risk,
+      repository: {baseUrl: $base_url},
+      target: .target,
+      observedState: .observedState,
+      intendedChanges: .intendedChanges,
+      notification: {capable: ($risk == "notify")},
+      effects: .effects,
+      preconditions: .preconditions
+    } + if has("recipients") then {recipients: .recipients} else {} end
+  ' "${specification_file}" >"${raw_plan}"
 }
 
 cognidox_write_request_json() {
@@ -719,6 +1302,16 @@ cognidox_write_validate_plan_target() {
   fi
 }
 
+cognidox_write_reject_browser_apply() {
+  local plan_file="$1"
+  local jq_bin="$2"
+
+  if [[ "$("${jq_bin}" -r '.channel // "rest"' "${plan_file}")" == "browser" ]]; then
+    cognidox_error "browser plans must be completed through the authenticated browser after approval for the exact plan ID."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+}
+
 cognidox_write_require_confirmation() {
   local plan_file="$1"
   local normal_confirmation="$2"
@@ -1187,6 +1780,7 @@ cognidox_write_apply() {
   local field_manifest_snapshot=""
 
   cognidox_write_validate_plan_id "${plan_file}" "${jq_bin}" || return $?
+  cognidox_write_reject_browser_apply "${plan_file}" "${jq_bin}" || return $?
   plan_id="$("${jq_bin}" -r '.planId' "${plan_file}")"
   cognidox_write_require_confirmation "${plan_file}" "${normal_confirmation}" "${notify_confirmation}" \
     "${destructive_confirmation}" "${jq_bin}" || return $?

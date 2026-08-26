@@ -7,8 +7,12 @@ Mutation commands do not change Cognidox unless you use `--apply-plan`. Save eac
 ```bash
 cognidox-qms/scripts/cognidox_qms.sh \
   --create-document --category-id <id> --document-type <type> \
-  --title "<title>" --plan-out /tmp/create.json --format json
+  --title "<title>" --plan-out /tmp/create.json
 ```
+
+The default output is a stable Markdown summary. It shows every scalar plan field once and includes the plan ID, risk, required confirmation, tenant, target, category, type, duplicate check, version, template, file identity, notification state, and preconditions when present. Multiline and control characters are escaped. Each JSON-encoded value uses a Markdown code-span fence longer than any backtick run in the value, so untrusted links, HTML-like text, emphasis, and code markers remain inert. Use `--format json` only when the user requests machine-readable output. The saved plan remains canonical JSON in both cases.
+
+Form plans never contain form values. They contain only the protected values-file path, SHA-256 digest, byte size, and field identifiers or manifest identity.
 
 The plan ID is a SHA-256 digest of the canonical plan content. The content includes the tenant API base URL. A changed tenant, plan, file, category rule, title result, lock, or expected version changes the ID.
 
@@ -25,7 +29,7 @@ Use an active form that is attached to the selected category.
 ```bash
 cognidox-qms/scripts/cognidox_qms.sh \
   --create-form-document --category-id <id> --category-form-id <uuid> \
-  --title "<title>" --plan-out /tmp/form.json --format json
+  --title "<title>" --plan-out /tmp/form.json
 ```
 
 This operation creates a document from an existing native Cognidox form. It does not create or register a form definition.
@@ -39,7 +43,7 @@ cognidox-qms/scripts/cognidox_qms.sh \
   --create-from-template --category-id <id> --document-type <type> \
   --title "<title>" --template-part-number <part-number> \
   --field-data /secure/values.json --field-manifest /secure/manifest.json \
-  --plan-out /tmp/template.json --format json
+  --plan-out /tmp/template.json
 ```
 
 Planning downloads the approved template and fills a temporary copy. This read-only preflight validates the values, manifest, slice size, preflight hash, preflight size, and slice count. The plan records the approved template version as a precondition. It does not send that value as the target document version. Cognidox assigns the initial draft version. The plan uses `<server-assigned-part-number>.docx` or `<server-assigned-part-number>.xlsx` as its filename rule.
@@ -65,25 +69,25 @@ If an operation fails after the server returns a part number, the client keeps t
 cognidox-qms/scripts/cognidox_qms.sh \
   --create-version <part-number> --issue-type draft --file completed.docx \
   --comment "<comment>" --version-information "<version information>" \
-  --plan-out /tmp/draft.json --format json
+  --plan-out /tmp/draft.json
 ```
 
 A draft plan uses risk `normal` unless live preflight evidence shows a notification route. In that case, add `--notification-capable`. An issue plan always uses risk `notify`.
 
-The plan enforces the repository comment and version-information options. The workflow stops during planning when the repository requires checkout. This skill does not perform checkout.
+The plan enforces the repository comment and version-information options. REST planning stops when the repository requires checkout. If checkout is appropriate, prepare and approve a separate `checkout_document` browser plan, then repeat REST preflight and create a new upload plan.
 
 Apply an approved draft:
 
 ```bash
 cognidox-qms/scripts/cognidox_qms.sh \
-  --apply-plan /tmp/draft.json --confirm <plan-id> --format json
+  --apply-plan /tmp/draft.json --confirm <plan-id>
 ```
 
 Apply an approved issue only after the user approves the exact notification plan:
 
 ```bash
 cognidox-qms/scripts/cognidox_qms.sh \
-  --apply-plan /tmp/issue.json --confirm-notify <plan-id> --format json
+  --apply-plan /tmp/issue.json --confirm-notify <plan-id>
 ```
 
 The client uploads the file in fixed-size slices. Each non-final slice must return `202`. The final slice must return `200` with the completed document version. Any other sequence remains in the recovery ledger as a partial upload.
@@ -95,14 +99,14 @@ Deletion is only for an intentionally created temporary test document.
 ```bash
 cognidox-qms/scripts/cognidox_qms.sh \
   --delete-document <part-number> --comment "temporary test cleanup" \
-  --plan-out /tmp/delete.json --format json
+  --plan-out /tmp/delete.json
 ```
 
 Show the part number and destructive plan ID to the user. Apply it only after explicit approval:
 
 ```bash
 cognidox-qms/scripts/cognidox_qms.sh \
-  --apply-plan /tmp/delete.json --confirm-destructive <plan-id> --format json
+  --apply-plan /tmp/delete.json --confirm-destructive <plan-id>
 ```
 
 Confirm that `GET /documents/{partNumber}` returns unavailable. Then confirm that the ledger has `cleanupStatus: complete`.
