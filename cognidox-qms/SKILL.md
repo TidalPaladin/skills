@@ -60,8 +60,8 @@ Use these gates:
 
 | Risk | Operations | Required gate |
 | --- | --- | --- |
-| `normal` | Document creation, native form creation, template draft creation, draft upload, metadata or Version Information update | `--confirm <plan-id>` |
-| `notify` | Every issue upload or submission, and review response completion | `--confirm-notify <plan-id>` |
+| `normal` | REST operations without notification risk and browser actions with verified no-notification routing | `--confirm <plan-id>` for REST |
+| `notify` | REST Issue uploads, recipient-driven requests, and browser actions with validated notification routing | `--confirm-notify <plan-id>` for REST |
 | `destructive` | Test-document deletion | `--confirm-destructive <plan-id>` |
 
 Browser plans use the same `normal` or `notify` risk labels, but `--apply-plan` rejects them. One browser plan can authorize all listed interactions for one defined QMS outcome. Its authority remains limited to the exact target, inputs, effects, preconditions, recipients, and postconditions. Complete it only in the authenticated browser under the execution rules in `references/browser-workflows.md`.
@@ -72,7 +72,7 @@ Use this wording for every browser approval request:
 
 > Present the complete plan. Ask once for approval of the exact plan ID and final transmission of the identified protected data to Cognidox. After approval, execute all listed substeps without further confirmation.
 
-If live preflight shows that a draft can notify a user, add `--notification-capable` when you create its plan. The plan then uses risk `notify`.
+Browser no-notification status requires visible evidence. An empty Issue user list must match both visible-state arrays. Draft and review-response plans must bind `notificationCapable: false`. These plans use risk `normal` and include `Do not notify any Cognidox user.` Exact-plan approval and protected-data confirmation still apply. Review and approval requests remain notification-only. REST Issue uploads remain risk `notify` because REST preflight does not expose authoritative recipient routing.
 
 `--apply-plan` rejects a different tenant before it sends a request. It then repeats all preflight checks. It rejects a changed file, version race, lock, permission change, duplicate title, invalid type, or other stale precondition.
 
@@ -128,7 +128,7 @@ Read `references/form-workflows.md` before you create or fill a form.
 
 Allowed single browser actions are `request_review`, `request_approval`, `register_native_form`, `fill_native_form`, `submit_native_form_draft`, `submit_native_form_issue`, `update_document_metadata`, `update_version_information`, `submit_review_response`, and `checkout_document`. `composite_browser_workflow` can join at least two of those strict document actions when the user explicitly requests one ordered outcome on one document lineage. Keep `register_native_form` standalone. Create a browser plan with `--create-browser-plan`, save it, and show its readable summary before the first protected-data transmission.
 
-Each browser action has fixed target, observed-state, intended-change, effect, precondition, and postcondition schemas. Reject extra nested fields even when the top-level action is allowed. Require intended field identifiers to equal both visible-state arrays for native-form actions. A composite step uses the same strict schema and can reference only a verified result from an earlier step. Do not infer disclosure by comparing protected values with legitimate state scalars.
+Each browser action has fixed target, observed-state, intended-change, effect, precondition, and postcondition schemas. Reject extra nested fields even when the top-level action is allowed. Require intended field identifiers to equal both visible-state arrays for native-form actions. A composite step uses the same strict schema and can reference only a verified result from an earlier step. The captured source field and destination field must have the same action-specific type. Use a bound expected-state value for validation. Permit an unbound placeholder only for a documented dynamic string result. Do not infer disclosure by comparing protected values with legitimate state scalars.
 
 New protected values and response files must be absolute, regular non-symlink files with no group or other access. Plans bind their SHA-256, byte size, exact JSON shape, and exact field-key set. Metadata and Version Information plans also record separate SHA-256 digests for protected current and intended state. Before an `update_document_metadata` plan, set `COGNIDOX_QMS_METADATA_ALLOWLIST` to the absolute private tenant allowlist JSON path. Every planned metadata identifier must be in that tenant-bound allowlist, and the plan binds the policy file path, SHA-256, and size. The initial submitted native-form Draft uses `Revision A`; the first Issue preserves that tag; each later Version Information update increments exactly one letter.
 
