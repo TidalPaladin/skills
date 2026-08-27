@@ -176,6 +176,18 @@ Never put form values in a browser specification or plan. The client rejects sin
 
 Both metadata key sets must equal the ordered visible editable `metadataIdentifiers`. Identifiers associated with approval, rejection, electronic signatures, publication, release, closure, obsolescence, or Quality and review decisions are prohibited. The plan records SHA-256 digests of the canonical protected `current` and `intended` objects but never their values.
 
+Set `COGNIDOX_QMS_METADATA_ALLOWLIST` to an absolute tenant-administered private JSON file before creating this action. The file must be a mode-`0600` regular non-symlink file with this exact shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "repositoryBaseUrl": "https://tenant.example/api/v1.0",
+  "permittedMetadataIdentifiers": ["<metadata-id>"]
+}
+```
+
+The repository URL must equal the configured Cognidox base URL. Identifiers must be unique nonblank strings. Every planned `metadataIdentifiers` entry must occur in the tenant allowlist; an absent, ambiguous, or unlisted identifier fails closed. The existing Quality-decision denylist remains a second boundary and cannot be overridden by the tenant file. The plan records only the allowlist's absolute path, SHA-256, and size under `policy.metadataAllowlistFile`. It does not render unused allowlist identifiers. Recheck that exact private file descriptor with the protected values and visible metadata state immediately before browser submission. A missing or changed policy file makes the plan stale.
+
 A native-form metadata target also binds `formDefinitionId` and `formName`. For `Complaint Information Form`, the protected intended title must be `$FORMNUM, [Brief Title], $DAY $MONTHSHORT $YEAR`: the form number equals the target part number, the brief title is nonblank and comma-free, the day is valid for the uppercase three-letter month and four-digit year, and spacing and commas match exactly.
 
 ## Update Version Information

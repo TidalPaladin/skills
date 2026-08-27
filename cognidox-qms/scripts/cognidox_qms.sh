@@ -67,6 +67,8 @@ Global options:
 
 Environment:
   COGNIDOX_QMS_BASE_URL  Cognidox REST base URL, including /api/v1.0.
+  COGNIDOX_QMS_METADATA_ALLOWLIST
+                         Absolute private tenant metadata allowlist JSON path.
 
 Mutation commands only plan by default. Applying a plan requires the matching
 risk-specific confirmation with the exact plan ID.
@@ -650,6 +652,7 @@ cognidox_main() {
   local version_information=""
   local plan_out=""
   local browser_plan_spec=""
+  local metadata_allowlist_path="${COGNIDOX_QMS_METADATA_ALLOWLIST:-}"
   local apply_plan=""
   local normal_confirmation=""
   local notify_confirmation=""
@@ -1249,7 +1252,8 @@ cognidox_main() {
       cognidox_write_finalize_plan "${body_file}" "${plan_out}" "${output_format}" "${jq_bin}"
       ;;
     create_browser_plan)
-      cognidox_write_build_browser_plan "${browser_plan_spec}" "${body_file}" "${jq_bin}" "${base_url}"
+      cognidox_write_build_browser_plan "${browser_plan_spec}" "${body_file}" "${jq_bin}" "${base_url}" \
+        "${metadata_allowlist_path}"
       cognidox_write_finalize_plan "${body_file}" "${plan_out}" "${output_format}" "${jq_bin}"
       ;;
     create_form_document)

@@ -72,6 +72,7 @@ cognidox_write_render_plan() {
         ($key | startswith("intendedChanges.responseFile."))) then 140
       elif ($key | startswith("intendedChanges.fieldIdentifiers.")) then 150
       elif ($key | startswith("stateDigests.")) then 155
+      elif ($key | startswith("policy.metadataAllowlistFile.")) then 157
       elif (($key | startswith("notification.")) or ($key | startswith("recipients."))) then 160
       elif ($key | startswith("preconditions.")) then 900
       else 500
@@ -132,6 +133,9 @@ cognidox_write_render_plan() {
       "intendedChanges.responseFile.size": "Protected review-response file size in bytes",
       "stateDigests.currentSha256": "Protected current state SHA-256",
       "stateDigests.intendedSha256": "Protected intended state SHA-256",
+      "policy.metadataAllowlistFile.path": "Tenant metadata allowlist path",
+      "policy.metadataAllowlistFile.sha256": "Tenant metadata allowlist SHA-256",
+      "policy.metadataAllowlistFile.size": "Tenant metadata allowlist size in bytes",
       "notification.capable": "Notification capable",
       "preconditions.notificationCapable": "Notification capable precondition",
       "request.title": "Requested title",
@@ -276,6 +280,91 @@ cognidox_write_snapshot_protected_browser_artifact() {
   fi
   cognidox_write_snapshot_browser_artifact "${specification_file}" "${descriptor_key}" \
     "${artifact_label}" "${jq_bin}" "${artifact_snapshot}"
+}
+
+cognidox_write_snapshot_private_configuration() {
+  local source_path="$1"
+  local configuration_label="$2"
+  local snapshot_path="$3"
+  local file_mode
+  local source_hash
+  local source_size
+  local snapshot_hash
+  local snapshot_size
+  local verified_hash
+  local verified_size
+
+  if [[ -z "${source_path}" ]]; then
+    cognidox_error "set COGNIDOX_QMS_METADATA_ALLOWLIST to the tenant metadata allowlist path."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ "${source_path}" != /* ]]; then
+    cognidox_error "${configuration_label} path must be absolute."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ -L "${source_path}" || ! -f "${source_path}" || ! -r "${source_path}" ]]; then
+    cognidox_error "${configuration_label} must be a readable regular non-symlink file."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  file_mode="$(cognidox_write_private_file_mode "${source_path}")" || return $?
+  if [[ ! "${file_mode}" =~ ^[0-7]{3,4}$ ]] || (( (8#${file_mode} & 8#77) != 0 )); then
+    cognidox_error "${configuration_label} must use restrictive permissions with no group or other access."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  source_hash="$(cognidox_write_sha256_file "${source_path}")" || return $?
+  source_size="$(wc -c <"${source_path}" | tr -d ' ')"
+  if ! cp "${source_path}" "${snapshot_path}" >/dev/null 2>&1; then
+    cognidox_error "could not create a private ${configuration_label} snapshot."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+  if ! chmod 600 "${snapshot_path}"; then
+    cognidox_error "could not protect the ${configuration_label} snapshot."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+  snapshot_hash="$(cognidox_write_sha256_file "${snapshot_path}")" || return $?
+  snapshot_size="$(wc -c <"${snapshot_path}" | tr -d ' ')"
+  verified_hash="$(cognidox_write_sha256_file "${source_path}")" || return $?
+  verified_size="$(wc -c <"${source_path}" | tr -d ' ')"
+  if [[ "${source_hash}" != "${snapshot_hash}" || "${source_size}" != "${snapshot_size}" ||
+    "${source_hash}" != "${verified_hash}" || "${source_size}" != "${verified_size}" ]]; then
+    cognidox_error "${configuration_label} changed while its private snapshot was created; create a new browser plan."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+}
+
+cognidox_write_validate_metadata_allowlist() {
+  local specification_file="$1"
+  local allowlist_snapshot="$2"
+  local jq_bin="$3"
+  local base_url="$4"
+
+  if ! "${jq_bin}" -e -s '
+    length == 1 and
+    (.[0] |
+      type == "object" and
+      (keys | sort) == ["permittedMetadataIdentifiers", "repositoryBaseUrl", "schemaVersion"] and
+      .schemaVersion == 1 and
+      (.repositoryBaseUrl | type == "string" and test("\\S")) and
+      (.permittedMetadataIdentifiers |
+        type == "array" and length > 0 and
+        all(.[]; type == "string" and test("\\S")) and
+        (unique | length) == length))
+  ' "${allowlist_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "tenant metadata allowlist must contain one JSON object with the exact schema."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e -s --arg base_url "${base_url}" \
+    '.[0].repositoryBaseUrl == $base_url' "${allowlist_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "tenant metadata allowlist must match the configured Cognidox tenant."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e --slurpfile allowlist "${allowlist_snapshot}" '
+    .intendedChanges.metadataIdentifiers as $planned |
+    ($planned - $allowlist[0].permittedMetadataIdentifiers | length) == 0
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "one or more metadata identifiers are not permitted by the tenant metadata allowlist."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
 }
 
 cognidox_write_validate_fill_native_form_boundary() {
@@ -1030,7 +1119,9 @@ cognidox_write_build_browser_plan() {
   local raw_plan="$2"
   local jq_bin="$3"
   local base_url="$4"
+  local metadata_allowlist_path="${5:-}"
   local specification_snapshot="${raw_plan}.browser-specification"
+  local metadata_allowlist_snapshot="${raw_plan}.metadata-allowlist"
   local protected_values_snapshot="${raw_plan}.protected-values"
   local protected_response_snapshot="${raw_plan}.protected-response"
   local registration_template_snapshot="${raw_plan}.registration-template"
@@ -1038,6 +1129,8 @@ cognidox_write_build_browser_plan() {
   local action
   local current_state_hash=""
   local intended_state_hash=""
+  local metadata_allowlist_hash=""
+  local metadata_allowlist_size="0"
   local risk
 
   if [[ ! -f "${specification_file}" || ! -r "${specification_file}" ]]; then
@@ -1109,8 +1202,7 @@ cognidox_write_build_browser_plan() {
       cognidox_error "notification browser actions require one or more explicit recipients."
       return "${COGNIDOX_QMS_EXIT_USAGE}"
     fi
-  elif ! "${jq_bin}" -e '(.recipients // []) | type == "array" and length == 0' \
-    "${specification_file}" >/dev/null 2>&1; then
+  elif "${jq_bin}" -e 'has("recipients")' "${specification_file}" >/dev/null 2>&1; then
     cognidox_error "browser actions without caller-selected recipients must not include recipients."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
@@ -1131,6 +1223,12 @@ cognidox_write_build_browser_plan() {
     cognidox_write_validate_native_form_submission_boundary "${action}" "${specification_file}" \
       "${jq_bin}" "${protected_values_snapshot}" || return $?
   elif [[ "${action}" == "update_document_metadata" ]]; then
+    cognidox_write_snapshot_private_configuration "${metadata_allowlist_path}" \
+      "tenant metadata allowlist" "${metadata_allowlist_snapshot}" || return $?
+    cognidox_write_validate_metadata_allowlist "${specification_file}" \
+      "${metadata_allowlist_snapshot}" "${jq_bin}" "${base_url}" || return $?
+    metadata_allowlist_hash="$(cognidox_write_sha256_file "${metadata_allowlist_snapshot}")" || return $?
+    metadata_allowlist_size="$(wc -c <"${metadata_allowlist_snapshot}" | tr -d ' ')"
     cognidox_write_snapshot_protected_browser_artifact "${specification_file}" "valuesFile" \
       "protected values file" "${jq_bin}" "${protected_values_snapshot}" || return $?
     cognidox_write_validate_metadata_values_boundary "${specification_file}" "${jq_bin}" \
@@ -1153,7 +1251,10 @@ cognidox_write_build_browser_plan() {
     "${specification_file}" "${jq_bin}" || return $?
 
   "${jq_bin}" -S --arg base_url "${base_url}" --arg risk "${risk}" \
-    --arg current_state_hash "${current_state_hash}" --arg intended_state_hash "${intended_state_hash}" '
+    --arg current_state_hash "${current_state_hash}" --arg intended_state_hash "${intended_state_hash}" \
+    --arg metadata_allowlist_path "${metadata_allowlist_path}" \
+    --arg metadata_allowlist_hash "${metadata_allowlist_hash}" \
+    --argjson metadata_allowlist_size "${metadata_allowlist_size}" '
     {
       schemaVersion: 1,
       action: .action,
@@ -1170,6 +1271,13 @@ cognidox_write_build_browser_plan() {
     if has("recipients") then {recipients: .recipients} else {} end +
     if $current_state_hash != "" then
       {stateDigests: {currentSha256: $current_state_hash, intendedSha256: $intended_state_hash}}
+    else {} end +
+    if $metadata_allowlist_hash != "" then
+      {policy: {metadataAllowlistFile: {
+        path: $metadata_allowlist_path,
+        sha256: $metadata_allowlist_hash,
+        size: $metadata_allowlist_size
+      }}}
     else {} end
   ' "${specification_file}" >"${raw_plan}"
 }

@@ -424,6 +424,7 @@ run_client() {
     COGNIDOX_JQ_BIN="${COGNIDOX_JQ_BIN:-jq}" \
     COGNIDOX_QMS_STATE_DIR="${STATE_DIR}" \
     COGNIDOX_QMS_CATEGORY_TRAVERSAL_LIMIT="${COGNIDOX_QMS_CATEGORY_TRAVERSAL_LIMIT:-1000}" \
+    COGNIDOX_QMS_METADATA_ALLOWLIST="${COGNIDOX_QMS_METADATA_ALLOWLIST-${TENANT_METADATA_ALLOWLIST:-}}" \
     MOCK_MODE="${MOCK_MODE:-}" \
     MOCK_MUTATE_FILE="${MOCK_MUTATE_FILE:-}" \
     MOCK_MUTATE_CONTENT="${MOCK_MUTATE_CONTENT:-}" \
@@ -452,6 +453,7 @@ run_client_xtrace() {
     COGNIDOX_CURL_BIN="${MOCK_CURL}" \
     COGNIDOX_QMS_STATE_DIR="${STATE_DIR}" \
     COGNIDOX_QMS_CATEGORY_TRAVERSAL_LIMIT="${COGNIDOX_QMS_CATEGORY_TRAVERSAL_LIMIT:-1000}" \
+    COGNIDOX_QMS_METADATA_ALLOWLIST="${COGNIDOX_QMS_METADATA_ALLOWLIST-${TENANT_METADATA_ALLOWLIST:-}}" \
     MOCK_MODE="${MOCK_MODE:-}" \
     MOCK_TEMPLATE_PACKAGE="${TEMPLATE_PACKAGE}" \
     MOCK_SERVER_TEMPLATE_PACKAGE="${SERVER_TEMPLATE_PACKAGE}" \
@@ -547,11 +549,17 @@ readonly UPDATE_VERSION_INFORMATION_VALUES="${TEMPORARY_ROOT}/update-version-inf
 readonly REVIEW_RESPONSE_VALUES="${TEMPORARY_ROOT}/submit-review-response-values.json"
 readonly MISMATCHED_FORM_VALUES="${TEMPORARY_ROOT}/mismatched-native-form-values.json"
 readonly PROTECTED_VALUES_SYMLINK="${TEMPORARY_ROOT}/protected-values-symlink.json"
+readonly TENANT_METADATA_ALLOWLIST="${TEMPORARY_ROOT}/tenant-metadata-allowlist.json"
+readonly ALTERNATE_METADATA_ALLOWLIST="${TEMPORARY_ROOT}/alternate-tenant-metadata-allowlist.json"
+readonly WRONG_TENANT_METADATA_ALLOWLIST="${TEMPORARY_ROOT}/wrong-tenant-metadata-allowlist.json"
+readonly INVALID_METADATA_ALLOWLIST="${TEMPORARY_ROOT}/invalid-tenant-metadata-allowlist.json"
+readonly METADATA_ALLOWLIST_SYMLINK="${TEMPORARY_ROOT}/tenant-metadata-allowlist-symlink.json"
 readonly DRAFT_VALUE_SENTINEL="draft-value-must-remain-private"
 readonly ISSUE_VALUE_SENTINEL="issue-value-must-remain-private"
 readonly METADATA_VALUE_SENTINEL="metadata-value-must-remain-private"
 readonly VERSION_COMMENT_SENTINEL="version-comment-must-remain-private"
 readonly REVIEW_RESPONSE_SENTINEL="review-response-must-remain-private"
+readonly METADATA_ALLOWLIST_SENTINEL="unused-policy-identifier-must-remain-private"
 
 mkdir -p "${SECRET_DIR}" "${STATE_DIR}" "${MOCK_BIN}"
 printf '%s\n' "${SECRET_SENTINEL}" >"${SECRET_DIR}/cognidox"
@@ -599,6 +607,14 @@ printf '{"current":{"versionInformation":"Revision A","issueComment":"Synthetic 
   "${VERSION_COMMENT_SENTINEL}" >"${UPDATE_VERSION_INFORMATION_VALUES}"
 printf '{"response":"%s"}\n' "${REVIEW_RESPONSE_SENTINEL}" >"${REVIEW_RESPONSE_VALUES}"
 printf '{"formFields":{"complaint_type":"missing-reported-by"}}\n' >"${MISMATCHED_FORM_VALUES}"
+printf '{"schemaVersion":1,"repositoryBaseUrl":"%s","permittedMetadataIdentifiers":["complaint_category","source"]}\n' \
+  "${BASE_URL}" >"${TENANT_METADATA_ALLOWLIST}"
+printf '{"schemaVersion":1,"repositoryBaseUrl":"%s","permittedMetadataIdentifiers":["complaint_category","source","%s"]}\n' \
+  "${BASE_URL}" "${METADATA_ALLOWLIST_SENTINEL}" >"${ALTERNATE_METADATA_ALLOWLIST}"
+printf '{"schemaVersion":1,"repositoryBaseUrl":"%s","permittedMetadataIdentifiers":["complaint_category","source"]}\n' \
+  "${OTHER_BASE_URL}" >"${WRONG_TENANT_METADATA_ALLOWLIST}"
+printf '{"schemaVersion":1,"repositoryBaseUrl":"%s","permittedMetadataIdentifiers":["complaint_category","source"],"unsupported":true}\n' \
+  "${BASE_URL}" >"${INVALID_METADATA_ALLOWLIST}"
 chmod 600 \
   "${SUBMIT_DRAFT_VALUES}" \
   "${SUBMIT_DRAFT_ALTERNATE_VALUES}" \
@@ -607,8 +623,13 @@ chmod 600 \
   "${INVALID_METADATA_VALUES}" \
   "${UPDATE_VERSION_INFORMATION_VALUES}" \
   "${REVIEW_RESPONSE_VALUES}" \
-  "${MISMATCHED_FORM_VALUES}"
+  "${MISMATCHED_FORM_VALUES}" \
+  "${TENANT_METADATA_ALLOWLIST}" \
+  "${ALTERNATE_METADATA_ALLOWLIST}" \
+  "${WRONG_TENANT_METADATA_ALLOWLIST}" \
+  "${INVALID_METADATA_ALLOWLIST}"
 ln -s "${SUBMIT_DRAFT_VALUES}" "${PROTECTED_VALUES_SYMLINK}"
+ln -s "${TENANT_METADATA_ALLOWLIST}" "${METADATA_ALLOWLIST_SYMLINK}"
 protected_values_hash="$(sha256_file "${PROTECTED_VALUES_PATH}")"
 protected_values_size="$(wc -c <"${PROTECTED_VALUES_PATH}" | tr -d ' ')"
 replacement_values_hash="$(sha256_file "${PROTECTED_VALUES_REPLACEMENT_PATH}")"
@@ -637,6 +658,8 @@ review_response_values_hash="$(sha256_file "${REVIEW_RESPONSE_VALUES}")"
 review_response_values_size="$(wc -c <"${REVIEW_RESPONSE_VALUES}" | tr -d ' ')"
 mismatched_form_values_hash="$(sha256_file "${MISMATCHED_FORM_VALUES}")"
 mismatched_form_values_size="$(wc -c <"${MISMATCHED_FORM_VALUES}" | tr -d ' ')"
+metadata_allowlist_hash="$(sha256_file "${TENANT_METADATA_ALLOWLIST}")"
+metadata_allowlist_size="$(wc -c <"${TENANT_METADATA_ALLOWLIST}" | tr -d ' ')"
 protected_values_symlink_hash="$(sha256_file "${PROTECTED_VALUES_SYMLINK}")"
 protected_values_symlink_size="$(wc -c <"${PROTECTED_VALUES_SYMLINK}" | tr -d ' ')"
 cat >"${BROWSER_NOTIFY_SPEC}" <<'EOF'
@@ -1264,17 +1287,131 @@ for browser_action in \
   [[ ! -s "${LOG_FILE}" ]] || fail "${browser_action} planning must not make Cognidox requests"
 done
 
+for forbidden_recipients in null '[]'; do
+  recipient_case="null"
+  if [[ "${forbidden_recipients}" == '[]' ]]; then
+    recipient_case="empty-array"
+  fi
+  forbidden_recipients_spec="${TEMPORARY_ROOT}/submit-draft-${recipient_case}-recipients.json"
+  jq --argjson recipients "${forbidden_recipients}" '.recipients = $recipients' \
+    "${SUBMIT_DRAFT_SPEC}" >"${forbidden_recipients_spec}"
+  if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${forbidden_recipients_spec}" \
+    --plan-out "${TEMPORARY_ROOT}/submit-draft-${recipient_case}-recipients-plan.json"; then
+    fail "non-recipient browser actions should reject a present ${recipient_case} recipients field"
+  fi
+  assert_contains "$(<"${STDERR_FILE}")" "must not include recipients" \
+    "present ${recipient_case} browser recipients should be rejected explicitly"
+done
+
 jq -e '
   (.stateDigests.currentSha256 | test("^[0-9a-f]{64}$")) and
   (.stateDigests.intendedSha256 | test("^[0-9a-f]{64}$")) and
   (.intendedChanges.valuesFile | type == "object")
 ' "${UPDATE_METADATA_PLAN}" >/dev/null ||
   fail "metadata plans should bind protected current and intended state digests"
+jq -e --arg path "${TENANT_METADATA_ALLOWLIST}" \
+  --arg sha256 "${metadata_allowlist_hash}" --argjson size "${metadata_allowlist_size}" '
+    .policy.metadataAllowlistFile == {path: $path, sha256: $sha256, size: $size}
+  ' "${UPDATE_METADATA_PLAN}" >/dev/null ||
+  fail "metadata plans should bind the exact tenant-configured metadata allowlist"
+if rg -q --fixed-strings "${METADATA_ALLOWLIST_SENTINEL}" \
+  "${UPDATE_METADATA_PLAN}" "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}"; then
+  fail "metadata plans and output must not disclose unused tenant allowlist identifiers"
+fi
 jq -e '
   (.stateDigests.currentSha256 | test("^[0-9a-f]{64}$")) and
   (.stateDigests.intendedSha256 | test("^[0-9a-f]{64}$"))
 ' "${UPDATE_VERSION_INFORMATION_PLAN}" >/dev/null ||
   fail "version-information plans should bind protected current and intended state digests"
+
+if COGNIDOX_QMS_METADATA_ALLOWLIST="" run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/metadata-without-tenant-allowlist-plan.json"; then
+  fail "metadata updates should require a tenant-configured allowlist"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "COGNIDOX_QMS_METADATA_ALLOWLIST" \
+  "missing metadata allowlists should identify the required tenant configuration"
+
+if COGNIDOX_QMS_METADATA_ALLOWLIST="${WRONG_TENANT_METADATA_ALLOWLIST}" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/wrong-tenant-metadata-allowlist-plan.json"; then
+  fail "metadata updates should reject an allowlist for another tenant"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "configured Cognidox tenant" \
+  "tenant allowlists should bind the exact repository base URL"
+
+if COGNIDOX_QMS_METADATA_ALLOWLIST="${INVALID_METADATA_ALLOWLIST}" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/invalid-metadata-allowlist-plan.json"; then
+  fail "metadata updates should reject unsupported allowlist keys"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "exact schema" \
+  "metadata allowlists should reject undocumented keys"
+
+if COGNIDOX_QMS_METADATA_ALLOWLIST="tenant-metadata-allowlist.json" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/relative-metadata-allowlist-plan.json"; then
+  fail "metadata updates should reject a relative tenant allowlist path"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "path must be absolute" \
+  "tenant allowlists should require an absolute path"
+
+if COGNIDOX_QMS_METADATA_ALLOWLIST="${METADATA_ALLOWLIST_SYMLINK}" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/symlink-metadata-allowlist-plan.json"; then
+  fail "metadata updates should reject a tenant allowlist symlink"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "regular non-symlink" \
+  "tenant allowlists should use a private regular file"
+
+chmod 644 "${TENANT_METADATA_ALLOWLIST}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/public-metadata-allowlist-plan.json"; then
+  fail "metadata updates should reject a tenant allowlist with group or other permissions"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "restrictive permissions" \
+  "tenant allowlists should require private file permissions"
+chmod 600 "${TENANT_METADATA_ALLOWLIST}"
+
+disallowed_metadata_values="${TEMPORARY_ROOT}/disallowed-document-metadata-values.json"
+printf '%s\n' '{"current":{"title":"TS-000014-FM, Earlier Complaint, 26 AUG 2026","author":"Synthetic Author","metadata":{"status":"old"}},"intended":{"title":"TS-000014-FM, Synthetic Draft, 27 AUG 2026","author":"Synthetic Updated Author","metadata":{"status":"new"}}}' \
+  >"${disallowed_metadata_values}"
+chmod 600 "${disallowed_metadata_values}"
+disallowed_metadata_hash="$(sha256_file "${disallowed_metadata_values}")"
+disallowed_metadata_size="$(wc -c <"${disallowed_metadata_values}" | tr -d ' ')"
+jq --arg path "${disallowed_metadata_values}" --arg sha256 "${disallowed_metadata_hash}" \
+  --argjson size "${disallowed_metadata_size}" '
+    .observedState.metadataIdentifiers = ["status"] |
+    .preconditions.metadataIdentifiers = ["status"] |
+    .intendedChanges.metadataIdentifiers = ["status"] |
+    .intendedChanges.valuesFile = {path: $path, sha256: $sha256, size: $size}
+  ' "${UPDATE_METADATA_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/disallowed-tenant-metadata-plan.json"; then
+  fail "metadata updates should reject identifiers absent from the tenant allowlist"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "not permitted by the tenant metadata allowlist" \
+  "disallowed metadata identifiers should fail closed"
+
+alternate_allowlist_plan="${TEMPORARY_ROOT}/alternate-tenant-allowlist-plan.json"
+COGNIDOX_QMS_METADATA_ALLOWLIST="${ALTERNATE_METADATA_ALLOWLIST}" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+    --plan-out "${alternate_allowlist_plan}" --format json
+if [[ "$(jq -r '.planId' "${UPDATE_METADATA_PLAN}")" == "$(jq -r '.planId' "${alternate_allowlist_plan}")" ]]; then
+  fail "a changed tenant metadata allowlist should produce a fresh browser plan ID"
+fi
+if rg -q --fixed-strings "${METADATA_ALLOWLIST_SENTINEL}" \
+  "${alternate_allowlist_plan}" "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}"; then
+  fail "tenant allowlist contents must remain private when their descriptor changes"
+fi
 
 if rg -q --fixed-strings \
   -e "${DRAFT_VALUE_SENTINEL}" \
@@ -1740,6 +1877,26 @@ if rg -q --fixed-strings "${NATIVE_FORM_VALUE_SENTINEL}" \
   "${STDOUT_FILE}" "${STDERR_FILE}" "${TEMPORARY_ROOT}/raced-form-value-plan.json" 2>/dev/null; then
   fail "raced form values must not be disclosed by browser planning"
 fi
+
+if PATH="${MOCK_BIN}:${PATH}" \
+  MOCK_VALUES_FILE="${TENANT_METADATA_ALLOWLIST}" \
+  MOCK_VALUES_REPLACEMENT_FILE="${ALTERNATE_METADATA_ALLOWLIST}" \
+  MOCK_MUTATE_HASHED_FILE=true \
+  REAL_SHA256SUM="${REAL_SHA256SUM_BIN}" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/raced-metadata-allowlist-plan.json"; then
+  fail "metadata planning should reject an allowlist changed during private snapshot creation"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "tenant metadata allowlist changed" \
+  "tenant allowlist races should require a fresh browser plan"
+if rg -q --fixed-strings "${METADATA_ALLOWLIST_SENTINEL}" \
+  "${STDOUT_FILE}" "${STDERR_FILE}" "${TEMPORARY_ROOT}/raced-metadata-allowlist-plan.json" 2>/dev/null; then
+  fail "raced tenant allowlist contents must not be disclosed"
+fi
+printf '{"schemaVersion":1,"repositoryBaseUrl":"%s","permittedMetadataIdentifiers":["complaint_category","source"]}\n' \
+  "${BASE_URL}" >"${TENANT_METADATA_ALLOWLIST}"
+chmod 600 "${TENANT_METADATA_ALLOWLIST}"
 
 plan_id="$(jq -r '.planId' "${PLAN_FILE}")"
 : >"${LOG_FILE}"
