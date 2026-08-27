@@ -1044,6 +1044,11 @@ jq -n --slurpfile issue "${SUBMIT_ISSUE_SPEC}" --slurpfile approval "${BROWSER_A
     steps: [$issue_step, $approval_step]
   }
 ' >"${COMPOSITE_BROWSER_SPEC}"
+jq -e '
+  (keys | sort) == ["action", "outcome", "rootTarget", "steps"] and
+  .steps[0].stepId == "create_issue" and .steps[1].stepId == "request_approval"
+' "${COMPOSITE_BROWSER_SPEC}" >/dev/null ||
+  fail "composite fixture should preserve ordered step IDs across supported jq versions"
 cat >"${UPDATE_METADATA_SPEC}" <<EOF
 {
   "action": "update_document_metadata",
