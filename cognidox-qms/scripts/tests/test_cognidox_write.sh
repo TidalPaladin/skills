@@ -1018,7 +1018,7 @@ cat >"${SUBMIT_ISSUE_SPEC}" <<EOF
 EOF
 
 jq -n --slurpfile issue "${SUBMIT_ISSUE_SPEC}" --slurpfile approval "${BROWSER_APPROVAL_SPEC}" '
-  {stepId: "create_issue"} + $issue[0] as $issue_step |
+  ({stepId: "create_issue"} + $issue[0]) as $issue_step |
   ({stepId: "request_approval"} + $approval[0]
     | .target = {
         partNumber: $issue_step.target.partNumber,
