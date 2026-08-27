@@ -21,15 +21,16 @@ Do not replace the browser with web search, undocumented UI requests, SOAP, or a
 
 ## Create A Plan
 
-Write one JSON specification with only these top-level fields:
+Write one single-action JSON specification with only these top-level fields:
 
 - `action`: One allowed browser action.
 - `target`: A nonempty object that identifies the exact record or definition.
 - `observedState`: A nonempty object with the current visible state.
 - `intendedChanges`: The exact UI changes allowed by the action-specific contract below.
-- `recipients`: A nonempty string array only for `request_review` or `request_approval`. Omit it for every other action.
+- `recipients`: A nonempty unique string array only for `request_review` or `request_approval`. Omit it for every other action.
 - `effects`: The exact ordered effect set for the selected action.
 - `preconditions`: A nonempty object with the state that must remain true until submission.
+- `expectedResult`: Required for `submit_native_form_issue`. It binds a symbolic result ID, exact record lineage, postconditions, and captured fields. Composite steps require it for every action.
 
 Example notification specification:
 
@@ -71,7 +72,7 @@ cognidox-qms/scripts/cognidox_qms.sh \
 
 Browser-plan creation is local and makes no Cognidox REST request. It requires the configured tenant HTTPS base URL for plan binding, but it does not load or require the REST PAT. The later browser submission uses the retained authenticated browser session.
 
-The plan binds the configured tenant and adds `channel: browser`. Review and approval requests, native-form Issue submission, and review response completion derive risk `notify`. Native-form Draft submission derives risk `notify` only when visible state reports notification capability. Registration, native-form filling, metadata updates, Version Information updates, checkout, and non-notifying Draft submission derive risk `normal`. The plan ID uses the same canonical SHA-256 calculation as REST plans.
+The plan binds the configured tenant and adds `channel: browser`. Review and approval requests, native-form Issue submission, and review response completion derive risk `notify`. Native-form Draft submission derives risk `notify` only when visible state reports notification capability. Registration, native-form filling, metadata updates, Version Information updates, checkout, and non-notifying Draft submission derive risk `normal`. A composite uses the highest risk of its steps. The plan ID uses the same canonical SHA-256 calculation as REST plans.
 
 Each action accepts only these intended changes and effects:
 
@@ -82,7 +83,7 @@ Each action accepts only these intended changes and effects:
 | `register_native_form` | The template, field-manifest, and field-identifier contract below | `Register one native Cognidox form definition.` |
 | `fill_native_form` | The protected values-file and field-identifier contract below | `Update the listed native form fields.` |
 | `submit_native_form_draft` | Protected form values, ordered field identifiers, title behavior, and `Revision A` | `Update the listed native form fields from the protected values file.`; `Apply the planned native-form title behavior.`; `Submit one native-form Draft with Version Information Revision A.`; when notification-capable, `Notify Cognidox users configured for Draft submission.` |
-| `submit_native_form_issue` | Protected form values, ordered field identifiers, exact source Draft, and preserved `Revision A` | `Update the listed native form fields from the protected values file.`; `Create one native-form Issue from the exact source Draft with Version Information Revision A.`; `Notify Cognidox users configured for Issue submission.` |
+| `submit_native_form_issue` | Protected workflow values and comments, generated upload artifact, ordered field identifiers, unique notification users, exact source Draft, and preserved `Revision A` | `Use the bound native-form values from the protected workflow file.`<br>`Upload the bound form-submission.json artifact.`<br>`Use the exact source Draft and form definition.`<br>`Set Version Information to Revision A.`<br>`Enter the required Issue comment from the protected workflow file.`<br>`Configure the listed notification users and enter the protected notification comment.`<br>`Create one native-form Issue.` |
 | `update_document_metadata` | Protected current/intended state and ordered visible editable metadata identifiers | `Update the target document title, author, and listed metadata fields from the protected values file.` |
 | `update_version_information` | Protected current/intended Version Information and issue comment, plus the expected next tag | `Update Version Information and the issue comment for the target revision from the protected values file.` |
 | `submit_review_response` | Protected response and `completionAction: "complete_review"` | `Submit one protected response for the exact review task.`; `Complete the exact review task.`; `Notify Cognidox users configured for review completion.` |
@@ -153,7 +154,70 @@ Never put form values in a browser specification or plan. The client rejects sin
 
 `submit_native_form_draft` finalizes one Draft. Its protected JSON contains `formFields`, whose keys exactly match the ordered `fieldIdentifiers`. With `titleBehavior: "preserve"`, that is the only protected top-level key. With `titleBehavior: "replace_from_protected_file"`, the file also contains one nonblank `title`. The target, observed state, and preconditions bind the same Draft version and form definition. The visible form must remain editable and submittable with `versionInformationTag: "Revision A"`. If `notificationCapable` is true, the exact effect set includes the configured notification and the plan uses risk `notify`.
 
-`submit_native_form_issue` creates one Issue from one exact source Draft. Its protected JSON contains only `formFields`, with keys equal to the ordered `fieldIdentifiers`. The source Draft must be the visible latest version, remain editable, use the planned form definition, and allow Issue creation. The intended source version must equal the target and both state objects. The final Version Information tag remains `Revision A`. This action never copies values from an unbound version or form and always uses risk `notify`.
+`submit_native_form_issue` creates one Issue from one exact source Draft. First, create one private workflow-values file with this exact shape:
+
+```json
+{
+  "formFields": {"<field-id>": "<protected-value>"},
+  "issueComment": "<protected nonblank Issue comment>",
+  "notificationComment": "<protected nonblank notification comment>"
+}
+```
+
+Generate the upload artifact before plan approval:
+
+```bash
+cognidox-qms/scripts/cognidox_qms.sh \
+  --prepare-native-form-submission \
+  --workflow-values-file /secure/issue-workflow-values.json \
+  --output /secure/form-submission.json --format json
+```
+
+This local-only command does not load a token or contact Cognidox. It accepts one mode-`0600` regular non-symlink source file. It refuses an existing output or a symlink. The output name must be `form-submission.json`. The output contains canonical `{"formFields": ...}` JSON and uses mode `0600`. It reports only the absolute path, SHA-256, and size.
+
+The Issue plan binds both protected descriptors as `workflowValuesFile` and `formSubmissionFile`. It verifies that both `formFields` objects are semantically equal. Their keys must equal the ordered `fieldIdentifiers`. The plan also binds a nonempty unique `notificationUsers` list. It binds the exact source Draft, form definition, `Revision A`, seven ordered effects, and this postcondition shape:
+
+```json
+{
+  "resultId": "<symbolic-result-id>",
+  "partNumber": "<part-number>",
+  "state": {
+    "status": "Issue",
+    "formDefinitionId": "<form-definition-id>",
+    "sourceDraftVersion": "<source-draft-version>",
+    "versionInformationTag": "Revision A"
+  },
+  "captures": {"version": "latestVersion"}
+}
+```
+
+The source Draft must be the visible latest version, remain editable, use the planned form definition, and allow Issue creation. The intended source version must equal the target and both state objects. This action never copies values from an unbound version or form and always uses risk `notify`.
+
+## Composite Browser Workflows
+
+Use `composite_browser_workflow` only when the user explicitly requests one ordered outcome with at least two document actions. Keep `register_native_form` standalone. A composite cannot contain another composite or authorize a REST mutation.
+
+The top-level specification contains only `action`, `outcome`, `rootTarget`, and `steps`. The outcome is a lowercase identifier. `rootTarget` contains only the exact `partNumber`. Every step must:
+
+- Have a unique lowercase `stepId`.
+- Use one existing strict browser-action schema, including exact effects and an `expectedResult`.
+- Target the same `partNumber` and bind the same result lineage.
+- Bind any selected recipients at plan time without hard-coded tenant users.
+- Reference only a captured result from an earlier step.
+
+A typed result reference has this exact form:
+
+```json
+{
+  "stepId": "create_issue",
+  "resultId": "created_issue",
+  "field": "version"
+}
+```
+
+Use typed references only in a later step's target, observed state, or preconditions. The planner rejects forward references, missing captures, and unrelated targets. It also rejects duplicate step IDs, unknown fields, changed effects, registration, and prohibited actions. An outcome identifier cannot hide a Quality, MDR, CAPA, closure, approval, signature, publication, release, obsolescence, or deletion decision.
+
+The composite plan uses schema version 2 and retains the typed references. It includes the validated ordered steps and flattens their effects in step order. It derives risk from the highest-risk step. One plan ID binds the complete sequence. For an Issue-plus-approval-request outcome, verify the Issue postconditions and captured version first. Configure recipients and request approval only after this verification. A mismatch stops the sequence.
 
 ## Update Protected Metadata
 
@@ -204,21 +268,38 @@ This action submits the protected response and completes that exact review task.
 
 ## Retain Browser State
 
-Open or reuse one authenticated Cognidox tab. Keep the tab or session handle, current page, and pending plan ID in task state. Keep the saved local plan. Do not close the tab or sign out until you are certain that the user has no follow-up operation.
+Open or reuse one authenticated Cognidox tab. Keep the tab or session handle and current page in task state. Also keep the pending plan ID, completed step IDs, and verified symbolic results. Keep the saved local plan. Do not close the tab or sign out until the user has no follow-up operation.
 
-If the task is interrupted, preserve that state across turns. If a submission result is ambiguous, keep the same page and plan. Inspect the visible record state. Do not submit again unless current evidence proves that the first submission had no effect. A new approved plan must authorize another attempt.
+If the task is interrupted, preserve that state across turns. If a submission result is ambiguous, keep the same page and plan. Inspect the visible record state. Do not roll back or submit again unless current evidence proves that the first submission had no effect. A new approved plan must authorize another attempt or the remaining work.
 
-## Approval And Submission
+## Execution Authority
 
-1. Navigate to the target and prepare the allowed action without final submission.
-2. Record the exact target, recipients, intended changes, effects, visible state, and preconditions in the specification.
-3. Generate the plan and show its complete readable summary.
-4. Obtain current user approval for the exact plan ID. Do not infer approval from an earlier or broader request.
-5. Return to the retained tab. Recheck the target, recipients, effects, and every visible precondition against the plan.
-6. Recheck every protected file's path, type, permissions, SHA-256, size, JSON shape, and key set before you read or enter its values. For metadata and Version Information, also compare the protected current state with the visible current state. For registration, recheck both artifact hashes and sizes.
-7. Treat any difference as a stale plan. Stop and create a new plan.
-8. Confirm current user approval for the saved exact plan ID still applies. Submit that one action once. Capture the resulting visible state without closing the session when follow-up work may remain.
+One approved plan authorizes every browser interaction needed for its one defined outcome. This authority includes navigation, field entry, file upload, selection, and button clicks needed to produce the listed effects. It does not extend beyond the plan's exact target, inputs, effects, preconditions, recipients, and postconditions. Do not request confirmation for an intermediate UI step.
 
-`--apply-plan` always rejects `channel: browser`. Browser approval authorizes only the exact UI action in the retained session. It does not authorize a REST request or another browser action.
+Before approval, use only read-only browser discovery and private local artifact preparation. Delay all browser writes, including protected field entry and uploads. Present the complete plan immediately before the first protected-data transmission. Use this wording verbatim:
+
+> Present the complete plan. Ask once for approval of the exact plan ID and final transmission of the identified protected data to Cognidox. After approval, execute all listed substeps without further confirmation.
+
+Before each write, compare the visible state and all protected descriptors with the plan. Stop and require a replacement plan when any of these conditions occurs:
+
+- The record, version, protected artifact, or recipient set changed.
+- Notification routing differs from the plan.
+- A material new UI field or new effect appears.
+- The next step needs a prohibited operation.
+- The preceding step does not satisfy every expected postcondition.
+
+On partial completion, preserve the session, plan, completed step IDs, and verified results. Do not roll back completed QMS effects. Do not retry blindly. Report the completed effects and prepare a replacement plan only for the remaining work.
+
+## Approval And Execution
+
+1. Use read-only discovery to record the exact target, recipients, intended changes, effects, visible state, preconditions, and expected postconditions.
+2. Prepare required private local artifacts. Do not enter or upload protected data yet.
+3. Generate the plan and show its complete readable summary with the required single-approval wording.
+4. Obtain approval for the exact plan ID and final transmission of the identified protected data. Do not infer approval from an earlier or broader request.
+5. Recheck the target, recipients, notification routing, effects, and visible preconditions. Recheck each protected file's path, type, permissions, SHA-256, size, JSON shape, and key set.
+6. Execute all listed interactions without another confirmation. Before each write, repeat the applicable state and descriptor checks.
+7. Verify each step's expected postconditions. Continue only when they match. Capture resulting state and symbolic results without closing the retained session.
+
+`--apply-plan` always rejects `channel: browser`. Browser approval authorizes only the single action or ordered composite outcome in the retained session. It does not authorize a REST request, an unlisted browser action, or an added material effect.
 
 After an approved checkout, refresh document details and create a new REST version plan. The checkout plan does not authorize the later upload.

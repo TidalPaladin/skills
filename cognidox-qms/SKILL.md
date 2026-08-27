@@ -48,11 +48,11 @@ All mutation commands create a deterministic plan by default. They do not send a
 
 Each plan records the tenant API base URL, target, and preconditions. It also records the risk, source hash, expected version, and plan ID. The client refuses to overwrite an existing plan file.
 
-Before you apply a REST plan or submit a browser plan:
+Before you apply a REST plan or start a browser plan:
 
 1. Show the complete plan as the default readable Markdown summary.
 2. Obtain current approval for the exact plan ID.
-3. Use only the confirmation flag for the plan risk.
+3. For REST, use only the confirmation flag for the plan risk. For the browser, combine plan approval with confirmation of the identified protected-data transmission.
 
 Do not show raw plan JSON unless the user requests machine-readable output. `--plan-out` always saves canonical JSON even when the terminal output uses the readable default. Use `--format json` only for automation or an explicit machine-readable request.
 
@@ -64,9 +64,13 @@ Use these gates:
 | `notify` | Every issue upload or submission, and review response completion | `--confirm-notify <plan-id>` |
 | `destructive` | Test-document deletion | `--confirm-destructive <plan-id>` |
 
-Browser plans use the same `normal` or `notify` risk labels, but `--apply-plan` rejects them. Complete an approved browser plan only in the authenticated browser after the visible-state recheck in `references/browser-workflows.md`.
+Browser plans use the same `normal` or `notify` risk labels, but `--apply-plan` rejects them. One browser plan can authorize all listed interactions for one defined QMS outcome. Its authority remains limited to the exact target, inputs, effects, preconditions, recipients, and postconditions. Complete it only in the authenticated browser under the execution rules in `references/browser-workflows.md`.
 
 Do not infer approval from an earlier request. Do not supply `--confirm-notify` or `--confirm-destructive` until the user approves that exact plan ID.
+
+Use this wording for every browser approval request:
+
+> Present the complete plan. Ask once for approval of the exact plan ID and final transmission of the identified protected data to Cognidox. After approval, execute all listed substeps without further confirmation.
 
 If live preflight shows that a draft can notify a user, add `--notification-capable` when you create its plan. The plan then uses risk `notify`.
 
@@ -116,19 +120,21 @@ cognidox-qms/scripts/cognidox_office_form.py fill template.docx \
 
 Supply values only through a JSON file. Use the authoring manifest during fill when it defines field types or optional fields. The helper requires a new output path. It preserves unrelated OOXML parts and does not overwrite the source.
 
-The REST API cannot register a native Cognidox form definition, fill native form fields, or complete the native-form UI workflow. Create the field manifest and reusable Office template locally. A registration browser plan must bind both artifacts by absolute path, SHA-256 hash, and size, plus the field identifiers. A fill or submission browser plan must bind the protected values file and visible form the same way and must not copy form values into plan metadata. When an authenticated reusable browser is available, prepare one guarded browser plan for one operation. Otherwise, stop and give the artifacts to an authorized user for manual UI work.
+The REST API cannot register a native Cognidox form definition, fill native form fields, or complete the native-form UI workflow. Create the field manifest and reusable Office template locally. A registration browser plan must bind both artifacts by absolute path, SHA-256 hash, and size, plus the field identifiers. A fill or submission browser plan must bind the protected values file and visible form the same way and must not copy form values into plan metadata. Before an Issue plan, use `--prepare-native-form-submission` to create the exact protected upload artifact locally. When an authenticated reusable browser is available, prepare one guarded browser plan for one defined outcome. Otherwise, stop and give the artifacts to an authorized user for manual UI work.
 
 Read `references/form-workflows.md` before you create or fill a form.
 
 ## Browser Fallback
 
-Allowed browser actions are `request_review`, `request_approval`, `register_native_form`, `fill_native_form`, `submit_native_form_draft`, `submit_native_form_issue`, `update_document_metadata`, `update_version_information`, `submit_review_response`, and `checkout_document`. Create a browser plan with `--create-browser-plan`, save it, show its readable summary, and stop before the final UI submission.
+Allowed single browser actions are `request_review`, `request_approval`, `register_native_form`, `fill_native_form`, `submit_native_form_draft`, `submit_native_form_issue`, `update_document_metadata`, `update_version_information`, `submit_review_response`, and `checkout_document`. `composite_browser_workflow` can join at least two of those strict document actions when the user explicitly requests one ordered outcome on one document lineage. Keep `register_native_form` standalone. Create a browser plan with `--create-browser-plan`, save it, and show its readable summary before the first protected-data transmission.
 
-Each browser action has fixed target, observed-state, intended-change, effect, and precondition schemas. Reject extra nested fields even when the top-level action is allowed. Require intended field identifiers to equal both visible-state arrays for native-form actions. Keep native-form finalization, Issue submission, metadata updates, Version Information updates, and review responses in separate plans. Do not infer disclosure by comparing protected values with legitimate state scalars.
+Each browser action has fixed target, observed-state, intended-change, effect, precondition, and postcondition schemas. Reject extra nested fields even when the top-level action is allowed. Require intended field identifiers to equal both visible-state arrays for native-form actions. A composite step uses the same strict schema and can reference only a verified result from an earlier step. Do not infer disclosure by comparing protected values with legitimate state scalars.
 
 New protected values and response files must be absolute, regular non-symlink files with no group or other access. Plans bind their SHA-256, byte size, exact JSON shape, and exact field-key set. Metadata and Version Information plans also record separate SHA-256 digests for protected current and intended state. Before an `update_document_metadata` plan, set `COGNIDOX_QMS_METADATA_ALLOWLIST` to the absolute private tenant allowlist JSON path. Every planned metadata identifier must be in that tenant-bound allowlist, and the plan binds the policy file path, SHA-256, and size. The initial submitted native-form Draft uses `Revision A`; the first Issue preserves that tag; each later Version Information update increments exactly one letter.
 
-Reuse one authenticated Cognidox tab or session. Preserve its handle, current page, and pending plan ID in task state across turns. Keep the local plan. Do not close the tab or sign out until you are certain that the user has no follow-up operation. Before submission, recheck the target, recipients, effects, preconditions, and visible state. Any difference makes the plan stale.
+Reuse one authenticated Cognidox tab or session. Preserve its handle, current page, pending plan ID, and completed composite results in task state across turns. Keep the local plan. Before approval, use the browser only for read-only discovery; local protected-file preparation is also allowed. After approval, perform all listed navigation, entry, upload, selection, and clicks without another confirmation. Before each write, recheck the target, version, protected descriptors, recipients, notification routing, effects, preconditions, and visible state. Verify each step's postconditions before the next step.
+
+Stop if the record or version changed, a protected artifact changed, the recipient set changed, notification routing is unexpected, a material new UI field appears, a new effect is required, or a prohibited operation is required. On partial completion, keep the session and verified results. Do not roll back or retry blindly. Create and obtain approval for a replacement plan for the remaining work.
 
 If reusable browser automation or authenticated state is unavailable, report the limitation and stop. Do not use web search or undocumented SOAP automation as a substitute. After an interrupted or ambiguous submission, retain the tab and plan and inspect the current state. Never retry blindly.
 
@@ -154,6 +160,7 @@ Do not use this skill to:
 - Publish, unpublish, release, close, or make a document obsolete.
 - Delete or change a category.
 - Use a manual part number.
+- Infer a Quality decision, MDR determination, CAPA decision, or closure.
 
 Do not implement these operations through SOAP. The available vendor CLI is proprietary and cannot be included in this repository. Read `references/soap-guide.md` for the SOAP boundary.
 

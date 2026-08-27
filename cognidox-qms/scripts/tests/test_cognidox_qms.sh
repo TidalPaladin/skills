@@ -6,6 +6,8 @@ COGNIDOX_SCRIPT="${SCRIPT_DIR}/../cognidox_qms.sh"
 SKILL_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 SKILL_DOC="${SKILL_ROOT}/SKILL.md"
 REST_API_GUIDE="${SKILL_ROOT}/references/rest-api-guide.md"
+BROWSER_WORKFLOW_GUIDE="${SKILL_ROOT}/references/browser-workflows.md"
+FORM_WORKFLOW_GUIDE="${SKILL_ROOT}/references/form-workflows.md"
 
 TEST_FAIL_COUNT=0
 SECRET_SENTINEL="cognidox-secret-token-for-tests"
@@ -246,6 +248,21 @@ run_tests() {
 
   assert_contains "$(<"${SKILL_DOC}")" '`read:files`' "skill should document the download scope"
   assert_contains "$(<"${REST_API_GUIDE}")" '`read:files`' "REST guide should document the download scope"
+  assert_contains "$(<"${SKILL_DOC}")" \
+    'Ask once for approval of the exact plan ID and final transmission of the identified protected data to Cognidox.' \
+    "skill should require one approval for one browser outcome"
+  assert_contains "$(<"${BROWSER_WORKFLOW_GUIDE}")" \
+    'Do not request confirmation for an intermediate UI step.' \
+    "browser guidance should grant execution authority after plan approval"
+  assert_contains "$(<"${BROWSER_WORKFLOW_GUIDE}")" \
+    'Notification routing differs from the plan.' \
+    "browser guidance should stop for unexpected notifications"
+  assert_contains "$(<"${BROWSER_WORKFLOW_GUIDE}")" \
+    'Do not roll back completed QMS effects.' \
+    "browser guidance should preserve partial completion"
+  assert_contains "$(<"${FORM_WORKFLOW_GUIDE}")" \
+    '`submit_native_form_issue_and_request_approval`' \
+    "form guidance should document the Issue-plus-approval composite"
 
   run_command env \
     TOKEN_FILE_AUTH_BASE_DIR="${secret_dir}" \

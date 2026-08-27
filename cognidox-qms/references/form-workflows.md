@@ -80,8 +80,8 @@ For a new native form definition:
 1. Inspect or author the Office template.
 2. Save the field manifest.
 3. If a reusable authenticated Cognidox browser is available, create a `register_native_form` browser plan. Set `intendedChanges.templateFile` and `intendedChanges.fieldManifestFile` to absolute `path`, `sha256`, and `size` descriptors. Add the unique `fieldIdentifiers`, observed UI state, effects, and preconditions. Do not include field values.
-4. The client makes private artifact snapshots and verifies both snapshots before it creates the plan. Show the readable plan and obtain approval for its exact plan ID.
-5. Recheck the visible target, state, artifact hashes and sizes. Complete the approved registration in the same browser session. Stop before submission if any state changed.
+4. The client makes private artifact snapshots and verifies both snapshots before it creates the plan. Keep registration standalone. Show the readable plan and obtain approval for its exact plan ID and artifact transmission.
+5. Recheck the visible target, state, artifact hashes, and sizes. Complete the approved registration in the same browser session without another confirmation. Stop if any state changed.
 6. If browser automation is unavailable, give both artifacts to an authorized Cognidox administrator for manual registration.
 7. Retrieve the active category form ID from live category details.
 8. Use `--create-form-document` to prepare a guarded REST creation plan.
@@ -90,18 +90,24 @@ To fill an existing native form through the UI:
 
 1. Put values in a protected JSON file. Do not put them in the plan, command arguments, agent messages, or logs.
 2. Create a `fill_native_form` browser plan. Its `intendedChanges` must contain a `valuesFile` object with only `path`, `sha256`, and `size`, plus the unique `fieldIdentifiers` array.
-3. Show the readable plan and obtain approval for its exact plan ID.
-4. In the retained browser session, recheck the target, current form state, field identifiers, effects, and preconditions.
-5. Read the protected values locally and enter them without echoing them. Stop before the final submission if the visible state differs from the plan.
+3. Show the readable plan and obtain approval once for its exact plan ID and protected-data transmission.
+4. In the retained browser session, recheck the target, current form state, field identifiers, effects, preconditions, and protected descriptor.
+5. Read the protected values locally and enter them without echoing them. Do not ask again for individual fields or intermediate clicks. Stop if the visible state differs from the plan.
 
 To finalize a filled native form:
 
-1. Keep the protected form fields in a mode-`0600` regular non-symlink JSON file. For Draft title replacement, keep the protected title in that same file.
+1. Keep Draft form fields in a mode-`0600` regular non-symlink JSON file. For Draft title replacement, keep the protected title in that same file.
 2. Create a separate `submit_native_form_draft` plan that binds the exact Draft version, form definition, ordered visible field identifiers, title behavior, notification capability, and `Revision A` tag.
-3. Show the readable plan and obtain current approval for its exact plan ID. Recheck all visible and protected state immediately before submitting the Draft once.
-4. To create the first Issue, create a new `submit_native_form_issue` plan. Bind the exact source Draft and visible latest version, reuse only the exact protected file named in that plan, and preserve `Revision A`.
-5. Treat Issue submission as notification-capable. Show the new readable plan and obtain approval for its exact plan ID before submitting once.
+3. Show the readable plan and obtain current approval once for its exact plan ID and protected-data transmission. Recheck all visible and protected state before each write. Complete all listed Draft interactions without another confirmation.
+4. For the first Issue, create one private workflow-values JSON object with `formFields`, a nonblank `issueComment`, and a nonblank `notificationComment`.
+5. Run `--prepare-native-form-submission --workflow-values-file <path> --output <path>/form-submission.json`. This local-only step extracts canonical `{"formFields": ...}` JSON with mode `0600` and reports only the protected descriptor.
+6. Create a `submit_native_form_issue` plan. Bind the workflow-values file, generated upload artifact, ordered field identifiers, unique notification users, exact source Draft, form definition, `Revision A`, seven fixed effects, exact Issue postconditions, and a symbolic created-version result.
+7. Treat Issue submission as notification-capable. Show the complete readable plan immediately before the first transmission. Ask once for approval of its exact plan ID and the identified protected-data transmission.
+8. After approval, use the values, upload `form-submission.json`, select the source Draft and form definition, set `Revision A`, enter both protected comments, configure the listed notification users, and create the Issue. Recheck state and protected descriptors before each write. Do not request another confirmation for these intermediate steps.
+9. Verify the resulting Issue against every expected postcondition. Preserve the session and stop if it does not match.
 
-Metadata changes, later Version Information changes, and review responses are separate actions. Never add them to a Draft or Issue submission plan. Before `update_document_metadata`, set `COGNIDOX_QMS_METADATA_ALLOWLIST` to the absolute private tenant policy file and confirm that every planned metadata identifier is explicitly permitted. The plan binds that file's path, SHA-256, and size with the protected current and intended state. Use `update_version_information` for one-letter Revision tag increments and protected issue comments, and `submit_review_response` for completion of one exact pending review task. Each action requires its own fresh exact plan ID and current approval.
+Metadata changes, later Version Information changes, and review responses remain separate strict action schemas. Before `update_document_metadata`, set `COGNIDOX_QMS_METADATA_ALLOWLIST` to the absolute private tenant policy file and confirm that every planned metadata identifier is explicitly permitted. The plan binds that file's path, SHA-256, and size with the protected current and intended state. Use `update_version_information` for one-letter Revision tag increments and protected issue comments, and `submit_review_response` for completion of one exact pending review task.
+
+When the user explicitly requests one outcome that needs at least two actions on the same document lineage, use `composite_browser_workflow`. For example, `submit_native_form_issue_and_request_approval` can create and verify the Issue, then use the verified created-version result to configure the plan-bound users and request approval. Do not hard-code tenant users. Stop the workflow if the Issue or any later postcondition does not match. Preserve completed results and require a replacement plan for the remaining steps. A composite approval applies once to the complete ordered sequence.
 
 Follow `browser-workflows.md` for session retention, approval, submission, and ambiguous-result handling.

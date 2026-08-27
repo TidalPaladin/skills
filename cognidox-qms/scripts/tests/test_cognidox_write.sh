@@ -534,6 +534,8 @@ readonly SUBMIT_DRAFT_SPEC="${TEMPORARY_ROOT}/submit-native-form-draft-spec.json
 readonly SUBMIT_DRAFT_PLAN="${TEMPORARY_ROOT}/submit-native-form-draft-plan.json"
 readonly SUBMIT_ISSUE_SPEC="${TEMPORARY_ROOT}/submit-native-form-issue-spec.json"
 readonly SUBMIT_ISSUE_PLAN="${TEMPORARY_ROOT}/submit-native-form-issue-plan.json"
+readonly COMPOSITE_BROWSER_SPEC="${TEMPORARY_ROOT}/composite-browser-workflow-spec.json"
+readonly COMPOSITE_BROWSER_PLAN="${TEMPORARY_ROOT}/composite-browser-workflow-plan.json"
 readonly UPDATE_METADATA_SPEC="${TEMPORARY_ROOT}/update-document-metadata-spec.json"
 readonly UPDATE_METADATA_PLAN="${TEMPORARY_ROOT}/update-document-metadata-plan.json"
 readonly UPDATE_VERSION_INFORMATION_SPEC="${TEMPORARY_ROOT}/update-version-information-spec.json"
@@ -543,6 +545,9 @@ readonly REVIEW_RESPONSE_PLAN="${TEMPORARY_ROOT}/submit-review-response-plan.jso
 readonly SUBMIT_DRAFT_VALUES="${TEMPORARY_ROOT}/submit-native-form-draft-values.json"
 readonly SUBMIT_DRAFT_ALTERNATE_VALUES="${TEMPORARY_ROOT}/submit-native-form-draft-alternate-values.json"
 readonly SUBMIT_ISSUE_VALUES="${TEMPORARY_ROOT}/submit-native-form-issue-values.json"
+readonly FORM_SUBMISSION_FILE="${TEMPORARY_ROOT}/form-submission.json"
+readonly MISMATCHED_FORM_SUBMISSION_FILE="${TEMPORARY_ROOT}/mismatched-form-submission.json"
+readonly ALTERNATE_ISSUE_VALUES="${TEMPORARY_ROOT}/alternate-submit-native-form-issue-values.json"
 readonly UPDATE_METADATA_VALUES="${TEMPORARY_ROOT}/update-document-metadata-values.json"
 readonly INVALID_METADATA_VALUES="${TEMPORARY_ROOT}/invalid-document-metadata-values.json"
 readonly UPDATE_VERSION_INFORMATION_VALUES="${TEMPORARY_ROOT}/update-version-information-values.json"
@@ -556,6 +561,8 @@ readonly INVALID_METADATA_ALLOWLIST="${TEMPORARY_ROOT}/invalid-tenant-metadata-a
 readonly METADATA_ALLOWLIST_SYMLINK="${TEMPORARY_ROOT}/tenant-metadata-allowlist-symlink.json"
 readonly DRAFT_VALUE_SENTINEL="draft-value-must-remain-private"
 readonly ISSUE_VALUE_SENTINEL="issue-value-must-remain-private"
+readonly ISSUE_COMMENT_SENTINEL="issue-comment-must-remain-private"
+readonly NOTIFICATION_COMMENT_SENTINEL="notification-comment-must-remain-private"
 readonly METADATA_VALUE_SENTINEL="metadata-value-must-remain-private"
 readonly VERSION_COMMENT_SENTINEL="version-comment-must-remain-private"
 readonly REVIEW_RESPONSE_SENTINEL="review-response-must-remain-private"
@@ -597,8 +604,11 @@ printf '{"formFields":{"complaint_type":"%s","reported_by":"Synthetic Reporter"}
   "${DRAFT_VALUE_SENTINEL}" >"${SUBMIT_DRAFT_VALUES}"
 printf '{"formFields":{"complaint_type":"alternate-private-value","reported_by":"Synthetic Reporter"},"title":"TS-000014-FM, Synthetic Draft, 27 AUG 2026"}\n' \
   >"${SUBMIT_DRAFT_ALTERNATE_VALUES}"
-printf '{"formFields":{"complaint_type":"%s","reported_by":"Synthetic Reporter"}}\n' \
-  "${ISSUE_VALUE_SENTINEL}" >"${SUBMIT_ISSUE_VALUES}"
+printf '{"formFields":{"complaint_type":"%s","reported_by":"Synthetic Reporter"},"issueComment":"%s","notificationComment":"%s"}\n' \
+  "${ISSUE_VALUE_SENTINEL}" "${ISSUE_COMMENT_SENTINEL}" "${NOTIFICATION_COMMENT_SENTINEL}" \
+  >"${SUBMIT_ISSUE_VALUES}"
+printf '{"formFields":{"complaint_type":"%s","reported_by":"Synthetic Reporter"},"issueComment":"Alternate approved comment","notificationComment":"%s"}\n' \
+  "${ISSUE_VALUE_SENTINEL}" "${NOTIFICATION_COMMENT_SENTINEL}" >"${ALTERNATE_ISSUE_VALUES}"
 printf '{"current":{"title":"TS-000014-FM, Earlier Complaint, 26 AUG 2026","author":"Synthetic Author","metadata":{"complaint_category":"old","source":"internal"}},"intended":{"title":"TS-000014-FM, %s, 27 AUG 2026","author":"Synthetic Updated Author","metadata":{"complaint_category":"new","source":"internal"}}}\n' \
   "${METADATA_VALUE_SENTINEL}" >"${UPDATE_METADATA_VALUES}"
 printf '{"current":{"title":"TS-000014-FM, Earlier Complaint, 26 AUG 2026","author":"Synthetic Author","metadata":{"complaint_category":"old","source":"internal"}},"intended":{"title":"Wrong complaint title","author":"Synthetic Updated Author","metadata":{"complaint_category":"new","source":"internal"}}}\n' \
@@ -607,6 +617,8 @@ printf '{"current":{"versionInformation":"Revision A","issueComment":"Synthetic 
   "${VERSION_COMMENT_SENTINEL}" >"${UPDATE_VERSION_INFORMATION_VALUES}"
 printf '{"response":"%s"}\n' "${REVIEW_RESPONSE_SENTINEL}" >"${REVIEW_RESPONSE_VALUES}"
 printf '{"formFields":{"complaint_type":"missing-reported-by"}}\n' >"${MISMATCHED_FORM_VALUES}"
+printf '{"formFields":{"complaint_type":"missing-reported-by"}}\n' \
+  >"${MISMATCHED_FORM_SUBMISSION_FILE}"
 printf '{"schemaVersion":1,"repositoryBaseUrl":"%s","permittedMetadataIdentifiers":["complaint_category","source"]}\n' \
   "${BASE_URL}" >"${TENANT_METADATA_ALLOWLIST}"
 printf '{"schemaVersion":1,"repositoryBaseUrl":"%s","permittedMetadataIdentifiers":["complaint_category","source","%s"]}\n' \
@@ -619,11 +631,13 @@ chmod 600 \
   "${SUBMIT_DRAFT_VALUES}" \
   "${SUBMIT_DRAFT_ALTERNATE_VALUES}" \
   "${SUBMIT_ISSUE_VALUES}" \
+  "${ALTERNATE_ISSUE_VALUES}" \
   "${UPDATE_METADATA_VALUES}" \
   "${INVALID_METADATA_VALUES}" \
   "${UPDATE_VERSION_INFORMATION_VALUES}" \
   "${REVIEW_RESPONSE_VALUES}" \
   "${MISMATCHED_FORM_VALUES}" \
+  "${MISMATCHED_FORM_SUBMISSION_FILE}" \
   "${TENANT_METADATA_ALLOWLIST}" \
   "${ALTERNATE_METADATA_ALLOWLIST}" \
   "${WRONG_TENANT_METADATA_ALLOWLIST}" \
@@ -648,6 +662,99 @@ submit_draft_alternate_values_hash="$(sha256_file "${SUBMIT_DRAFT_ALTERNATE_VALU
 submit_draft_alternate_values_size="$(wc -c <"${SUBMIT_DRAFT_ALTERNATE_VALUES}" | tr -d ' ')"
 submit_issue_values_hash="$(sha256_file "${SUBMIT_ISSUE_VALUES}")"
 submit_issue_values_size="$(wc -c <"${SUBMIT_ISSUE_VALUES}" | tr -d ' ')"
+alternate_issue_values_hash="$(sha256_file "${ALTERNATE_ISSUE_VALUES}")"
+alternate_issue_values_size="$(wc -c <"${ALTERNATE_ISSUE_VALUES}" | tr -d ' ')"
+
+: >"${LOG_FILE}"
+run_client_xtrace "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --prepare-native-form-submission --workflow-values-file "${SUBMIT_ISSUE_VALUES}" \
+  --output "${FORM_SUBMISSION_FILE}" --format json
+form_submission_hash="$(sha256_file "${FORM_SUBMISSION_FILE}")"
+form_submission_size="$(wc -c <"${FORM_SUBMISSION_FILE}" | tr -d ' ')"
+jq -e --arg path "${FORM_SUBMISSION_FILE}" --arg sha256 "${form_submission_hash}" \
+  --argjson size "${form_submission_size}" '
+    .path == $path and .sha256 == $sha256 and .size == $size
+  ' "${STDOUT_FILE}" >/dev/null || fail "artifact preparation should return only the generated descriptor"
+jq -e --slurpfile source "${SUBMIT_ISSUE_VALUES}" '
+  (keys | sort) == ["formFields"] and .formFields == $source[0].formFields
+' "${FORM_SUBMISSION_FILE}" >/dev/null ||
+  fail "form-submission.json should contain only the canonical protected form fields"
+assert_equals "600" "$(bash -c 'source "$1"; cognidox_write_private_file_mode "$2"' \
+  bash "${COGNIDOX_WRITE_SCRIPT}" "${FORM_SUBMISSION_FILE}")" \
+  "generated form-submission.json should use mode 0600"
+[[ ! -s "${LOG_FILE}" ]] || fail "local artifact preparation must not make Cognidox requests"
+if rg -q --fixed-strings "${ISSUE_VALUE_SENTINEL}" \
+  "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}"; then
+  fail "artifact preparation must not disclose protected native-form values"
+fi
+
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --prepare-native-form-submission --workflow-values-file "${SUBMIT_ISSUE_VALUES}" \
+  --output "${FORM_SUBMISSION_FILE}"; then
+  fail "artifact preparation should refuse to overwrite form-submission.json"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "refusing to overwrite" \
+  "artifact overwrite rejection should be explicit"
+
+invalid_workflow_values="${TEMPORARY_ROOT}/invalid-workflow-values.json"
+printf '%s\n' '{"formFields":{"complaint_type":"synthetic"},"issueComment":"present"}' \
+  >"${invalid_workflow_values}"
+chmod 600 "${invalid_workflow_values}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --prepare-native-form-submission --workflow-values-file "${invalid_workflow_values}" \
+  --output "${TEMPORARY_ROOT}/invalid/form-submission.json"; then
+  fail "artifact preparation should reject a missing notification comment"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "exact formFields, issueComment, and notificationComment" \
+  "invalid workflow values should explain the protected source schema"
+
+chmod 644 "${SUBMIT_ISSUE_VALUES}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --prepare-native-form-submission --workflow-values-file "${SUBMIT_ISSUE_VALUES}" \
+  --output "${TEMPORARY_ROOT}/public/form-submission.json"; then
+  fail "artifact preparation should reject public workflow values"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "restrictive permissions" \
+  "artifact preparation should require a private workflow-values file"
+chmod 600 "${SUBMIT_ISSUE_VALUES}"
+
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --prepare-native-form-submission --workflow-values-file "${SUBMIT_ISSUE_VALUES}" \
+  --output "${TEMPORARY_ROOT}/wrong-name.json"; then
+  fail "artifact preparation should require the form-submission.json file name"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "form-submission.json" \
+  "artifact preparation should identify the required upload name"
+
+workflow_values_symlink="${TEMPORARY_ROOT}/workflow-values-symlink.json"
+ln -s "${SUBMIT_ISSUE_VALUES}" "${workflow_values_symlink}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --prepare-native-form-submission --workflow-values-file "${workflow_values_symlink}" \
+  --output "${TEMPORARY_ROOT}/symlink-source/form-submission.json"; then
+  fail "artifact preparation should reject a workflow-values symlink"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "regular non-symlink" \
+  "artifact preparation should require a regular workflow-values file"
+
+symlink_output_target="${TEMPORARY_ROOT}/symlink-output-target.json"
+symlink_output="${TEMPORARY_ROOT}/symlink-output/form-submission.json"
+mkdir -p "$(dirname "${symlink_output}")"
+printf '%s\n' 'do-not-overwrite' >"${symlink_output_target}"
+ln -s "${symlink_output_target}" "${symlink_output}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --prepare-native-form-submission --workflow-values-file "${SUBMIT_ISSUE_VALUES}" \
+  --output "${symlink_output}"; then
+  fail "artifact preparation should reject a symlink output"
+fi
+assert_equals "do-not-overwrite" "$(<"${symlink_output_target}")" \
+  "artifact preparation should not modify a symlink target"
+
+no_base_output="${TEMPORARY_ROOT}/no-base/form-submission.json"
+env -u COGNIDOX_QMS_BASE_URL -u TOKEN_FILE_AUTH_BASE_DIR \
+  COGNIDOX_JQ_BIN=jq "${COGNIDOX_SCRIPT}" \
+  --prepare-native-form-submission --workflow-values-file "${SUBMIT_ISSUE_VALUES}" \
+  --output "${no_base_output}" --format json >"${STDOUT_FILE}" 2>"${STDERR_FILE}"
+[[ -f "${no_base_output}" ]] || fail "local artifact preparation should not require tenant or token configuration"
 update_metadata_values_hash="$(sha256_file "${UPDATE_METADATA_VALUES}")"
 update_metadata_values_size="$(wc -c <"${UPDATE_METADATA_VALUES}" | tr -d ' ')"
 invalid_metadata_values_hash="$(sha256_file "${INVALID_METADATA_VALUES}")"
@@ -658,6 +765,8 @@ review_response_values_hash="$(sha256_file "${REVIEW_RESPONSE_VALUES}")"
 review_response_values_size="$(wc -c <"${REVIEW_RESPONSE_VALUES}" | tr -d ' ')"
 mismatched_form_values_hash="$(sha256_file "${MISMATCHED_FORM_VALUES}")"
 mismatched_form_values_size="$(wc -c <"${MISMATCHED_FORM_VALUES}" | tr -d ' ')"
+mismatched_form_submission_hash="$(sha256_file "${MISMATCHED_FORM_SUBMISSION_FILE}")"
+mismatched_form_submission_size="$(wc -c <"${MISMATCHED_FORM_SUBMISSION_FILE}" | tr -d ' ')"
 metadata_allowlist_hash="$(sha256_file "${TENANT_METADATA_ALLOWLIST}")"
 metadata_allowlist_size="$(wc -c <"${TENANT_METADATA_ALLOWLIST}" | tr -d ' ')"
 protected_values_symlink_hash="$(sha256_file "${PROTECTED_VALUES_SYMLINK}")"
@@ -860,19 +969,29 @@ cat >"${SUBMIT_ISSUE_SPEC}" <<EOF
     "versionInformationTag": "Revision A"
   },
   "intendedChanges": {
-    "valuesFile": {
+    "workflowValuesFile": {
       "path": "${SUBMIT_ISSUE_VALUES}",
       "sha256": "${submit_issue_values_hash}",
       "size": ${submit_issue_values_size}
     },
+    "formSubmissionFile": {
+      "path": "${FORM_SUBMISSION_FILE}",
+      "sha256": "${form_submission_hash}",
+      "size": ${form_submission_size}
+    },
     "fieldIdentifiers": ["complaint_type", "reported_by"],
+    "notificationUsers": ["Synthetic Tim", "Synthetic Chase"],
     "sourceDraftVersion": "A",
     "versionInformationTag": "Revision A"
   },
   "effects": [
-    "Update the listed native form fields from the protected values file.",
-    "Create one native-form Issue from the exact source Draft with Version Information Revision A.",
-    "Notify Cognidox users configured for Issue submission."
+    "Use the bound native-form values from the protected workflow file.",
+    "Upload the bound form-submission.json artifact.",
+    "Use the exact source Draft and form definition.",
+    "Set Version Information to Revision A.",
+    "Enter the required Issue comment from the protected workflow file.",
+    "Configure the listed notification users and enter the protected notification comment.",
+    "Create one native-form Issue."
   ],
   "preconditions": {
     "status": "Draft",
@@ -883,9 +1002,48 @@ cat >"${SUBMIT_ISSUE_SPEC}" <<EOF
     "formDefinitionId": "complaint-form-1",
     "fieldIdentifiers": ["complaint_type", "reported_by"],
     "versionInformationTag": "Revision A"
+  },
+  "expectedResult": {
+    "resultId": "created_issue",
+    "partNumber": "TS-000014-FM",
+    "state": {
+      "status": "Issue",
+      "formDefinitionId": "complaint-form-1",
+      "sourceDraftVersion": "A",
+      "versionInformationTag": "Revision A"
+    },
+    "captures": {"version": "latestVersion"}
   }
 }
 EOF
+
+jq -n --slurpfile issue "${SUBMIT_ISSUE_SPEC}" --slurpfile approval "${BROWSER_APPROVAL_SPEC}" '
+  {stepId: "create_issue"} + $issue[0] as $issue_step |
+  ({stepId: "request_approval"} + $approval[0]
+    | .target = {
+        partNumber: $issue_step.target.partNumber,
+        version: {stepId: "create_issue", resultId: "created_issue", field: "version"}
+      }
+    | .observedState = {
+        approvalStatus: "Not requested",
+        latestVersion: {stepId: "create_issue", resultId: "created_issue", field: "version"},
+        recipientVisible: true
+      }
+    | .preconditions = .observedState
+    | .recipients = ["Synthetic Tim", "Synthetic Chase"]
+    | .expectedResult = {
+        resultId: "approval_request",
+        partNumber: $issue_step.target.partNumber,
+        state: {approvalStatus: "Pending"},
+        captures: {}
+      }) as $approval_step |
+  {
+    action: "composite_browser_workflow",
+    outcome: "submit_native_form_issue_and_request_approval",
+    rootTarget: {partNumber: $issue_step.target.partNumber},
+    steps: [$issue_step, $approval_step]
+  }
+' >"${COMPOSITE_BROWSER_SPEC}"
 cat >"${UPDATE_METADATA_SPEC}" <<EOF
 {
   "action": "update_document_metadata",
@@ -1152,7 +1310,7 @@ run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
 browser_text_plan="$(<"${STDOUT_FILE}")"
 assert_contains "${browser_text_plan}" '- **Channel**: `"browser"`' "browser plans should identify their execution channel"
 assert_contains "${browser_text_plan}" '- **Risk**: `"notify"`' "review requests should derive notification risk"
-assert_contains "${browser_text_plan}" '- **Required confirmation**: `"explicit approval for this exact plan ID"`' \
+assert_contains "${browser_text_plan}" '- **Required confirmation**: `"approval of this exact plan ID and final transmission of the identified protected data to Cognidox"`' \
   "browser plans should explain their exact approval gate"
 assert_contains "${browser_text_plan}" 'Review the current draft.\nConfirm the evidence.' \
   "multiline browser plan values should be escaped on one line"
@@ -1285,6 +1443,171 @@ for browser_action in \
   ' "${browser_plan}" >/dev/null ||
     fail "${browser_action} should create a tenant-bound ${expected_browser_risk}-risk browser plan"
   [[ ! -s "${LOG_FILE}" ]] || fail "${browser_action} planning must not make Cognidox requests"
+done
+
+jq -e --arg workflow_path "${SUBMIT_ISSUE_VALUES}" \
+  --arg submission_path "${FORM_SUBMISSION_FILE}" '
+    .action == "submit_native_form_issue" and .risk == "notify" and
+    .intendedChanges.workflowValuesFile.path == $workflow_path and
+    .intendedChanges.formSubmissionFile.path == $submission_path and
+    .intendedChanges.notificationUsers == ["Synthetic Tim", "Synthetic Chase"] and
+    .expectedResult.resultId == "created_issue" and
+    .expectedResult.captures == {version: "latestVersion"} and
+    .effects[-1] == "Create one native-form Issue."
+  ' "${SUBMIT_ISSUE_PLAN}" >/dev/null ||
+  fail "Issue plans should bind the complete protected submission workflow"
+if rg -q --fixed-strings "${ISSUE_VALUE_SENTINEL}" \
+  "${SUBMIT_ISSUE_PLAN}" "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}" ||
+  rg -q --fixed-strings "${ISSUE_COMMENT_SENTINEL}" \
+    "${SUBMIT_ISSUE_PLAN}" "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}" ||
+  rg -q --fixed-strings "${NOTIFICATION_COMMENT_SENTINEL}" \
+    "${SUBMIT_ISSUE_PLAN}" "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}"; then
+  fail "Issue planning must not disclose protected fields or comments"
+fi
+
+: >"${LOG_FILE}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${COMPOSITE_BROWSER_SPEC}" \
+  --plan-out "${COMPOSITE_BROWSER_PLAN}" --format json
+jq -e '
+  .schemaVersion == 2 and .action == "composite_browser_workflow" and
+  .outcome == "submit_native_form_issue_and_request_approval" and
+  .rootTarget.partNumber == "TS-000014-FM" and
+  .risk == "notify" and (.steps | length) == 2 and
+  .steps[0].stepId == "create_issue" and
+  .steps[1].target.version == {stepId: "create_issue", resultId: "created_issue", field: "version"} and
+  .steps[1].recipients == ["Synthetic Tim", "Synthetic Chase"] and
+  .effects == (.steps | map(.effects) | add)
+' "${COMPOSITE_BROWSER_PLAN}" >/dev/null ||
+  fail "composite plans should bind ordered steps and typed prior-result references"
+[[ ! -s "${LOG_FILE}" ]] || fail "composite browser planning must not make Cognidox requests"
+
+alternate_recipients_spec="${TEMPORARY_ROOT}/alternate-composite-recipients.json"
+alternate_recipients_plan="${TEMPORARY_ROOT}/alternate-composite-recipients-plan.json"
+jq '.steps[1].recipients = ["Synthetic Tim", "Synthetic Jordan"]' \
+  "${COMPOSITE_BROWSER_SPEC}" >"${alternate_recipients_spec}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${alternate_recipients_spec}" \
+  --plan-out "${alternate_recipients_plan}" --format json
+[[ "$(jq -r '.planId' "${COMPOSITE_BROWSER_PLAN}")" != \
+  "$(jq -r '.planId' "${alternate_recipients_plan}")" ]] ||
+  fail "changing composite recipients should change the exact plan ID"
+
+alternate_comment_spec="${TEMPORARY_ROOT}/alternate-issue-comment-spec.json"
+alternate_comment_plan="${TEMPORARY_ROOT}/alternate-issue-comment-plan.json"
+jq --arg path "${ALTERNATE_ISSUE_VALUES}" --arg sha256 "${alternate_issue_values_hash}" \
+  --argjson size "${alternate_issue_values_size}" '
+    .intendedChanges.workflowValuesFile = {path: $path, sha256: $sha256, size: $size}
+  ' "${SUBMIT_ISSUE_SPEC}" >"${alternate_comment_spec}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${alternate_comment_spec}" \
+  --plan-out "${alternate_comment_plan}" --format json
+[[ "$(jq -r '.planId' "${SUBMIT_ISSUE_PLAN}")" != "$(jq -r '.planId' "${alternate_comment_plan}")" ]] ||
+  fail "changing a protected Issue comment should change the exact plan ID"
+
+alternate_issue_users_spec="${TEMPORARY_ROOT}/alternate-issue-users-spec.json"
+alternate_issue_users_plan="${TEMPORARY_ROOT}/alternate-issue-users-plan.json"
+jq '.intendedChanges.notificationUsers = ["Synthetic Tim", "Synthetic Jordan"]' \
+  "${SUBMIT_ISSUE_SPEC}" >"${alternate_issue_users_spec}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${alternate_issue_users_spec}" \
+  --plan-out "${alternate_issue_users_plan}" --format json
+[[ "$(jq -r '.planId' "${SUBMIT_ISSUE_PLAN}")" != "$(jq -r '.planId' "${alternate_issue_users_plan}")" ]] ||
+  fail "changing Issue notification users should change the exact plan ID"
+
+jq '.intendedChanges.notificationUsers = ["Synthetic Tim", "Synthetic Tim"]' \
+  "${SUBMIT_ISSUE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/duplicate-issue-users-plan.json"; then
+  fail "Issue planning should reject duplicate notification users"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "unique notification users" \
+  "Issue recipient validation should explain the unique-user boundary"
+
+jq '.intendedChanges.workflowValuesFile.sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"' \
+  "${SUBMIT_ISSUE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/changed-issue-workflow-values-plan.json"; then
+  fail "Issue planning should reject a changed protected workflow file"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "protected workflow values file changed" \
+  "changed Issue workflow values should require a replacement plan"
+
+jq '
+  .intendedChanges = {
+    valuesFile: .intendedChanges.workflowValuesFile,
+    fieldIdentifiers: .intendedChanges.fieldIdentifiers,
+    sourceDraftVersion: .intendedChanges.sourceDraftVersion,
+    versionInformationTag: .intendedChanges.versionInformationTag
+  } |
+  del(.expectedResult)
+' "${SUBMIT_ISSUE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/legacy-submit-issue-plan.json"; then
+  fail "Issue planning should reject the old incomplete schema"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "protected workflow values" \
+  "legacy Issue specifications should require regeneration"
+
+for composite_invalid_case in \
+  duplicate_steps \
+  cross_record \
+  forward_reference \
+  reordered_steps \
+  prohibited_action \
+  changed_effect \
+  stale_intermediate_state \
+  postcondition_mismatch \
+  unknown_step_field; do
+  case "${composite_invalid_case}" in
+    duplicate_steps)
+      invalid_filter='.steps[1].stepId = "create_issue"'
+      expected_error="unique step IDs"
+      ;;
+    cross_record)
+      invalid_filter='.steps[1].target.partNumber = "TS-999999-FM"'
+      expected_error="one document lineage"
+      ;;
+    forward_reference)
+      invalid_filter='.steps[0].target.sourceDraftVersion = {stepId: "request_approval", resultId: "approval_request", field: "version"}'
+      expected_error="earlier step result"
+      ;;
+    reordered_steps)
+      invalid_filter='.steps |= reverse'
+      expected_error="earlier step result"
+      ;;
+    prohibited_action)
+      invalid_filter='.steps[1].action = "approve_document"'
+      expected_error="allowed browser action"
+      ;;
+    changed_effect)
+      invalid_filter='.steps[1].effects = ["Approve the document."]'
+      expected_error="effects"
+      ;;
+    stale_intermediate_state)
+      invalid_filter='.steps[1].preconditions.approvalStatus = "Already pending"'
+      expected_error="observed state and preconditions"
+      ;;
+    postcondition_mismatch)
+      invalid_filter='.steps[0].expectedResult.state.status = "Draft"'
+      expected_error="expectedResult"
+      ;;
+    unknown_step_field)
+      invalid_filter='.steps[1].unsupported = true'
+      expected_error="exact outcome, rootTarget, and ordered step schema"
+      ;;
+  esac
+  jq "${invalid_filter}" "${COMPOSITE_BROWSER_SPEC}" >"${BROWSER_INVALID_SPEC}"
+  if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/${composite_invalid_case}-composite-plan.json"; then
+    fail "composite planning should reject ${composite_invalid_case}"
+  fi
+  assert_contains "$(<"${STDERR_FILE}")" "${expected_error}" \
+    "composite ${composite_invalid_case} errors should explain the boundary"
 done
 
 for forbidden_recipients in null '[]'; do
@@ -1454,8 +1777,8 @@ run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
 assert_equals "notify" "$(jq -r '.risk' "${TEMPORARY_ROOT}/notification-capable-submit-draft-plan.json")" \
   "notification-capable Draft submission should require notification approval"
 
-jq --arg path "${SUBMIT_ISSUE_VALUES}" --arg sha256 "${submit_issue_values_hash}" \
-  --argjson size "${submit_issue_values_size}" '
+jq --arg path "${FORM_SUBMISSION_FILE}" --arg sha256 "${form_submission_hash}" \
+  --argjson size "${form_submission_size}" '
     .intendedChanges.titleBehavior = "preserve" |
     .intendedChanges.valuesFile = {path: $path, sha256: $sha256, size: $size}
   ' "${SUBMIT_DRAFT_SPEC}" >"${BROWSER_INVALID_SPEC}"
@@ -1517,10 +1840,10 @@ fi
 assert_contains "$(<"${STDERR_FILE}")" "matching Draft and visible form" \
   "stale Draft state should require a new browser plan"
 
-jq --arg path "${MISMATCHED_FORM_VALUES}" \
-  --arg sha256 "${mismatched_form_values_hash}" \
-  --argjson size "${mismatched_form_values_size}" '
-    .intendedChanges.valuesFile = {path: $path, sha256: $sha256, size: $size}
+jq --arg path "${MISMATCHED_FORM_SUBMISSION_FILE}" \
+  --arg sha256 "${mismatched_form_submission_hash}" \
+  --argjson size "${mismatched_form_submission_size}" '
+    .intendedChanges.formSubmissionFile = {path: $path, sha256: $sha256, size: $size}
   ' "${SUBMIT_ISSUE_SPEC}" >"${BROWSER_INVALID_SPEC}"
 if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
   --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
@@ -2127,13 +2450,15 @@ assert_readable_saved_plan "${TEMPLATE_PLAN}" "create_from_template" "--confirm"
 assert_readable_saved_plan "${DRAFT_PLAN}" "create_version" "--confirm"
 assert_readable_saved_plan "${VERSION_PLAN}" "create_version" "--confirm-notify"
 assert_readable_saved_plan "${DELETE_PLAN}" "delete_document" "--confirm-destructive"
-assert_readable_saved_plan "${BROWSER_NORMAL_PLAN}" "fill_native_form" "explicit approval for this exact plan ID"
-assert_readable_saved_plan "${BROWSER_NOTIFY_PLAN}" "request_review" "explicit approval for this exact plan ID"
-assert_readable_saved_plan "${BROWSER_REGISTER_PLAN}" "register_native_form" "explicit approval for this exact plan ID"
-assert_readable_saved_plan "${SUBMIT_DRAFT_PLAN}" "submit_native_form_draft" "explicit approval for this exact plan ID"
-assert_readable_saved_plan "${SUBMIT_ISSUE_PLAN}" "submit_native_form_issue" "explicit approval for this exact plan ID"
-assert_readable_saved_plan "${UPDATE_METADATA_PLAN}" "update_document_metadata" "explicit approval for this exact plan ID"
-assert_readable_saved_plan "${UPDATE_VERSION_INFORMATION_PLAN}" "update_version_information" "explicit approval for this exact plan ID"
-assert_readable_saved_plan "${REVIEW_RESPONSE_PLAN}" "submit_review_response" "explicit approval for this exact plan ID"
+readonly BROWSER_CONFIRMATION="approval of this exact plan ID and final transmission of the identified protected data to Cognidox"
+assert_readable_saved_plan "${BROWSER_NORMAL_PLAN}" "fill_native_form" "${BROWSER_CONFIRMATION}"
+assert_readable_saved_plan "${BROWSER_NOTIFY_PLAN}" "request_review" "${BROWSER_CONFIRMATION}"
+assert_readable_saved_plan "${BROWSER_REGISTER_PLAN}" "register_native_form" "${BROWSER_CONFIRMATION}"
+assert_readable_saved_plan "${SUBMIT_DRAFT_PLAN}" "submit_native_form_draft" "${BROWSER_CONFIRMATION}"
+assert_readable_saved_plan "${SUBMIT_ISSUE_PLAN}" "submit_native_form_issue" "${BROWSER_CONFIRMATION}"
+assert_readable_saved_plan "${COMPOSITE_BROWSER_PLAN}" "composite_browser_workflow" "${BROWSER_CONFIRMATION}"
+assert_readable_saved_plan "${UPDATE_METADATA_PLAN}" "update_document_metadata" "${BROWSER_CONFIRMATION}"
+assert_readable_saved_plan "${UPDATE_VERSION_INFORMATION_PLAN}" "update_version_information" "${BROWSER_CONFIRMATION}"
+assert_readable_saved_plan "${REVIEW_RESPONSE_PLAN}" "submit_review_response" "${BROWSER_CONFIRMATION}"
 
 printf 'test_cognidox_write.sh: all tests passed.\n'
