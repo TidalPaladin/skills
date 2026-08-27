@@ -424,6 +424,7 @@ run_client() {
     COGNIDOX_JQ_BIN="${COGNIDOX_JQ_BIN:-jq}" \
     COGNIDOX_QMS_STATE_DIR="${STATE_DIR}" \
     COGNIDOX_QMS_CATEGORY_TRAVERSAL_LIMIT="${COGNIDOX_QMS_CATEGORY_TRAVERSAL_LIMIT:-1000}" \
+    COGNIDOX_QMS_METADATA_ALLOWLIST="${COGNIDOX_QMS_METADATA_ALLOWLIST-${TENANT_METADATA_ALLOWLIST:-}}" \
     MOCK_MODE="${MOCK_MODE:-}" \
     MOCK_MUTATE_FILE="${MOCK_MUTATE_FILE:-}" \
     MOCK_MUTATE_CONTENT="${MOCK_MUTATE_CONTENT:-}" \
@@ -452,6 +453,7 @@ run_client_xtrace() {
     COGNIDOX_CURL_BIN="${MOCK_CURL}" \
     COGNIDOX_QMS_STATE_DIR="${STATE_DIR}" \
     COGNIDOX_QMS_CATEGORY_TRAVERSAL_LIMIT="${COGNIDOX_QMS_CATEGORY_TRAVERSAL_LIMIT:-1000}" \
+    COGNIDOX_QMS_METADATA_ALLOWLIST="${COGNIDOX_QMS_METADATA_ALLOWLIST-${TENANT_METADATA_ALLOWLIST:-}}" \
     MOCK_MODE="${MOCK_MODE:-}" \
     MOCK_TEMPLATE_PACKAGE="${TEMPLATE_PACKAGE}" \
     MOCK_SERVER_TEMPLATE_PACKAGE="${SERVER_TEMPLATE_PACKAGE}" \
@@ -528,6 +530,36 @@ readonly FORM_VALUE_COLLISION_SPEC="${TEMPORARY_ROOT}/browser-form-value-collisi
 readonly FORM_VALUE_COLLISION_PLAN="${TEMPORARY_ROOT}/browser-form-value-collision-plan.json"
 readonly NATIVE_FORM_VALUE_SENTINEL="native-form-value-must-remain-private"
 readonly NATIVE_FORM_DECOY_SENTINEL="native-form-decoy-must-remain-private"
+readonly SUBMIT_DRAFT_SPEC="${TEMPORARY_ROOT}/submit-native-form-draft-spec.json"
+readonly SUBMIT_DRAFT_PLAN="${TEMPORARY_ROOT}/submit-native-form-draft-plan.json"
+readonly SUBMIT_ISSUE_SPEC="${TEMPORARY_ROOT}/submit-native-form-issue-spec.json"
+readonly SUBMIT_ISSUE_PLAN="${TEMPORARY_ROOT}/submit-native-form-issue-plan.json"
+readonly UPDATE_METADATA_SPEC="${TEMPORARY_ROOT}/update-document-metadata-spec.json"
+readonly UPDATE_METADATA_PLAN="${TEMPORARY_ROOT}/update-document-metadata-plan.json"
+readonly UPDATE_VERSION_INFORMATION_SPEC="${TEMPORARY_ROOT}/update-version-information-spec.json"
+readonly UPDATE_VERSION_INFORMATION_PLAN="${TEMPORARY_ROOT}/update-version-information-plan.json"
+readonly REVIEW_RESPONSE_SPEC="${TEMPORARY_ROOT}/submit-review-response-spec.json"
+readonly REVIEW_RESPONSE_PLAN="${TEMPORARY_ROOT}/submit-review-response-plan.json"
+readonly SUBMIT_DRAFT_VALUES="${TEMPORARY_ROOT}/submit-native-form-draft-values.json"
+readonly SUBMIT_DRAFT_ALTERNATE_VALUES="${TEMPORARY_ROOT}/submit-native-form-draft-alternate-values.json"
+readonly SUBMIT_ISSUE_VALUES="${TEMPORARY_ROOT}/submit-native-form-issue-values.json"
+readonly UPDATE_METADATA_VALUES="${TEMPORARY_ROOT}/update-document-metadata-values.json"
+readonly INVALID_METADATA_VALUES="${TEMPORARY_ROOT}/invalid-document-metadata-values.json"
+readonly UPDATE_VERSION_INFORMATION_VALUES="${TEMPORARY_ROOT}/update-version-information-values.json"
+readonly REVIEW_RESPONSE_VALUES="${TEMPORARY_ROOT}/submit-review-response-values.json"
+readonly MISMATCHED_FORM_VALUES="${TEMPORARY_ROOT}/mismatched-native-form-values.json"
+readonly PROTECTED_VALUES_SYMLINK="${TEMPORARY_ROOT}/protected-values-symlink.json"
+readonly TENANT_METADATA_ALLOWLIST="${TEMPORARY_ROOT}/tenant-metadata-allowlist.json"
+readonly ALTERNATE_METADATA_ALLOWLIST="${TEMPORARY_ROOT}/alternate-tenant-metadata-allowlist.json"
+readonly WRONG_TENANT_METADATA_ALLOWLIST="${TEMPORARY_ROOT}/wrong-tenant-metadata-allowlist.json"
+readonly INVALID_METADATA_ALLOWLIST="${TEMPORARY_ROOT}/invalid-tenant-metadata-allowlist.json"
+readonly METADATA_ALLOWLIST_SYMLINK="${TEMPORARY_ROOT}/tenant-metadata-allowlist-symlink.json"
+readonly DRAFT_VALUE_SENTINEL="draft-value-must-remain-private"
+readonly ISSUE_VALUE_SENTINEL="issue-value-must-remain-private"
+readonly METADATA_VALUE_SENTINEL="metadata-value-must-remain-private"
+readonly VERSION_COMMENT_SENTINEL="version-comment-must-remain-private"
+readonly REVIEW_RESPONSE_SENTINEL="review-response-must-remain-private"
+readonly METADATA_ALLOWLIST_SENTINEL="unused-policy-identifier-must-remain-private"
 
 mkdir -p "${SECRET_DIR}" "${STATE_DIR}" "${MOCK_BIN}"
 printf '%s\n' "${SECRET_SENTINEL}" >"${SECRET_DIR}/cognidox"
@@ -561,6 +593,43 @@ printf '%s\n%s\n' \
   '{"validation_scope":"synthetic","owner":"first"}' \
   '{"validation_scope":"synthetic","owner":"second"}' >"${MULTI_DOCUMENT_VALUES_PATH}"
 printf '{"confirmed":true,"lifecycle":"draft"}\n' >"${COMMON_FORM_VALUES_PATH}"
+printf '{"formFields":{"complaint_type":"%s","reported_by":"Synthetic Reporter"},"title":"TS-000014-FM, Synthetic Draft, 27 AUG 2026"}\n' \
+  "${DRAFT_VALUE_SENTINEL}" >"${SUBMIT_DRAFT_VALUES}"
+printf '{"formFields":{"complaint_type":"alternate-private-value","reported_by":"Synthetic Reporter"},"title":"TS-000014-FM, Synthetic Draft, 27 AUG 2026"}\n' \
+  >"${SUBMIT_DRAFT_ALTERNATE_VALUES}"
+printf '{"formFields":{"complaint_type":"%s","reported_by":"Synthetic Reporter"}}\n' \
+  "${ISSUE_VALUE_SENTINEL}" >"${SUBMIT_ISSUE_VALUES}"
+printf '{"current":{"title":"TS-000014-FM, Earlier Complaint, 26 AUG 2026","author":"Synthetic Author","metadata":{"complaint_category":"old","source":"internal"}},"intended":{"title":"TS-000014-FM, %s, 27 AUG 2026","author":"Synthetic Updated Author","metadata":{"complaint_category":"new","source":"internal"}}}\n' \
+  "${METADATA_VALUE_SENTINEL}" >"${UPDATE_METADATA_VALUES}"
+printf '{"current":{"title":"TS-000014-FM, Earlier Complaint, 26 AUG 2026","author":"Synthetic Author","metadata":{"complaint_category":"old","source":"internal"}},"intended":{"title":"Wrong complaint title","author":"Synthetic Updated Author","metadata":{"complaint_category":"new","source":"internal"}}}\n' \
+  >"${INVALID_METADATA_VALUES}"
+printf '{"current":{"versionInformation":"Revision A","issueComment":"Synthetic earlier comment"},"intended":{"versionInformation":"Revision B","issueComment":"%s"}}\n' \
+  "${VERSION_COMMENT_SENTINEL}" >"${UPDATE_VERSION_INFORMATION_VALUES}"
+printf '{"response":"%s"}\n' "${REVIEW_RESPONSE_SENTINEL}" >"${REVIEW_RESPONSE_VALUES}"
+printf '{"formFields":{"complaint_type":"missing-reported-by"}}\n' >"${MISMATCHED_FORM_VALUES}"
+printf '{"schemaVersion":1,"repositoryBaseUrl":"%s","permittedMetadataIdentifiers":["complaint_category","source"]}\n' \
+  "${BASE_URL}" >"${TENANT_METADATA_ALLOWLIST}"
+printf '{"schemaVersion":1,"repositoryBaseUrl":"%s","permittedMetadataIdentifiers":["complaint_category","source","%s"]}\n' \
+  "${BASE_URL}" "${METADATA_ALLOWLIST_SENTINEL}" >"${ALTERNATE_METADATA_ALLOWLIST}"
+printf '{"schemaVersion":1,"repositoryBaseUrl":"%s","permittedMetadataIdentifiers":["complaint_category","source"]}\n' \
+  "${OTHER_BASE_URL}" >"${WRONG_TENANT_METADATA_ALLOWLIST}"
+printf '{"schemaVersion":1,"repositoryBaseUrl":"%s","permittedMetadataIdentifiers":["complaint_category","source"],"unsupported":true}\n' \
+  "${BASE_URL}" >"${INVALID_METADATA_ALLOWLIST}"
+chmod 600 \
+  "${SUBMIT_DRAFT_VALUES}" \
+  "${SUBMIT_DRAFT_ALTERNATE_VALUES}" \
+  "${SUBMIT_ISSUE_VALUES}" \
+  "${UPDATE_METADATA_VALUES}" \
+  "${INVALID_METADATA_VALUES}" \
+  "${UPDATE_VERSION_INFORMATION_VALUES}" \
+  "${REVIEW_RESPONSE_VALUES}" \
+  "${MISMATCHED_FORM_VALUES}" \
+  "${TENANT_METADATA_ALLOWLIST}" \
+  "${ALTERNATE_METADATA_ALLOWLIST}" \
+  "${WRONG_TENANT_METADATA_ALLOWLIST}" \
+  "${INVALID_METADATA_ALLOWLIST}"
+ln -s "${SUBMIT_DRAFT_VALUES}" "${PROTECTED_VALUES_SYMLINK}"
+ln -s "${TENANT_METADATA_ALLOWLIST}" "${METADATA_ALLOWLIST_SYMLINK}"
 protected_values_hash="$(sha256_file "${PROTECTED_VALUES_PATH}")"
 protected_values_size="$(wc -c <"${PROTECTED_VALUES_PATH}" | tr -d ' ')"
 replacement_values_hash="$(sha256_file "${PROTECTED_VALUES_REPLACEMENT_PATH}")"
@@ -573,6 +642,26 @@ template_package_hash="$(sha256_file "${TEMPLATE_PACKAGE}")"
 template_package_size="$(wc -c <"${TEMPLATE_PACKAGE}" | tr -d ' ')"
 field_manifest_hash="$(sha256_file "${FIELD_MANIFEST}")"
 field_manifest_size="$(wc -c <"${FIELD_MANIFEST}" | tr -d ' ')"
+submit_draft_values_hash="$(sha256_file "${SUBMIT_DRAFT_VALUES}")"
+submit_draft_values_size="$(wc -c <"${SUBMIT_DRAFT_VALUES}" | tr -d ' ')"
+submit_draft_alternate_values_hash="$(sha256_file "${SUBMIT_DRAFT_ALTERNATE_VALUES}")"
+submit_draft_alternate_values_size="$(wc -c <"${SUBMIT_DRAFT_ALTERNATE_VALUES}" | tr -d ' ')"
+submit_issue_values_hash="$(sha256_file "${SUBMIT_ISSUE_VALUES}")"
+submit_issue_values_size="$(wc -c <"${SUBMIT_ISSUE_VALUES}" | tr -d ' ')"
+update_metadata_values_hash="$(sha256_file "${UPDATE_METADATA_VALUES}")"
+update_metadata_values_size="$(wc -c <"${UPDATE_METADATA_VALUES}" | tr -d ' ')"
+invalid_metadata_values_hash="$(sha256_file "${INVALID_METADATA_VALUES}")"
+invalid_metadata_values_size="$(wc -c <"${INVALID_METADATA_VALUES}" | tr -d ' ')"
+update_version_information_values_hash="$(sha256_file "${UPDATE_VERSION_INFORMATION_VALUES}")"
+update_version_information_values_size="$(wc -c <"${UPDATE_VERSION_INFORMATION_VALUES}" | tr -d ' ')"
+review_response_values_hash="$(sha256_file "${REVIEW_RESPONSE_VALUES}")"
+review_response_values_size="$(wc -c <"${REVIEW_RESPONSE_VALUES}" | tr -d ' ')"
+mismatched_form_values_hash="$(sha256_file "${MISMATCHED_FORM_VALUES}")"
+mismatched_form_values_size="$(wc -c <"${MISMATCHED_FORM_VALUES}" | tr -d ' ')"
+metadata_allowlist_hash="$(sha256_file "${TENANT_METADATA_ALLOWLIST}")"
+metadata_allowlist_size="$(wc -c <"${TENANT_METADATA_ALLOWLIST}" | tr -d ' ')"
+protected_values_symlink_hash="$(sha256_file "${PROTECTED_VALUES_SYMLINK}")"
+protected_values_symlink_size="$(wc -c <"${PROTECTED_VALUES_SYMLINK}" | tr -d ' ')"
 cat >"${BROWSER_NOTIFY_SPEC}" <<'EOF'
 {
   "action": "request_review",
@@ -704,6 +793,213 @@ cat >"${BROWSER_REGISTER_SPEC}" <<EOF
     "definitionPresent": false,
     "canManageForms": true,
     "duplicateName": false
+  }
+}
+EOF
+cat >"${SUBMIT_DRAFT_SPEC}" <<EOF
+{
+  "action": "submit_native_form_draft",
+  "target": {
+    "partNumber": "TS-000014-FM",
+    "draftVersion": "A",
+    "formDefinitionId": "complaint-form-1"
+  },
+  "observedState": {
+    "status": "Draft",
+    "editable": true,
+    "canSubmitDraft": true,
+    "notificationCapable": false,
+    "draftVersion": "A",
+    "formDefinitionId": "complaint-form-1",
+    "fieldIdentifiers": ["complaint_type", "reported_by"],
+    "versionInformationTag": "Revision A"
+  },
+  "intendedChanges": {
+    "valuesFile": {
+      "path": "${SUBMIT_DRAFT_VALUES}",
+      "sha256": "${submit_draft_values_hash}",
+      "size": ${submit_draft_values_size}
+    },
+    "fieldIdentifiers": ["complaint_type", "reported_by"],
+    "titleBehavior": "replace_from_protected_file",
+    "versionInformationTag": "Revision A"
+  },
+  "effects": [
+    "Update the listed native form fields from the protected values file.",
+    "Apply the planned native-form title behavior.",
+    "Submit one native-form Draft with Version Information Revision A."
+  ],
+  "preconditions": {
+    "status": "Draft",
+    "editable": true,
+    "canSubmitDraft": true,
+    "notificationCapable": false,
+    "draftVersion": "A",
+    "formDefinitionId": "complaint-form-1",
+    "fieldIdentifiers": ["complaint_type", "reported_by"],
+    "versionInformationTag": "Revision A"
+  }
+}
+EOF
+cat >"${SUBMIT_ISSUE_SPEC}" <<EOF
+{
+  "action": "submit_native_form_issue",
+  "target": {
+    "partNumber": "TS-000014-FM",
+    "sourceDraftVersion": "A",
+    "formDefinitionId": "complaint-form-1"
+  },
+  "observedState": {
+    "status": "Draft",
+    "editable": true,
+    "canCreateIssue": true,
+    "sourceDraftVersion": "A",
+    "latestVersion": "A",
+    "formDefinitionId": "complaint-form-1",
+    "fieldIdentifiers": ["complaint_type", "reported_by"],
+    "versionInformationTag": "Revision A"
+  },
+  "intendedChanges": {
+    "valuesFile": {
+      "path": "${SUBMIT_ISSUE_VALUES}",
+      "sha256": "${submit_issue_values_hash}",
+      "size": ${submit_issue_values_size}
+    },
+    "fieldIdentifiers": ["complaint_type", "reported_by"],
+    "sourceDraftVersion": "A",
+    "versionInformationTag": "Revision A"
+  },
+  "effects": [
+    "Update the listed native form fields from the protected values file.",
+    "Create one native-form Issue from the exact source Draft with Version Information Revision A.",
+    "Notify Cognidox users configured for Issue submission."
+  ],
+  "preconditions": {
+    "status": "Draft",
+    "editable": true,
+    "canCreateIssue": true,
+    "sourceDraftVersion": "A",
+    "latestVersion": "A",
+    "formDefinitionId": "complaint-form-1",
+    "fieldIdentifiers": ["complaint_type", "reported_by"],
+    "versionInformationTag": "Revision A"
+  }
+}
+EOF
+cat >"${UPDATE_METADATA_SPEC}" <<EOF
+{
+  "action": "update_document_metadata",
+  "target": {
+    "partNumber": "TS-000014-FM",
+    "version": "A",
+    "recordKind": "native_form",
+    "formDefinitionId": "complaint-form-1",
+    "formName": "Complaint Information Form"
+  },
+  "observedState": {
+    "editable": true,
+    "version": "A",
+    "formDefinitionId": "complaint-form-1",
+    "formName": "Complaint Information Form",
+    "metadataIdentifiers": ["complaint_category", "source"]
+  },
+  "intendedChanges": {
+    "valuesFile": {
+      "path": "${UPDATE_METADATA_VALUES}",
+      "sha256": "${update_metadata_values_hash}",
+      "size": ${update_metadata_values_size}
+    },
+    "metadataIdentifiers": ["complaint_category", "source"]
+  },
+  "effects": [
+    "Update the target document title, author, and listed metadata fields from the protected values file."
+  ],
+  "preconditions": {
+    "editable": true,
+    "version": "A",
+    "formDefinitionId": "complaint-form-1",
+    "formName": "Complaint Information Form",
+    "metadataIdentifiers": ["complaint_category", "source"]
+  }
+}
+EOF
+cat >"${UPDATE_VERSION_INFORMATION_SPEC}" <<EOF
+{
+  "action": "update_version_information",
+  "target": {
+    "partNumber": "TS-000014-FM",
+    "version": "B",
+    "formDefinitionId": "complaint-form-1"
+  },
+  "observedState": {
+    "status": "Draft",
+    "editable": true,
+    "canEditVersionInformation": true,
+    "version": "B",
+    "currentRevision": "B",
+    "formDefinitionId": "complaint-form-1",
+    "currentVersionInformationTag": "Revision A",
+    "expectedNextVersionInformationTag": "Revision B"
+  },
+  "intendedChanges": {
+    "valuesFile": {
+      "path": "${UPDATE_VERSION_INFORMATION_VALUES}",
+      "sha256": "${update_version_information_values_hash}",
+      "size": ${update_version_information_values_size}
+    },
+    "expectedNextVersionInformationTag": "Revision B"
+  },
+  "effects": [
+    "Update Version Information and the issue comment for the target revision from the protected values file."
+  ],
+  "preconditions": {
+    "status": "Draft",
+    "editable": true,
+    "canEditVersionInformation": true,
+    "version": "B",
+    "currentRevision": "B",
+    "formDefinitionId": "complaint-form-1",
+    "currentVersionInformationTag": "Revision A",
+    "expectedNextVersionInformationTag": "Revision B"
+  }
+}
+EOF
+cat >"${REVIEW_RESPONSE_SPEC}" <<EOF
+{
+  "action": "submit_review_response",
+  "target": {
+    "partNumber": "TS-000014-FM",
+    "targetVersion": "1",
+    "reviewTaskId": "review-task-1"
+  },
+  "observedState": {
+    "reviewTaskVisible": true,
+    "completionAvailable": true,
+    "taskStatus": "Pending",
+    "reviewTaskId": "review-task-1",
+    "targetVersion": "1",
+    "reviewerIdentity": "Synthetic Reviewer"
+  },
+  "intendedChanges": {
+    "responseFile": {
+      "path": "${REVIEW_RESPONSE_VALUES}",
+      "sha256": "${review_response_values_hash}",
+      "size": ${review_response_values_size}
+    },
+    "completionAction": "complete_review"
+  },
+  "effects": [
+    "Submit one protected response for the exact review task.",
+    "Complete the exact review task.",
+    "Notify Cognidox users configured for review completion."
+  ],
+  "preconditions": {
+    "reviewTaskVisible": true,
+    "completionAvailable": true,
+    "taskStatus": "Pending",
+    "reviewTaskId": "review-task-1",
+    "targetVersion": "1",
+    "reviewerIdentity": "Synthetic Reviewer"
   }
 }
 EOF
@@ -945,6 +1241,397 @@ jq -e '
   .intendedChanges.fieldIdentifiers == ["confirmed", "lifecycle"]
 ' "${FORM_VALUE_COLLISION_PLAN}" >/dev/null ||
   fail "legitimate form values should not collide with allowed browser metadata"
+
+for browser_action in \
+  submit_native_form_draft \
+  submit_native_form_issue \
+  update_document_metadata \
+  update_version_information \
+  submit_review_response; do
+  case "${browser_action}" in
+    submit_native_form_draft)
+      source_browser_spec="${SUBMIT_DRAFT_SPEC}"
+      browser_plan="${SUBMIT_DRAFT_PLAN}"
+      expected_browser_risk="normal"
+      ;;
+    submit_native_form_issue)
+      source_browser_spec="${SUBMIT_ISSUE_SPEC}"
+      browser_plan="${SUBMIT_ISSUE_PLAN}"
+      expected_browser_risk="notify"
+      ;;
+    update_document_metadata)
+      source_browser_spec="${UPDATE_METADATA_SPEC}"
+      browser_plan="${UPDATE_METADATA_PLAN}"
+      expected_browser_risk="normal"
+      ;;
+    update_version_information)
+      source_browser_spec="${UPDATE_VERSION_INFORMATION_SPEC}"
+      browser_plan="${UPDATE_VERSION_INFORMATION_PLAN}"
+      expected_browser_risk="normal"
+      ;;
+    submit_review_response)
+      source_browser_spec="${REVIEW_RESPONSE_SPEC}"
+      browser_plan="${REVIEW_RESPONSE_PLAN}"
+      expected_browser_risk="notify"
+      ;;
+  esac
+  : >"${LOG_FILE}"
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${source_browser_spec}" \
+    --plan-out "${browser_plan}" --format json
+  jq -e --arg action "${browser_action}" --arg risk "${expected_browser_risk}" '
+    .action == $action and .channel == "browser" and .risk == $risk and
+    (.planId | startswith("sha256:")) and (.recipients | not)
+  ' "${browser_plan}" >/dev/null ||
+    fail "${browser_action} should create a tenant-bound ${expected_browser_risk}-risk browser plan"
+  [[ ! -s "${LOG_FILE}" ]] || fail "${browser_action} planning must not make Cognidox requests"
+done
+
+for forbidden_recipients in null '[]'; do
+  recipient_case="null"
+  if [[ "${forbidden_recipients}" == '[]' ]]; then
+    recipient_case="empty-array"
+  fi
+  forbidden_recipients_spec="${TEMPORARY_ROOT}/submit-draft-${recipient_case}-recipients.json"
+  jq --argjson recipients "${forbidden_recipients}" '.recipients = $recipients' \
+    "${SUBMIT_DRAFT_SPEC}" >"${forbidden_recipients_spec}"
+  if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${forbidden_recipients_spec}" \
+    --plan-out "${TEMPORARY_ROOT}/submit-draft-${recipient_case}-recipients-plan.json"; then
+    fail "non-recipient browser actions should reject a present ${recipient_case} recipients field"
+  fi
+  assert_contains "$(<"${STDERR_FILE}")" "must not include recipients" \
+    "present ${recipient_case} browser recipients should be rejected explicitly"
+done
+
+jq -e '
+  (.stateDigests.currentSha256 | test("^[0-9a-f]{64}$")) and
+  (.stateDigests.intendedSha256 | test("^[0-9a-f]{64}$")) and
+  (.intendedChanges.valuesFile | type == "object")
+' "${UPDATE_METADATA_PLAN}" >/dev/null ||
+  fail "metadata plans should bind protected current and intended state digests"
+jq -e --arg path "${TENANT_METADATA_ALLOWLIST}" \
+  --arg sha256 "${metadata_allowlist_hash}" --argjson size "${metadata_allowlist_size}" '
+    .policy.metadataAllowlistFile == {path: $path, sha256: $sha256, size: $size}
+  ' "${UPDATE_METADATA_PLAN}" >/dev/null ||
+  fail "metadata plans should bind the exact tenant-configured metadata allowlist"
+if rg -q --fixed-strings "${METADATA_ALLOWLIST_SENTINEL}" \
+  "${UPDATE_METADATA_PLAN}" "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}"; then
+  fail "metadata plans and output must not disclose unused tenant allowlist identifiers"
+fi
+jq -e '
+  (.stateDigests.currentSha256 | test("^[0-9a-f]{64}$")) and
+  (.stateDigests.intendedSha256 | test("^[0-9a-f]{64}$"))
+' "${UPDATE_VERSION_INFORMATION_PLAN}" >/dev/null ||
+  fail "version-information plans should bind protected current and intended state digests"
+
+if COGNIDOX_QMS_METADATA_ALLOWLIST="" run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/metadata-without-tenant-allowlist-plan.json"; then
+  fail "metadata updates should require a tenant-configured allowlist"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "COGNIDOX_QMS_METADATA_ALLOWLIST" \
+  "missing metadata allowlists should identify the required tenant configuration"
+
+if COGNIDOX_QMS_METADATA_ALLOWLIST="${WRONG_TENANT_METADATA_ALLOWLIST}" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/wrong-tenant-metadata-allowlist-plan.json"; then
+  fail "metadata updates should reject an allowlist for another tenant"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "configured Cognidox tenant" \
+  "tenant allowlists should bind the exact repository base URL"
+
+if COGNIDOX_QMS_METADATA_ALLOWLIST="${INVALID_METADATA_ALLOWLIST}" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/invalid-metadata-allowlist-plan.json"; then
+  fail "metadata updates should reject unsupported allowlist keys"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "exact schema" \
+  "metadata allowlists should reject undocumented keys"
+
+if COGNIDOX_QMS_METADATA_ALLOWLIST="tenant-metadata-allowlist.json" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/relative-metadata-allowlist-plan.json"; then
+  fail "metadata updates should reject a relative tenant allowlist path"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "path must be absolute" \
+  "tenant allowlists should require an absolute path"
+
+if COGNIDOX_QMS_METADATA_ALLOWLIST="${METADATA_ALLOWLIST_SYMLINK}" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/symlink-metadata-allowlist-plan.json"; then
+  fail "metadata updates should reject a tenant allowlist symlink"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "regular non-symlink" \
+  "tenant allowlists should use a private regular file"
+
+chmod 644 "${TENANT_METADATA_ALLOWLIST}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/public-metadata-allowlist-plan.json"; then
+  fail "metadata updates should reject a tenant allowlist with group or other permissions"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "restrictive permissions" \
+  "tenant allowlists should require private file permissions"
+chmod 600 "${TENANT_METADATA_ALLOWLIST}"
+
+disallowed_metadata_values="${TEMPORARY_ROOT}/disallowed-document-metadata-values.json"
+printf '%s\n' '{"current":{"title":"TS-000014-FM, Earlier Complaint, 26 AUG 2026","author":"Synthetic Author","metadata":{"status":"old"}},"intended":{"title":"TS-000014-FM, Synthetic Draft, 27 AUG 2026","author":"Synthetic Updated Author","metadata":{"status":"new"}}}' \
+  >"${disallowed_metadata_values}"
+chmod 600 "${disallowed_metadata_values}"
+disallowed_metadata_hash="$(sha256_file "${disallowed_metadata_values}")"
+disallowed_metadata_size="$(wc -c <"${disallowed_metadata_values}" | tr -d ' ')"
+jq --arg path "${disallowed_metadata_values}" --arg sha256 "${disallowed_metadata_hash}" \
+  --argjson size "${disallowed_metadata_size}" '
+    .observedState.metadataIdentifiers = ["status"] |
+    .preconditions.metadataIdentifiers = ["status"] |
+    .intendedChanges.metadataIdentifiers = ["status"] |
+    .intendedChanges.valuesFile = {path: $path, sha256: $sha256, size: $size}
+  ' "${UPDATE_METADATA_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/disallowed-tenant-metadata-plan.json"; then
+  fail "metadata updates should reject identifiers absent from the tenant allowlist"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "not permitted by the tenant metadata allowlist" \
+  "disallowed metadata identifiers should fail closed"
+
+alternate_allowlist_plan="${TEMPORARY_ROOT}/alternate-tenant-allowlist-plan.json"
+COGNIDOX_QMS_METADATA_ALLOWLIST="${ALTERNATE_METADATA_ALLOWLIST}" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+    --plan-out "${alternate_allowlist_plan}" --format json
+if [[ "$(jq -r '.planId' "${UPDATE_METADATA_PLAN}")" == "$(jq -r '.planId' "${alternate_allowlist_plan}")" ]]; then
+  fail "a changed tenant metadata allowlist should produce a fresh browser plan ID"
+fi
+if rg -q --fixed-strings "${METADATA_ALLOWLIST_SENTINEL}" \
+  "${alternate_allowlist_plan}" "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}"; then
+  fail "tenant allowlist contents must remain private when their descriptor changes"
+fi
+
+if rg -q --fixed-strings \
+  -e "${DRAFT_VALUE_SENTINEL}" \
+  -e "${ISSUE_VALUE_SENTINEL}" \
+  -e "${METADATA_VALUE_SENTINEL}" \
+  -e "${VERSION_COMMENT_SENTINEL}" \
+  -e "${REVIEW_RESPONSE_SENTINEL}" \
+  "${STDOUT_FILE}" "${STDERR_FILE}" "${SUBMIT_DRAFT_PLAN}" "${SUBMIT_ISSUE_PLAN}" \
+  "${UPDATE_METADATA_PLAN}" "${UPDATE_VERSION_INFORMATION_PLAN}" "${REVIEW_RESPONSE_PLAN}" \
+  "${LOG_FILE}"; then
+  fail "new browser plans must not disclose protected form, metadata, version, or review values"
+fi
+
+run_client_xtrace "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${SUBMIT_DRAFT_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/submit-draft-xtrace-plan.json" --format json
+assert_not_contains "$(<"${STDERR_FILE}")" "${DRAFT_VALUE_SENTINEL}" \
+  "protected native-form values must remain private under Bash tracing"
+
+jq --arg path "${SUBMIT_DRAFT_ALTERNATE_VALUES}" \
+  --arg sha256 "${submit_draft_alternate_values_hash}" \
+  --argjson size "${submit_draft_alternate_values_size}" '
+    .intendedChanges.valuesFile = {path: $path, sha256: $sha256, size: $size}
+  ' "${SUBMIT_DRAFT_SPEC}" >"${BROWSER_INVALID_SPEC}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/alternate-submit-draft-plan.json" --format json
+if [[ "$(jq -r '.planId' "${SUBMIT_DRAFT_PLAN}")" == "$(jq -r '.planId' "${TEMPORARY_ROOT}/alternate-submit-draft-plan.json")" ]]; then
+  fail "a changed protected values file should produce a fresh browser plan ID"
+fi
+
+jq '
+  .observedState.notificationCapable = true |
+  .preconditions.notificationCapable = true |
+  .effects += ["Notify Cognidox users configured for Draft submission."]
+' "${SUBMIT_DRAFT_SPEC}" >"${BROWSER_INVALID_SPEC}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/notification-capable-submit-draft-plan.json" --format json
+assert_equals "notify" "$(jq -r '.risk' "${TEMPORARY_ROOT}/notification-capable-submit-draft-plan.json")" \
+  "notification-capable Draft submission should require notification approval"
+
+jq --arg path "${SUBMIT_ISSUE_VALUES}" --arg sha256 "${submit_issue_values_hash}" \
+  --argjson size "${submit_issue_values_size}" '
+    .intendedChanges.titleBehavior = "preserve" |
+    .intendedChanges.valuesFile = {path: $path, sha256: $sha256, size: $size}
+  ' "${SUBMIT_DRAFT_SPEC}" >"${BROWSER_INVALID_SPEC}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/preserve-title-submit-draft-plan.json" --format json
+assert_equals "preserve" \
+  "$(jq -r '.intendedChanges.titleBehavior' "${TEMPORARY_ROOT}/preserve-title-submit-draft-plan.json")" \
+  "Draft submission should support preserving the visible title"
+
+jq '
+  .target = {partNumber: .target.partNumber, recordKind: "document", version: .target.version} |
+  .observedState |= del(.formDefinitionId, .formName) |
+  .preconditions |= del(.formDefinitionId, .formName)
+' "${UPDATE_METADATA_SPEC}" >"${BROWSER_INVALID_SPEC}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/ordinary-document-metadata-plan.json" --format json
+assert_equals "document" \
+  "$(jq -r '.target.recordKind' "${TEMPORARY_ROOT}/ordinary-document-metadata-plan.json")" \
+  "metadata updates should support non-form document records"
+
+for source_browser_spec in \
+  "${SUBMIT_DRAFT_SPEC}" \
+  "${SUBMIT_ISSUE_SPEC}" \
+  "${UPDATE_METADATA_SPEC}" \
+  "${UPDATE_VERSION_INFORMATION_SPEC}" \
+  "${REVIEW_RESPONSE_SPEC}"; do
+  browser_action="$(jq -r '.action' "${source_browser_spec}")"
+  jq '.intendedChanges.approval = true' "${source_browser_spec}" >"${BROWSER_INVALID_SPEC}"
+  if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/${browser_action}-extra-intended-field-plan.json"; then
+    fail "${browser_action} should reject unsupported intended-change fields"
+  fi
+  assert_contains "$(<"${STDERR_FILE}")" "${browser_action}" \
+    "${browser_action} should identify its rejected action-specific contract"
+done
+
+for metadata_section in target observedState preconditions; do
+  jq --arg section "${metadata_section}" '.[$section].approval = true' \
+    "${UPDATE_METADATA_SPEC}" >"${BROWSER_INVALID_SPEC}"
+  if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/metadata-extra-${metadata_section}-plan.json"; then
+    fail "update_document_metadata should reject unsupported ${metadata_section} fields"
+  fi
+  assert_contains "$(<"${STDERR_FILE}")" "update_document_metadata metadata" \
+    "metadata action ${metadata_section} should use the strict schema"
+done
+
+jq '.preconditions.formDefinitionId = "different-form"' \
+  "${SUBMIT_DRAFT_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/stale-submit-draft-plan.json"; then
+  fail "Draft submission should reject a stale visible form definition"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "matching Draft and visible form" \
+  "stale Draft state should require a new browser plan"
+
+jq --arg path "${MISMATCHED_FORM_VALUES}" \
+  --arg sha256 "${mismatched_form_values_hash}" \
+  --argjson size "${mismatched_form_values_size}" '
+    .intendedChanges.valuesFile = {path: $path, sha256: $sha256, size: $size}
+  ' "${SUBMIT_ISSUE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/mismatched-submit-issue-fields-plan.json"; then
+  fail "Issue submission should reject protected form fields from a different form"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "formFields keys must exactly match" \
+  "Issue submission should bind protected values to the visible form"
+
+jq '.intendedChanges.valuesFile.sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"' \
+  "${SUBMIT_DRAFT_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/changed-submit-draft-values-plan.json"; then
+  fail "Draft submission should reject a changed protected values file"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "protected values file changed" \
+  "changed Draft values should require a new plan"
+
+chmod 644 "${SUBMIT_DRAFT_VALUES}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${SUBMIT_DRAFT_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/public-submit-draft-values-plan.json"; then
+  fail "Draft submission should reject a non-private protected values file"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "restrictive permissions" \
+  "protected values files should require restrictive permissions"
+chmod 600 "${SUBMIT_DRAFT_VALUES}"
+
+jq --arg path "${PROTECTED_VALUES_SYMLINK}" \
+  --arg sha256 "${protected_values_symlink_hash}" \
+  --argjson size "${protected_values_symlink_size}" '
+    .intendedChanges.valuesFile = {path: $path, sha256: $sha256, size: $size}
+  ' "${SUBMIT_DRAFT_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/symlink-submit-draft-values-plan.json"; then
+  fail "Draft submission should reject a protected values symlink"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "regular non-symlink" \
+  "protected values files should reject symlinks"
+
+jq --arg path "${INVALID_METADATA_VALUES}" \
+  --arg sha256 "${invalid_metadata_values_hash}" \
+  --argjson size "${invalid_metadata_values_size}" '
+    .intendedChanges.valuesFile = {path: $path, sha256: $sha256, size: $size}
+  ' "${UPDATE_METADATA_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/invalid-complaint-title-plan.json"; then
+  fail "Complaint Information Forms should reject a mismatched title pattern"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "Complaint Information Form title" \
+  "complaint title errors should explain the configured pattern"
+
+jq '
+  .observedState.metadataIdentifiers = ["approval_status"] |
+  .preconditions.metadataIdentifiers = ["approval_status"] |
+  .intendedChanges.metadataIdentifiers = ["approval_status"]
+' "${UPDATE_METADATA_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/prohibited-quality-metadata-plan.json"; then
+  fail "metadata updates should reject Quality-decision controls"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "Quality-decision" \
+  "prohibited metadata identifiers should explain the decision boundary"
+
+invalid_revision_values="${TEMPORARY_ROOT}/invalid-version-information-values.json"
+printf '%s\n' \
+  '{"current":{"versionInformation":"Revision A","issueComment":"old"},"intended":{"versionInformation":"Revision C","issueComment":"new"}}' \
+  >"${invalid_revision_values}"
+chmod 600 "${invalid_revision_values}"
+invalid_revision_hash="$(sha256_file "${invalid_revision_values}")"
+invalid_revision_size="$(wc -c <"${invalid_revision_values}" | tr -d ' ')"
+jq --arg path "${invalid_revision_values}" --arg sha256 "${invalid_revision_hash}" \
+  --argjson size "${invalid_revision_size}" '
+    .observedState.expectedNextVersionInformationTag = "Revision C" |
+    .preconditions.expectedNextVersionInformationTag = "Revision C" |
+    .intendedChanges.expectedNextVersionInformationTag = "Revision C" |
+    .intendedChanges.valuesFile = {path: $path, sha256: $sha256, size: $size}
+  ' "${UPDATE_VERSION_INFORMATION_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/skipped-revision-tag-plan.json"; then
+  fail "version-information updates should reject skipped revision tags"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "increment exactly one letter" \
+  "revision mismatch should explain the one-letter rule"
+
+jq '
+  .observedState.reviewTaskVisible = false |
+  .preconditions.reviewTaskVisible = false
+' "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/missing-review-task-plan.json"; then
+  fail "review responses should reject a missing reviewer task"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "visible pending review task" \
+  "missing review tasks should fail the safe-state contract"
+
+jq '.intendedChanges.decision = "approve"' \
+  "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/prohibited-review-decision-plan.json"; then
+  fail "review responses must not authorize an approval decision"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "submit_review_response" \
+  "review completion should reject prohibited decision fields"
 
 jq '
   .observedState.fieldIdentifiers = ["owner"] |
@@ -1191,6 +1878,26 @@ if rg -q --fixed-strings "${NATIVE_FORM_VALUE_SENTINEL}" \
   fail "raced form values must not be disclosed by browser planning"
 fi
 
+if PATH="${MOCK_BIN}:${PATH}" \
+  MOCK_VALUES_FILE="${TENANT_METADATA_ALLOWLIST}" \
+  MOCK_VALUES_REPLACEMENT_FILE="${ALTERNATE_METADATA_ALLOWLIST}" \
+  MOCK_MUTATE_HASHED_FILE=true \
+  REAL_SHA256SUM="${REAL_SHA256SUM_BIN}" \
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${UPDATE_METADATA_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/raced-metadata-allowlist-plan.json"; then
+  fail "metadata planning should reject an allowlist changed during private snapshot creation"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "tenant metadata allowlist changed" \
+  "tenant allowlist races should require a fresh browser plan"
+if rg -q --fixed-strings "${METADATA_ALLOWLIST_SENTINEL}" \
+  "${STDOUT_FILE}" "${STDERR_FILE}" "${TEMPORARY_ROOT}/raced-metadata-allowlist-plan.json" 2>/dev/null; then
+  fail "raced tenant allowlist contents must not be disclosed"
+fi
+printf '{"schemaVersion":1,"repositoryBaseUrl":"%s","permittedMetadataIdentifiers":["complaint_category","source"]}\n' \
+  "${BASE_URL}" >"${TENANT_METADATA_ALLOWLIST}"
+chmod 600 "${TENANT_METADATA_ALLOWLIST}"
+
 plan_id="$(jq -r '.planId' "${PLAN_FILE}")"
 : >"${LOG_FILE}"
 if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
@@ -1423,5 +2130,10 @@ assert_readable_saved_plan "${DELETE_PLAN}" "delete_document" "--confirm-destruc
 assert_readable_saved_plan "${BROWSER_NORMAL_PLAN}" "fill_native_form" "explicit approval for this exact plan ID"
 assert_readable_saved_plan "${BROWSER_NOTIFY_PLAN}" "request_review" "explicit approval for this exact plan ID"
 assert_readable_saved_plan "${BROWSER_REGISTER_PLAN}" "register_native_form" "explicit approval for this exact plan ID"
+assert_readable_saved_plan "${SUBMIT_DRAFT_PLAN}" "submit_native_form_draft" "explicit approval for this exact plan ID"
+assert_readable_saved_plan "${SUBMIT_ISSUE_PLAN}" "submit_native_form_issue" "explicit approval for this exact plan ID"
+assert_readable_saved_plan "${UPDATE_METADATA_PLAN}" "update_document_metadata" "explicit approval for this exact plan ID"
+assert_readable_saved_plan "${UPDATE_VERSION_INFORMATION_PLAN}" "update_version_information" "explicit approval for this exact plan ID"
+assert_readable_saved_plan "${REVIEW_RESPONSE_PLAN}" "submit_review_response" "explicit approval for this exact plan ID"
 
 printf 'test_cognidox_write.sh: all tests passed.\n'

@@ -60,8 +60,8 @@ Use these gates:
 
 | Risk | Operations | Required gate |
 | --- | --- | --- |
-| `normal` | Document creation, native form creation, template draft creation, draft upload | `--confirm <plan-id>` |
-| `notify` | Every issue upload | `--confirm-notify <plan-id>` |
+| `normal` | Document creation, native form creation, template draft creation, draft upload, metadata or Version Information update | `--confirm <plan-id>` |
+| `notify` | Every issue upload or submission, and review response completion | `--confirm-notify <plan-id>` |
 | `destructive` | Test-document deletion | `--confirm-destructive <plan-id>` |
 
 Browser plans use the same `normal` or `notify` risk labels, but `--apply-plan` rejects them. Complete an approved browser plan only in the authenticated browser after the visible-state recheck in `references/browser-workflows.md`.
@@ -116,15 +116,17 @@ cognidox-qms/scripts/cognidox_office_form.py fill template.docx \
 
 Supply values only through a JSON file. Use the authoring manifest during fill when it defines field types or optional fields. The helper requires a new output path. It preserves unrelated OOXML parts and does not overwrite the source.
 
-The REST API cannot register a native Cognidox form definition or fill native form fields. Create the field manifest and reusable Office template locally. A registration browser plan must bind both artifacts by absolute path, SHA-256 hash, and size, plus the field identifiers. A fill browser plan must bind the protected values file the same way and must not copy any form value into other plan metadata. When an authenticated reusable browser is available, prepare a guarded browser plan for registration or filling. Otherwise, stop and give the artifacts to an authorized user for manual UI work.
+The REST API cannot register a native Cognidox form definition, fill native form fields, or complete the native-form UI workflow. Create the field manifest and reusable Office template locally. A registration browser plan must bind both artifacts by absolute path, SHA-256 hash, and size, plus the field identifiers. A fill or submission browser plan must bind the protected values file and visible form the same way and must not copy form values into plan metadata. When an authenticated reusable browser is available, prepare one guarded browser plan for one operation. Otherwise, stop and give the artifacts to an authorized user for manual UI work.
 
 Read `references/form-workflows.md` before you create or fill a form.
 
 ## Browser Fallback
 
-Allowed browser actions are `request_review`, `request_approval`, `register_native_form`, `fill_native_form`, and `checkout_document`. Create a browser plan with `--create-browser-plan`, save it, show its readable summary, and stop before the final UI submission.
+Allowed browser actions are `request_review`, `request_approval`, `register_native_form`, `fill_native_form`, `submit_native_form_draft`, `submit_native_form_issue`, `update_document_metadata`, `update_version_information`, `submit_review_response`, and `checkout_document`. Create a browser plan with `--create-browser-plan`, save it, show its readable summary, and stop before the final UI submission.
 
-Each browser action has fixed target, observed-state, intended-change, effect, and precondition schemas. Reject extra nested fields even when the top-level action is allowed. For native-form filling, require the intended field identifiers to equal the identifiers in both visible-state objects. Do not infer disclosure by comparing form values with legitimate state scalars.
+Each browser action has fixed target, observed-state, intended-change, effect, and precondition schemas. Reject extra nested fields even when the top-level action is allowed. Require intended field identifiers to equal both visible-state arrays for native-form actions. Keep native-form finalization, Issue submission, metadata updates, Version Information updates, and review responses in separate plans. Do not infer disclosure by comparing protected values with legitimate state scalars.
+
+New protected values and response files must be absolute, regular non-symlink files with no group or other access. Plans bind their SHA-256, byte size, exact JSON shape, and exact field-key set. Metadata and Version Information plans also record separate SHA-256 digests for protected current and intended state. Before an `update_document_metadata` plan, set `COGNIDOX_QMS_METADATA_ALLOWLIST` to the absolute private tenant allowlist JSON path. Every planned metadata identifier must be in that tenant-bound allowlist, and the plan binds the policy file path, SHA-256, and size. The initial submitted native-form Draft uses `Revision A`; the first Issue preserves that tag; each later Version Information update increments exactly one letter.
 
 Reuse one authenticated Cognidox tab or session. Preserve its handle, current page, and pending plan ID in task state across turns. Keep the local plan. Do not close the tab or sign out until you are certain that the user has no follow-up operation. Before submission, recheck the target, recipients, effects, preconditions, and visible state. Any difference makes the plan stale.
 
@@ -149,7 +151,7 @@ Keep policy interpretation, naming, categorization, readable plan presentation, 
 Do not use this skill to:
 
 - Approve or reject content, provide an electronic signature, or perform the approval itself.
-- Publish, unpublish, or make a document obsolete.
+- Publish, unpublish, release, close, or make a document obsolete.
 - Delete or change a category.
 - Use a manual part number.
 
