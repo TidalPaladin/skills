@@ -122,6 +122,12 @@ cognidox_write_render_plan() {
       "intendedChanges.valuesFile.path": "Protected form-values file path",
       "intendedChanges.valuesFile.sha256": "Protected form-values file SHA-256",
       "intendedChanges.valuesFile.size": "Protected form-values file size in bytes",
+      "intendedChanges.workflowValuesFile.path": "Protected workflow-values file path",
+      "intendedChanges.workflowValuesFile.sha256": "Protected workflow-values file SHA-256",
+      "intendedChanges.workflowValuesFile.size": "Protected workflow-values file size in bytes",
+      "intendedChanges.formSubmissionFile.path": "Protected form-submission.json path",
+      "intendedChanges.formSubmissionFile.sha256": "Protected form-submission.json SHA-256",
+      "intendedChanges.formSubmissionFile.size": "Protected form-submission.json size in bytes",
       "intendedChanges.templateFile.path": "Registration template file path",
       "intendedChanges.templateFile.sha256": "Registration template file SHA-256",
       "intendedChanges.templateFile.size": "Registration template file size in bytes",
@@ -154,7 +160,7 @@ cognidox_write_render_plan() {
       end));
     def confirmation($plan):
       if ($plan.channel // "rest") == "browser" then
-        "explicit approval for this exact plan ID"
+        "approval of this exact plan ID and final transmission of the identified protected data to Cognidox"
       elif $plan.risk == "normal" then "--confirm"
       elif $plan.risk == "notify" then "--confirm-notify"
       elif $plan.risk == "destructive" then "--confirm-destructive"
@@ -332,6 +338,73 @@ cognidox_write_snapshot_private_configuration() {
   fi
 }
 
+cognidox_write_prepare_native_form_submission() {
+  local workflow_values_file="$1"
+  local output_path="$2"
+  local output_format="$3"
+  local jq_bin="$4"
+  local temporary_dir="$5"
+  local source_snapshot="${temporary_dir}/native-form-workflow-values"
+  local generated_file
+  local output_directory
+  local generated_hash
+  local generated_size
+
+  if [[ "${workflow_values_file}" != /* ]]; then
+    cognidox_error "protected workflow values file path must be absolute."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ "${output_path}" != /* ]]; then
+    cognidox_error "form-submission.json output path must be absolute."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ "${output_path##*/}" != "form-submission.json" ]]; then
+    cognidox_error "--output must end with the exact file name form-submission.json."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  cognidox_write_require_new_output "${output_path}" || return $?
+  cognidox_write_snapshot_private_configuration "${workflow_values_file}" \
+    "protected workflow values file" "${source_snapshot}" || return $?
+  if ! "${jq_bin}" -e -s '
+    length == 1 and
+    (.[0] |
+      type == "object" and
+      (keys | sort) == ["formFields", "issueComment", "notificationComment"] and
+      (.formFields | type == "object" and length > 0) and
+      (.issueComment | type == "string" and test("\\S")) and
+      (.notificationComment | type == "string" and test("\\S")))
+  ' "${source_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "protected workflow values must contain exact formFields, issueComment, and notificationComment fields."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  output_directory="$(dirname "${output_path}")"
+  if ! generated_file="$(mktemp "${output_directory}/.form-submission.XXXXXX")"; then
+    cognidox_error "could not create a private temporary form-submission.json artifact."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+  chmod 600 "${generated_file}"
+  if ! "${jq_bin}" -Sc '{formFields: .formFields}' "${source_snapshot}" >"${generated_file}"; then
+    rm -f "${generated_file}"
+    cognidox_error "could not generate the protected form-submission.json artifact."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+  if ! ln "${generated_file}" "${output_path}" >/dev/null 2>&1; then
+    rm -f "${generated_file}"
+    cognidox_error "refusing to overwrite existing artifact: ${output_path}"
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+  rm -f "${generated_file}"
+  chmod 600 "${output_path}"
+  generated_hash="$(cognidox_write_sha256_file "${output_path}")" || return $?
+  generated_size="$(wc -c <"${output_path}" | tr -d ' ')"
+  if [[ "${output_format}" == "json" ]]; then
+    "${jq_bin}" -n --arg path "${output_path}" --arg sha256 "${generated_hash}" \
+      --argjson size "${generated_size}" '{path: $path, sha256: $sha256, size: $size}'
+  else
+    printf 'path=%s\nsha256=%s\nsize=%s\n' "${output_path}" "${generated_hash}" "${generated_size}"
+  fi
+}
+
 cognidox_write_validate_metadata_allowlist() {
   local specification_file="$1"
   local allowlist_snapshot="$2"
@@ -457,6 +530,125 @@ cognidox_write_validate_native_form_submission_boundary() {
     cognidox_error "${action} protected formFields keys must exactly match fieldIdentifiers and title behavior."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
+}
+
+cognidox_write_validate_native_form_issue_boundary() {
+  local specification_file="$1"
+  local jq_bin="$2"
+  local workflow_values_snapshot="$3"
+  local form_submission_snapshot="$4"
+
+  if ! "${jq_bin}" -e -s '
+    length == 1 and
+    (.[0] |
+      type == "object" and
+      (keys | sort) == ["formFields", "issueComment", "notificationComment"] and
+      (.formFields | type == "object" and length > 0) and
+      (.issueComment | type == "string" and test("\\S")) and
+      (.notificationComment | type == "string" and test("\\S")))
+  ' "${workflow_values_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "submit_native_form_issue workflow values must contain exact formFields, issueComment, and notificationComment fields."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e -s '
+    length == 1 and
+    (.[0] | type == "object" and (keys | sort) == ["formFields"] and
+      (.formFields | type == "object" and length > 0))
+  ' "${form_submission_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "submit_native_form_issue form-submission.json must contain only one nonempty formFields object."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e --slurpfile workflow "${workflow_values_snapshot}" \
+    --slurpfile submission "${form_submission_snapshot}" '
+      .intendedChanges.fieldIdentifiers as $field_identifiers |
+      ($workflow[0].formFields == $submission[0].formFields) and
+      (($workflow[0].formFields | keys | sort) == ($field_identifiers | sort))
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "submit_native_form_issue formFields keys must exactly match fieldIdentifiers, and form-submission.json must match the protected workflow fields."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+}
+
+cognidox_write_validate_browser_expected_result() {
+  local action="$1"
+  local specification_file="$2"
+  local jq_bin="$3"
+
+  if ! "${jq_bin}" -e 'has("expectedResult")' "${specification_file}" >/dev/null 2>&1; then
+    if [[ "${action}" == "submit_native_form_issue" ]]; then
+      cognidox_error "submit_native_form_issue requires exact expected Issue postconditions."
+      return "${COGNIDOX_QMS_EXIT_USAGE}"
+    fi
+    return 0
+  fi
+  if ! "${jq_bin}" -e --arg action "${action}" '
+    def nonblank: type == "string" and test("\\S");
+    def identifiers:
+      type == "array" and all(.[]; nonblank) and (unique | length) == length;
+    def state_value:
+      type == "boolean" or nonblank or identifiers;
+    def allowed_state_fields($selected_action):
+      if $selected_action == "request_review" or $selected_action == "request_approval" then
+        ["approvalStatus", "checkedOut", "editable", "latestVersion", "locked", "recipientVisible", "reviewStatus", "version"]
+      elif $selected_action == "fill_native_form" then
+        ["editable", "fieldIdentifiers", "formDefinitionId", "latestVersion", "status", "version"]
+      elif $selected_action == "submit_native_form_draft" then
+        ["draftVersion", "fieldIdentifiers", "formDefinitionId", "latestVersion", "status", "versionInformationTag"]
+      elif $selected_action == "submit_native_form_issue" then
+        ["fieldIdentifiers", "formDefinitionId", "latestVersion", "sourceDraftVersion", "status", "versionInformationTag"]
+      elif $selected_action == "update_document_metadata" then
+        ["editable", "formDefinitionId", "formName", "metadataIdentifiers", "version"]
+      elif $selected_action == "update_version_information" then
+        ["currentRevision", "currentVersionInformationTag", "expectedNextVersionInformationTag", "formDefinitionId", "status", "version"]
+      elif $selected_action == "submit_review_response" then
+        ["reviewTaskId", "targetVersion", "taskStatus"]
+      elif $selected_action == "checkout_document" then
+        ["checkedOut", "checkedOutBy", "latestVersion", "lockState", "version"]
+      else [] end;
+    allowed_state_fields($action) as $allowed |
+    .target.partNumber as $part_number |
+    .expectedResult |
+      (keys | sort) == ["captures", "partNumber", "resultId", "state"] and
+      (.resultId | nonblank) and .partNumber == $part_number and
+      (.state | type == "object" and length > 0 and
+        ((keys - $allowed) | length) == 0 and all(.[]; state_value)) and
+      (.captures | type == "object" and
+        all(to_entries[]; . as $entry |
+          ($entry.key | nonblank) and ($entry.value | nonblank) and
+          (($allowed | index($entry.value)) != null)))
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "${action} expectedResult must use exact action-specific postconditions and captures."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  case "${action}" in
+    request_review)
+      "${jq_bin}" -e '.expectedResult.state.reviewStatus == "Pending"' \
+        "${specification_file}" >/dev/null 2>&1 || {
+        cognidox_error "request_review expectedResult must require a Pending review."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      }
+      ;;
+    request_approval)
+      "${jq_bin}" -e '.expectedResult.state.approvalStatus == "Pending"' \
+        "${specification_file}" >/dev/null 2>&1 || {
+        cognidox_error "request_approval expectedResult must require a Pending approval request."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      }
+      ;;
+    submit_native_form_issue)
+      if ! "${jq_bin}" -e '
+        .expectedResult.state == {
+          status: "Issue",
+          formDefinitionId: .target.formDefinitionId,
+          sourceDraftVersion: .target.sourceDraftVersion,
+          versionInformationTag: "Revision A"
+        } and .expectedResult.captures == {version: "latestVersion"}
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "submit_native_form_issue expectedResult must bind the Issue state and captured version."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
+  esac
 }
 
 cognidox_write_validate_metadata_values_boundary() {
@@ -1035,19 +1227,25 @@ cognidox_write_validate_browser_action_contract() {
       ;;
     submit_native_form_issue)
       if ! "${jq_bin}" -e '
-        (.intendedChanges | keys | sort) == ["fieldIdentifiers", "sourceDraftVersion", "valuesFile", "versionInformationTag"] and
+        (.intendedChanges | keys | sort) == ["fieldIdentifiers", "formSubmissionFile", "notificationUsers", "sourceDraftVersion", "versionInformationTag", "workflowValuesFile"] and
         (.intendedChanges.sourceDraftVersion | type == "string" and test("\\S")) and
         .intendedChanges.sourceDraftVersion == .target.sourceDraftVersion and
-        .intendedChanges.versionInformationTag == "Revision A"
+        .intendedChanges.versionInformationTag == "Revision A" and
+        (.intendedChanges.notificationUsers |
+          type == "array" and length > 0 and
+          all(.[]; type == "string" and test("\\S")) and
+          (unique | length) == length)
       ' "${specification_file}" >/dev/null 2>&1; then
-        cognidox_error "submit_native_form_issue requires protected values, ordered fields, the exact source Draft, and Revision A."
+        cognidox_error "submit_native_form_issue requires protected workflow values, the upload artifact, unique notification users, ordered fields, the exact source Draft, and Revision A."
         return "${COGNIDOX_QMS_EXIT_USAGE}"
       fi
       cognidox_write_validate_browser_artifact_descriptor \
-        "${specification_file}" "valuesFile" "${action}" "${jq_bin}" || return $?
+        "${specification_file}" "workflowValuesFile" "${action}" "${jq_bin}" || return $?
+      cognidox_write_validate_browser_artifact_descriptor \
+        "${specification_file}" "formSubmissionFile" "${action}" "${jq_bin}" || return $?
       cognidox_write_validate_browser_identifier_array \
         "${specification_file}" "fieldIdentifiers" "${action}" "${jq_bin}" || return $?
-      expected_effects='["Update the listed native form fields from the protected values file.","Create one native-form Issue from the exact source Draft with Version Information Revision A.","Notify Cognidox users configured for Issue submission."]'
+      expected_effects='["Use the bound native-form values from the protected workflow file.","Upload the bound form-submission.json artifact.","Use the exact source Draft and form definition.","Set Version Information to Revision A.","Enter the required Issue comment from the protected workflow file.","Configure the listed notification users and enter the protected notification comment.","Create one native-form Issue."]'
       ;;
     update_document_metadata)
       if ! "${jq_bin}" -e '
@@ -1112,6 +1310,158 @@ cognidox_write_validate_browser_action_contract() {
     cognidox_error "${action} effects must match the supported action-specific effect set."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
+  cognidox_write_validate_browser_expected_result \
+    "${action}" "${specification_file}" "${jq_bin}"
+}
+
+cognidox_write_build_composite_browser_plan() {
+  local specification_file="$1"
+  local raw_plan="$2"
+  local jq_bin="$3"
+  local base_url="$4"
+  local metadata_allowlist_path="${5:-}"
+  local step_count
+  local step_index
+  local step_id
+  local step_action
+  local original_step
+  local normalized_step
+  local step_plan
+  local validated_step
+  local references_file
+  local reference
+  local reference_step_id
+  local reference_result_id
+  local reference_field
+  local steps_file="${raw_plan}.validated-steps.ndjson"
+  local risk="normal"
+
+  if ! "${jq_bin}" -e '
+    def nonblank: type == "string" and test("\\S");
+    def identifier: type == "string" and test("^[a-z][a-z0-9_]*$");
+    def step_shape:
+      ((keys | sort) == ["action", "effects", "expectedResult", "intendedChanges", "observedState", "preconditions", "stepId", "target"] or
+       (keys | sort) == ["action", "effects", "expectedResult", "intendedChanges", "observedState", "preconditions", "recipients", "stepId", "target"]) and
+      (.stepId | identifier) and (.action | identifier) and
+      (.target | type == "object" and length > 0) and
+      (.observedState | type == "object" and length > 0) and
+      (.intendedChanges | type == "object" and length > 0) and
+      (.effects | type == "array" and length > 0 and all(.[]; nonblank)) and
+      (.preconditions | type == "object" and length > 0) and
+      (.expectedResult | type == "object" and length > 0);
+    (keys | sort) == ["action", "outcome", "rootTarget", "steps"] and
+    .action == "composite_browser_workflow" and (.outcome | identifier) and
+    (.outcome | test("(^|_)(approve|reject|sign|signature|publish|release|close|closure|obsolete|obsolescence|delete|deletion|mdr|capa|quality_decision)($|_)") | not) and
+    (.rootTarget | type == "object" and (keys | sort) == ["partNumber"] and (.partNumber | nonblank)) and
+    (.steps | type == "array" and length >= 2 and all(.[]; step_shape)) and
+    ([.steps[].stepId] | unique | length) == (.steps | length)
+  ' "${specification_file}" >/dev/null 2>&1; then
+    if "${jq_bin}" -e '
+      .steps | type == "array" and
+      ([.[].stepId] | length) != ([.[].stepId] | unique | length)
+    ' "${specification_file}" >/dev/null 2>&1; then
+      cognidox_error "composite_browser_workflow requires unique step IDs."
+    else
+      cognidox_error "composite_browser_workflow must use the exact outcome, rootTarget, and ordered step schema without hidden Quality decisions."
+    fi
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e '
+    .rootTarget.partNumber as $root_part_number |
+    all(.steps[]; .target.partNumber == $root_part_number and .expectedResult.partNumber == $root_part_number)
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "composite_browser_workflow must keep every step and expected result on one document lineage."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+
+  : >"${steps_file}"
+  chmod 600 "${steps_file}"
+  step_count="$("${jq_bin}" -r '.steps | length' "${specification_file}")"
+  for ((step_index = 0; step_index < step_count; step_index++)); do
+    original_step="${raw_plan}.step-${step_index}.original"
+    normalized_step="${raw_plan}.step-${step_index}.normalized"
+    step_plan="${raw_plan}.step-${step_index}.plan"
+    validated_step="${raw_plan}.step-${step_index}.validated"
+    references_file="${raw_plan}.step-${step_index}.references.ndjson"
+    "${jq_bin}" -S --argjson index "${step_index}" '.steps[$index]' \
+      "${specification_file}" >"${original_step}"
+    chmod 600 "${original_step}"
+    step_id="$("${jq_bin}" -r '.stepId' "${original_step}")"
+    step_action="$("${jq_bin}" -r '.action' "${original_step}")"
+    if [[ "${step_action}" == "register_native_form" || "${step_action}" == "composite_browser_workflow" ]]; then
+      cognidox_error "${step_action} is not an allowed browser action inside a one-lineage composite workflow."
+      return "${COGNIDOX_QMS_EXIT_USAGE}"
+    fi
+    "${jq_bin}" -c '
+      [.target, .observedState, .preconditions] | .. | objects |
+      select((keys | sort) == ["field", "resultId", "stepId"])
+    ' "${original_step}" >"${references_file}"
+    chmod 600 "${references_file}"
+    while IFS= read -r reference; do
+      [[ -n "${reference}" ]] || continue
+      if ! printf '%s' "${reference}" | "${jq_bin}" -e '
+        all(.field, .resultId, .stepId; type == "string" and test("\\S"))
+      ' >/dev/null 2>&1; then
+        cognidox_error "composite step ${step_id} contains an invalid earlier step result reference."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      reference_step_id="$(printf '%s' "${reference}" | "${jq_bin}" -r '.stepId')"
+      reference_result_id="$(printf '%s' "${reference}" | "${jq_bin}" -r '.resultId')"
+      reference_field="$(printf '%s' "${reference}" | "${jq_bin}" -r '.field')"
+      if ! "${jq_bin}" -e --argjson index "${step_index}" \
+        --arg step_id "${reference_step_id}" --arg result_id "${reference_result_id}" \
+        --arg field "${reference_field}" '
+        [.steps[0:$index][] |
+          select(.stepId == $step_id and .expectedResult.resultId == $result_id and
+            (.expectedResult.captures | has($field)))] | length == 1
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "composite step ${step_id} must reference a verified earlier step result."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+    done <"${references_file}"
+    "${jq_bin}" -S '
+      del(.stepId) |
+      walk(
+        if type == "object" and (keys | sort) == ["field", "resultId", "stepId"] then
+          "$result:\(.stepId):\(.resultId):\(.field)"
+        else . end
+      )
+    ' "${original_step}" >"${normalized_step}"
+    chmod 600 "${normalized_step}"
+    cognidox_write_build_browser_plan "${normalized_step}" "${step_plan}" "${jq_bin}" \
+      "${base_url}" "${metadata_allowlist_path}" || return $?
+    if [[ "$("${jq_bin}" -r '.risk' "${step_plan}")" == "notify" ]]; then
+      risk="notify"
+    fi
+    "${jq_bin}" -S --slurpfile original "${original_step}" '
+      $original[0] as $source |
+      del(.schemaVersion, .channel, .risk, .repository, .notification, .planId) |
+      . + {
+        stepId: $source.stepId,
+        target: $source.target,
+        observedState: $source.observedState,
+        preconditions: $source.preconditions
+      }
+    ' "${step_plan}" >"${validated_step}"
+    chmod 600 "${validated_step}"
+    "${jq_bin}" -c . "${validated_step}" >>"${steps_file}"
+  done
+
+  "${jq_bin}" -S --slurpfile validated_steps "${steps_file}" \
+    --arg base_url "${base_url}" --arg risk "${risk}" '
+    {
+      schemaVersion: 2,
+      action: "composite_browser_workflow",
+      outcome: .outcome,
+      channel: "browser",
+      risk: $risk,
+      repository: {baseUrl: $base_url},
+      rootTarget: .rootTarget,
+      steps: $validated_steps,
+      notification: {capable: ($risk == "notify")},
+      effects: [$validated_steps[].effects[]]
+    }
+  ' "${specification_file}" >"${raw_plan}"
 }
 
 cognidox_write_build_browser_plan() {
@@ -1126,6 +1476,8 @@ cognidox_write_build_browser_plan() {
   local protected_response_snapshot="${raw_plan}.protected-response"
   local registration_template_snapshot="${raw_plan}.registration-template"
   local registration_manifest_snapshot="${raw_plan}.registration-manifest"
+  local workflow_values_snapshot="${raw_plan}.workflow-values"
+  local form_submission_snapshot="${raw_plan}.form-submission"
   local action
   local current_state_hash=""
   local intended_state_hash=""
@@ -1150,14 +1502,18 @@ cognidox_write_build_browser_plan() {
     cognidox_error "--browser-plan-spec must contain one valid JSON object."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
+  action="$("${jq_bin}" -r '.action // ""' "${specification_file}")"
+  if [[ "${action}" == "composite_browser_workflow" ]]; then
+    cognidox_write_build_composite_browser_plan "${specification_file}" "${raw_plan}" \
+      "${jq_bin}" "${base_url}" "${metadata_allowlist_path}"
+    return $?
+  fi
   if ! "${jq_bin}" -e '
-    (keys - ["action", "target", "observedState", "intendedChanges", "recipients", "effects", "preconditions"] | length) == 0
+    (keys - ["action", "target", "observedState", "intendedChanges", "recipients", "effects", "preconditions", "expectedResult"] | length) == 0
   ' "${specification_file}" >/dev/null 2>&1; then
     cognidox_error "--browser-plan-spec contains an unsupported top-level field."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
-
-  action="$("${jq_bin}" -r '.action // ""' "${specification_file}")"
   case "${action}" in
     request_review|request_approval|submit_native_form_issue|submit_review_response) risk="notify" ;;
     register_native_form|fill_native_form|checkout_document|update_document_metadata|update_version_information) risk="normal" ;;
@@ -1197,7 +1553,9 @@ cognidox_write_build_browser_plan() {
   fi
   if [[ "${action}" == "request_review" || "${action}" == "request_approval" ]]; then
     if ! "${jq_bin}" -e '
-      .recipients | type == "array" and length > 0 and all(.[]; type == "string" and test("\\S"))
+      .recipients | type == "array" and length > 0 and
+      all(.[]; type == "string" and test("\\S")) and
+      (unique | length) == length
     ' "${specification_file}" >/dev/null 2>&1; then
       cognidox_error "notification browser actions require one or more explicit recipients."
       return "${COGNIDOX_QMS_EXIT_USAGE}"
@@ -1217,11 +1575,18 @@ cognidox_write_build_browser_plan() {
       "registration template file" "${jq_bin}" "${registration_template_snapshot}" || return $?
     cognidox_write_snapshot_browser_artifact "${specification_file}" "fieldManifestFile" \
       "registration field manifest file" "${jq_bin}" "${registration_manifest_snapshot}" || return $?
-  elif [[ "${action}" == "submit_native_form_draft" || "${action}" == "submit_native_form_issue" ]]; then
+  elif [[ "${action}" == "submit_native_form_draft" ]]; then
     cognidox_write_snapshot_protected_browser_artifact "${specification_file}" "valuesFile" \
       "protected values file" "${jq_bin}" "${protected_values_snapshot}" || return $?
     cognidox_write_validate_native_form_submission_boundary "${action}" "${specification_file}" \
       "${jq_bin}" "${protected_values_snapshot}" || return $?
+  elif [[ "${action}" == "submit_native_form_issue" ]]; then
+    cognidox_write_snapshot_protected_browser_artifact "${specification_file}" "workflowValuesFile" \
+      "protected workflow values file" "${jq_bin}" "${workflow_values_snapshot}" || return $?
+    cognidox_write_snapshot_protected_browser_artifact "${specification_file}" "formSubmissionFile" \
+      "protected form-submission.json" "${jq_bin}" "${form_submission_snapshot}" || return $?
+    cognidox_write_validate_native_form_issue_boundary "${specification_file}" "${jq_bin}" \
+      "${workflow_values_snapshot}" "${form_submission_snapshot}" || return $?
   elif [[ "${action}" == "update_document_metadata" ]]; then
     cognidox_write_snapshot_private_configuration "${metadata_allowlist_path}" \
       "tenant metadata allowlist" "${metadata_allowlist_snapshot}" || return $?
@@ -1269,6 +1634,7 @@ cognidox_write_build_browser_plan() {
       preconditions: .preconditions
     } +
     if has("recipients") then {recipients: .recipients} else {} end +
+    if has("expectedResult") then {expectedResult: .expectedResult} else {} end +
     if $current_state_hash != "" then
       {stateDigests: {currentSha256: $current_state_hash, intendedSha256: $intended_state_hash}}
     else {} end +

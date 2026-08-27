@@ -34,6 +34,7 @@ Usage:
   cognidox_qms.sh --create-from-template --category-id <id> --document-type <type> --title <title> --template-part-number <part-number> --field-data <json-file> [--field-manifest <json-file>] [--author <name>] [--plan-out <path>]
   cognidox_qms.sh --create-version <part-number> --issue-type draft|issue --file <path> [--comment <text>] [--version-information <text>] [--slice-size <bytes>] [--plan-out <path>]
   cognidox_qms.sh --delete-document <part-number> --comment <reason> [--plan-out <path>]
+  cognidox_qms.sh --prepare-native-form-submission --workflow-values-file <path> --output <path>/form-submission.json [--format text|json]
   cognidox_qms.sh --create-browser-plan --browser-plan-spec <json-file> --plan-out <path>
   cognidox_qms.sh --apply-plan <path> (--confirm|--confirm-notify|--confirm-destructive) <plan-id>
 
@@ -57,6 +58,8 @@ Global options:
   --plan-out <path>      Write a new deterministic mutation plan; never overwrite.
   --browser-plan-spec <path>
                          Define one allowed browser action and its observed state.
+  --workflow-values-file <path>
+                         Read private native-form values and comments for local artifact preparation.
   --confirm <plan-id>    Apply an approved normal-risk plan.
   --confirm-notify <plan-id>
                          Apply an approved notification-capable plan.
@@ -652,6 +655,7 @@ cognidox_main() {
   local version_information=""
   local plan_out=""
   local browser_plan_spec=""
+  local workflow_values_file=""
   local metadata_allowlist_path="${COGNIDOX_QMS_METADATA_ALLOWLIST:-}"
   local apply_plan=""
   local normal_confirmation=""
@@ -814,6 +818,11 @@ cognidox_main() {
         browser_plan_spec="$2"
         shift 2
         ;;
+      --workflow-values-file)
+        if [[ "$#" -lt 2 ]]; then cognidox_error "--workflow-values-file requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
+        workflow_values_file="$2"
+        shift 2
+        ;;
       --apply-plan)
         if [[ "$#" -lt 2 ]]; then cognidox_error "--apply-plan requires a value."; return "${COGNIDOX_QMS_EXIT_USAGE}"; fi
         mode="apply_plan"
@@ -859,6 +868,10 @@ cognidox_main() {
         ;;
       --create-browser-plan)
         mode="create_browser_plan"
+        shift
+        ;;
+      --prepare-native-form-submission)
+        mode="prepare_native_form_submission"
         shift
         ;;
       --delete-document)
@@ -1053,8 +1066,21 @@ cognidox_main() {
     cognidox_error "--download-version requires --output <path>."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
-  if [[ -n "${output_path}" && "${download_version}" != "true" ]]; then
-    cognidox_error "--output is only valid with --download-version."
+  if [[ -n "${output_path}" && "${download_version}" != "true" &&
+    "${mode}" != "prepare_native_form_submission" ]]; then
+    cognidox_error "--output is only valid with --download-version or --prepare-native-form-submission."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ "${mode}" == "prepare_native_form_submission" && -z "${workflow_values_file}" ]]; then
+    cognidox_error "--prepare-native-form-submission requires --workflow-values-file <path>."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ "${mode}" == "prepare_native_form_submission" && -z "${output_path}" ]]; then
+    cognidox_error "--prepare-native-form-submission requires --output <path>/form-submission.json."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if [[ -n "${workflow_values_file}" && "${mode}" != "prepare_native_form_submission" ]]; then
+    cognidox_error "--workflow-values-file is only valid with --prepare-native-form-submission."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
   if [[ "${mode}" == "search" && "${search_has_criteria}" != "true" ]]; then
@@ -1097,12 +1123,12 @@ cognidox_main() {
     cognidox_error "--field-manifest is only valid with --create-from-template."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
-  if [[ -z "${base_url}" ]]; then
+  if [[ -z "${base_url}" && "${mode}" != "prepare_native_form_submission" ]]; then
     cognidox_error "set --base-url or COGNIDOX_QMS_BASE_URL."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
   base_url="${base_url%/}"
-  if [[ "${base_url}" != https://* ]]; then
+  if [[ "${mode}" != "prepare_native_form_submission" && "${base_url}" != https://* ]]; then
     cognidox_error "Cognidox base URL must use HTTPS."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
@@ -1112,7 +1138,7 @@ cognidox_main() {
     cognidox_write_validate_plan_id "${apply_plan}" "${jq_bin}" || return $?
     cognidox_write_reject_browser_apply "${apply_plan}" "${jq_bin}" || return $?
   fi
-  if [[ "${mode}" != "create_browser_plan" ]]; then
+  if [[ "${mode}" != "create_browser_plan" && "${mode}" != "prepare_native_form_submission" ]]; then
     cognidox_require_command "${curl_bin}"
     cognidox_load_token_helper
 
@@ -1255,6 +1281,10 @@ cognidox_main() {
       cognidox_write_build_browser_plan "${browser_plan_spec}" "${body_file}" "${jq_bin}" "${base_url}" \
         "${metadata_allowlist_path}"
       cognidox_write_finalize_plan "${body_file}" "${plan_out}" "${output_format}" "${jq_bin}"
+      ;;
+    prepare_native_form_submission)
+      cognidox_write_prepare_native_form_submission "${workflow_values_file}" "${output_path}" \
+        "${output_format}" "${jq_bin}" "${temporary_dir}"
       ;;
     create_form_document)
       cognidox_write_build_form_plan "${category_id}" "${category_form_id}" "${title}" \
