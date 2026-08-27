@@ -94,4 +94,14 @@ To fill an existing native form through the UI:
 4. In the retained browser session, recheck the target, current form state, field identifiers, effects, and preconditions.
 5. Read the protected values locally and enter them without echoing them. Stop before the final submission if the visible state differs from the plan.
 
+To finalize a filled native form:
+
+1. Keep the protected form fields in a mode-`0600` regular non-symlink JSON file. For Draft title replacement, keep the protected title in that same file.
+2. Create a separate `submit_native_form_draft` plan that binds the exact Draft version, form definition, ordered visible field identifiers, title behavior, notification capability, and `Revision A` tag.
+3. Show the readable plan and obtain current approval for its exact plan ID. Recheck all visible and protected state immediately before submitting the Draft once.
+4. To create the first Issue, create a new `submit_native_form_issue` plan. Bind the exact source Draft and visible latest version, reuse only the exact protected file named in that plan, and preserve `Revision A`.
+5. Treat Issue submission as notification-capable. Show the new readable plan and obtain approval for its exact plan ID before submitting once.
+
+Metadata changes, later Version Information changes, and review responses are separate actions. Never add them to a Draft or Issue submission plan. Use `update_document_metadata` with protected current and intended state, `update_version_information` for one-letter Revision tag increments and protected issue comments, and `submit_review_response` for completion of one exact pending review task. Each action requires its own fresh exact plan ID and current approval.
+
 Follow `browser-workflows.md` for session retention, approval, submission, and ambiguous-result handling.

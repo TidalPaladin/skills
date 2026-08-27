@@ -25,6 +25,17 @@ cognidox_write_sha256_text() {
   fi
 }
 
+cognidox_write_sha256_stream() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | awk '{print $1}'
+  else
+    cognidox_error "required SHA-256 utility not found (sha256sum or shasum)."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+}
+
 cognidox_write_require_new_output() {
   local output_path="$1"
   if [[ -e "${output_path}" || -L "${output_path}" ]]; then
@@ -57,8 +68,10 @@ cognidox_write_render_plan() {
       elif (($key | startswith("fieldData.")) or ($key | startswith("fieldManifest."))) then 130
       elif ($key | startswith("intendedChanges.valuesFile.")) then 140
       elif (($key | startswith("intendedChanges.templateFile.")) or
-        ($key | startswith("intendedChanges.fieldManifestFile."))) then 140
+        ($key | startswith("intendedChanges.fieldManifestFile.")) or
+        ($key | startswith("intendedChanges.responseFile."))) then 140
       elif ($key | startswith("intendedChanges.fieldIdentifiers.")) then 150
+      elif ($key | startswith("stateDigests.")) then 155
       elif (($key | startswith("notification.")) or ($key | startswith("recipients."))) then 160
       elif ($key | startswith("preconditions.")) then 900
       else 500
@@ -114,6 +127,11 @@ cognidox_write_render_plan() {
       "intendedChanges.fieldManifestFile.path": "Registration field manifest path",
       "intendedChanges.fieldManifestFile.sha256": "Registration field manifest SHA-256",
       "intendedChanges.fieldManifestFile.size": "Registration field manifest size in bytes",
+      "intendedChanges.responseFile.path": "Protected review-response file path",
+      "intendedChanges.responseFile.sha256": "Protected review-response file SHA-256",
+      "intendedChanges.responseFile.size": "Protected review-response file size in bytes",
+      "stateDigests.currentSha256": "Protected current state SHA-256",
+      "stateDigests.intendedSha256": "Protected intended state SHA-256",
       "notification.capable": "Notification capable",
       "preconditions.notificationCapable": "Notification capable precondition",
       "request.title": "Requested title",
@@ -195,6 +213,8 @@ cognidox_write_snapshot_browser_artifact() {
   local planned_size
   local actual_hash
   local actual_size
+  local verified_hash
+  local verified_size
 
   artifact_path="$("${jq_bin}" -r --arg key "${descriptor_key}" '.intendedChanges[$key].path' "${specification_file}")"
   planned_hash="$("${jq_bin}" -r --arg key "${descriptor_key}" '.intendedChanges[$key].sha256' "${specification_file}")"
@@ -213,10 +233,49 @@ cognidox_write_snapshot_browser_artifact() {
   fi
   actual_hash="$(cognidox_write_sha256_file "${artifact_snapshot}")" || return $?
   actual_size="$(wc -c <"${artifact_snapshot}" | tr -d ' ')"
-  if [[ "${planned_hash}" != "${actual_hash}" || "${planned_size}" != "${actual_size}" ]]; then
+  verified_hash="$(cognidox_write_sha256_file "${artifact_snapshot}")" || return $?
+  verified_size="$(wc -c <"${artifact_snapshot}" | tr -d ' ')"
+  if [[ "${planned_hash}" != "${actual_hash}" || "${planned_size}" != "${actual_size}" ||
+    "${actual_hash}" != "${verified_hash}" || "${actual_size}" != "${verified_size}" ]]; then
     cognidox_error "${artifact_label} changed or does not match its descriptor; create a new browser plan."
     return "${COGNIDOX_QMS_EXIT_RUNTIME}"
   fi
+}
+
+cognidox_write_private_file_mode() {
+  local input_path="$1"
+
+  if stat -c '%a' "${input_path}" >/dev/null 2>&1; then
+    stat -c '%a' "${input_path}"
+  elif stat -f '%Lp' "${input_path}" >/dev/null 2>&1; then
+    stat -f '%Lp' "${input_path}"
+  else
+    cognidox_error "could not inspect protected-file permissions."
+    return "${COGNIDOX_QMS_EXIT_RUNTIME}"
+  fi
+}
+
+cognidox_write_snapshot_protected_browser_artifact() {
+  local specification_file="$1"
+  local descriptor_key="$2"
+  local artifact_label="$3"
+  local jq_bin="$4"
+  local artifact_snapshot="$5"
+  local artifact_path
+  local file_mode
+
+  artifact_path="$("${jq_bin}" -r --arg key "${descriptor_key}" '.intendedChanges[$key].path' "${specification_file}")"
+  if [[ -L "${artifact_path}" || ! -f "${artifact_path}" || ! -r "${artifact_path}" ]]; then
+    cognidox_error "${artifact_label} must be a readable regular non-symlink file."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  file_mode="$(cognidox_write_private_file_mode "${artifact_path}")" || return $?
+  if [[ ! "${file_mode}" =~ ^[0-7]{3,4}$ ]] || (( (8#${file_mode} & 8#77) != 0 )); then
+    cognidox_error "${artifact_label} must use restrictive permissions with no group or other access."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  cognidox_write_snapshot_browser_artifact "${specification_file}" "${descriptor_key}" \
+    "${artifact_label}" "${jq_bin}" "${artifact_snapshot}"
 }
 
 cognidox_write_validate_fill_native_form_boundary() {
@@ -278,6 +337,147 @@ cognidox_write_validate_fill_native_form_boundary() {
   fi
 }
 
+cognidox_write_validate_native_form_submission_boundary() {
+  local action="$1"
+  local specification_file="$2"
+  local jq_bin="$3"
+  local values_snapshot="$4"
+
+  if ! "${jq_bin}" -e -s 'length == 1 and (.[0] | type == "object" and length > 0)' \
+    "${values_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "protected values file must contain one nonempty JSON object."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e --slurpfile protected_values "${values_snapshot}" --arg action "${action}" '
+    def nonblank: type == "string" and test("\\S");
+    $protected_values[0] as $protected |
+    .intendedChanges.fieldIdentifiers as $field_identifiers |
+    ($protected.formFields | type == "object" and length > 0 and
+      (keys | sort) == ($field_identifiers | sort)) and
+    if $action == "submit_native_form_draft" then
+      if .intendedChanges.titleBehavior == "preserve" then
+        ($protected | keys | sort) == ["formFields"]
+      else
+        ($protected | keys | sort) == ["formFields", "title"] and
+        ($protected.title | nonblank)
+      end
+    else
+      ($protected | keys | sort) == ["formFields"]
+    end
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "${action} protected formFields keys must exactly match fieldIdentifiers and title behavior."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+}
+
+cognidox_write_validate_metadata_values_boundary() {
+  local specification_file="$1"
+  local jq_bin="$2"
+  local values_snapshot="$3"
+  local part_number
+  local form_name
+
+  if ! "${jq_bin}" -e -s '
+    length == 1 and
+    (.[0] |
+      type == "object" and (keys | sort) == ["current", "intended"] and
+      all(.current, .intended;
+        type == "object" and (keys | sort) == ["author", "metadata", "title"] and
+        (.title | type == "string" and test("\\S")) and
+        (.author | type == "string" and test("\\S")) and
+        (.metadata | type == "object" and all(.[]; type == "string"))))
+  ' "${values_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "update_document_metadata protected values must contain exact current and intended title, author, and metadata objects."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e --slurpfile protected_values "${values_snapshot}" '
+    .intendedChanges.metadataIdentifiers as $metadata_identifiers |
+    ($protected_values[0].current.metadata | keys | sort) == ($metadata_identifiers | sort) and
+    ($protected_values[0].intended.metadata | keys | sort) == ($metadata_identifiers | sort)
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "update_document_metadata protected metadata keys must exactly match metadataIdentifiers."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+
+  form_name="$("${jq_bin}" -r '.target.formName // ""' "${specification_file}")"
+  if [[ "${form_name}" != "Complaint Information Form" ]]; then
+    return 0
+  fi
+  part_number="$("${jq_bin}" -r '.target.partNumber' "${specification_file}")"
+  if ! "${jq_bin}" -e -s --arg part_number "${part_number}" '
+    def leap($year):
+      ($year % 4 == 0) and (($year % 100 != 0) or ($year % 400 == 0));
+    def maximum_day($month; $year):
+      if $month == "FEB" then if leap($year) then 29 else 28 end
+      elif ["APR", "JUN", "SEP", "NOV"] | index($month) then 30
+      else 31
+      end;
+    .[0].intended.title |
+    capture("^(?<formNumber>[^,]+), (?<briefTitle>[^,\\r\\n]+), (?<day>[1-9]|[12][0-9]|3[01]) (?<month>JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC) (?<year>[0-9]{4})$") as $title |
+    ($title.formNumber == $part_number) and
+    ($title.briefTitle | test("\\S")) and
+    (($title.day | tonumber) <= maximum_day($title.month; ($title.year | tonumber)))
+  ' "${values_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "Complaint Information Form title must match FORMNUM, Brief Title, DAY MONTHSHORT YEAR."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+}
+
+cognidox_write_validate_version_information_values_boundary() {
+  local specification_file="$1"
+  local jq_bin="$2"
+  local values_snapshot="$3"
+
+  if ! "${jq_bin}" -e -s '
+    length == 1 and
+    (.[0] |
+      type == "object" and (keys | sort) == ["current", "intended"] and
+      all(.current, .intended;
+        type == "object" and (keys | sort) == ["issueComment", "versionInformation"] and
+        (.issueComment | type == "string") and
+        (.versionInformation | type == "string")))
+  ' "${values_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "update_version_information protected values must contain exact current and intended Version Information and issue comments."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e --slurpfile protected_values "${values_snapshot}" '
+    $protected_values[0] as $protected |
+    $protected.current.versionInformation == .observedState.currentVersionInformationTag and
+    $protected.intended.versionInformation == .intendedChanges.expectedNextVersionInformationTag and
+    .observedState.expectedNextVersionInformationTag == .intendedChanges.expectedNextVersionInformationTag and
+    .preconditions.currentVersionInformationTag == .observedState.currentVersionInformationTag and
+    .preconditions.expectedNextVersionInformationTag == .observedState.expectedNextVersionInformationTag
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "update_version_information protected tags must match the bound current and expected state."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+  if ! "${jq_bin}" -e '
+    def letter_code($tag):
+      $tag | capture("^Revision (?<letter>[A-Z])$").letter | explode[0];
+    letter_code(.observedState.currentVersionInformationTag) as $current |
+    letter_code(.intendedChanges.expectedNextVersionInformationTag) as $next |
+    ($current >= 65 and $current <= 89 and $next == ($current + 1))
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "Version Information must increment exactly one letter from Revision A through Revision Z."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+}
+
+cognidox_write_validate_review_response_boundary() {
+  local values_snapshot="$1"
+  local jq_bin="$2"
+
+  if ! "${jq_bin}" -e -s '
+    length == 1 and
+    (.[0] |
+      type == "object" and (keys | sort) == ["response"] and
+      (.response | type == "string" and test("\\S")))
+  ' "${values_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "submit_review_response protected response file must contain only one nonblank response."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+}
+
 cognidox_write_validate_browser_state_consistency() {
   local specification_file="$1"
   local jq_bin="$2"
@@ -328,6 +528,41 @@ cognidox_write_is_calendar_date() {
     *) maximum_day=31 ;;
   esac
   ((day <= maximum_day))
+}
+
+cognidox_write_validate_browser_artifact_descriptor() {
+  local specification_file="$1"
+  local descriptor_key="$2"
+  local action="$3"
+  local jq_bin="$4"
+
+  if ! "${jq_bin}" -e --arg key "${descriptor_key}" '
+    .intendedChanges[$key] |
+    type == "object" and (keys | sort) == ["path", "sha256", "size"] and
+    (.path | type == "string" and startswith("/")) and
+    (.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
+    (.size | type == "number" and . >= 0 and floor == .)
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "${action} ${descriptor_key} must bind an absolute path, lowercase SHA-256, and byte size."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+}
+
+cognidox_write_validate_browser_identifier_array() {
+  local specification_file="$1"
+  local identifier_key="$2"
+  local action="$3"
+  local jq_bin="$4"
+
+  if ! "${jq_bin}" -e --arg key "${identifier_key}" '
+    .intendedChanges[$key] |
+    type == "array" and length > 0 and
+    all(.[]; type == "string" and test("\\S")) and
+    (unique | length) == length
+  ' "${specification_file}" >/dev/null 2>&1; then
+    cognidox_error "${action} ${identifier_key} must be a nonempty unique ordered identifier array."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
 }
 
 cognidox_write_validate_browser_metadata_contract() {
@@ -403,6 +638,190 @@ cognidox_write_validate_browser_metadata_contract() {
       ;;
     fill_native_form)
       ;;
+    submit_native_form_draft)
+      if ! "${jq_bin}" -e '
+        def nonblank: type == "string" and test("\\S");
+        def identifiers:
+          type == "array" and length > 0 and all(.[]; nonblank) and
+          (unique | length) == length;
+        def target:
+          (keys | sort) == ["draftVersion", "formDefinitionId", "partNumber"] and
+          all(.[]; nonblank);
+        def state:
+          (keys | sort) == ["canSubmitDraft", "draftVersion", "editable", "fieldIdentifiers", "formDefinitionId", "notificationCapable", "status", "versionInformationTag"] and
+          (.canSubmitDraft | type == "boolean") and
+          (.editable | type == "boolean") and
+          (.notificationCapable | type == "boolean") and
+          (.fieldIdentifiers | identifiers) and
+          (.draftVersion | nonblank) and (.formDefinitionId | nonblank) and
+          (.status | nonblank) and (.versionInformationTag | nonblank);
+        (.target | target) and (.observedState | state) and (.preconditions | state)
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} metadata must match the supported target, observedState, and preconditions schema."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      if ! "${jq_bin}" -e '
+        .target.draftVersion as $draft_version |
+        .target.formDefinitionId as $form_definition |
+        .intendedChanges.fieldIdentifiers as $field_identifiers |
+        .observedState.editable == true and .preconditions.editable == true and
+        .observedState.canSubmitDraft == true and .preconditions.canSubmitDraft == true and
+        .observedState.status == "Draft" and .preconditions.status == "Draft" and
+        .observedState.draftVersion == $draft_version and .preconditions.draftVersion == $draft_version and
+        .observedState.formDefinitionId == $form_definition and .preconditions.formDefinitionId == $form_definition and
+        .observedState.fieldIdentifiers == $field_identifiers and .preconditions.fieldIdentifiers == $field_identifiers and
+        .observedState.versionInformationTag == "Revision A" and
+        .preconditions.versionInformationTag == "Revision A"
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} requires an editable matching Draft and visible form as safe-state preconditions."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
+    submit_native_form_issue)
+      if ! "${jq_bin}" -e '
+        def nonblank: type == "string" and test("\\S");
+        def identifiers:
+          type == "array" and length > 0 and all(.[]; nonblank) and
+          (unique | length) == length;
+        def target:
+          (keys | sort) == ["formDefinitionId", "partNumber", "sourceDraftVersion"] and
+          all(.[]; nonblank);
+        def state:
+          (keys | sort) == ["canCreateIssue", "editable", "fieldIdentifiers", "formDefinitionId", "latestVersion", "sourceDraftVersion", "status", "versionInformationTag"] and
+          (.canCreateIssue | type == "boolean") and
+          (.editable | type == "boolean") and
+          (.fieldIdentifiers | identifiers) and
+          (.formDefinitionId | nonblank) and (.latestVersion | nonblank) and
+          (.sourceDraftVersion | nonblank) and (.status | nonblank) and
+          (.versionInformationTag | nonblank);
+        (.target | target) and (.observedState | state) and (.preconditions | state)
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} metadata must match the supported target, observedState, and preconditions schema."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      if ! "${jq_bin}" -e '
+        .target.sourceDraftVersion as $source_draft |
+        .target.formDefinitionId as $form_definition |
+        .intendedChanges.fieldIdentifiers as $field_identifiers |
+        .observedState.editable == true and .preconditions.editable == true and
+        .observedState.canCreateIssue == true and .preconditions.canCreateIssue == true and
+        .observedState.status == "Draft" and .preconditions.status == "Draft" and
+        .observedState.sourceDraftVersion == $source_draft and .preconditions.sourceDraftVersion == $source_draft and
+        .observedState.latestVersion == $source_draft and .preconditions.latestVersion == $source_draft and
+        .observedState.formDefinitionId == $form_definition and .preconditions.formDefinitionId == $form_definition and
+        .observedState.fieldIdentifiers == $field_identifiers and .preconditions.fieldIdentifiers == $field_identifiers and
+        .observedState.versionInformationTag == "Revision A" and
+        .preconditions.versionInformationTag == "Revision A"
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} requires the exact editable source Draft and visible form as safe-state preconditions."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
+    update_document_metadata)
+      if ! "${jq_bin}" -e '
+        def nonblank: type == "string" and test("\\S");
+        def identifiers:
+          type == "array" and length > 0 and all(.[]; nonblank) and
+          (unique | length) == length;
+        def ordinary_target:
+          (keys | sort) == ["partNumber", "recordKind", "version"] and
+          .recordKind == "document" and (.partNumber | nonblank) and (.version | nonblank);
+        def native_target:
+          (keys | sort) == ["formDefinitionId", "formName", "partNumber", "recordKind", "version"] and
+          .recordKind == "native_form" and all(.[]; nonblank);
+        def ordinary_state:
+          (keys | sort) == ["editable", "metadataIdentifiers", "version"] and
+          (.editable | type == "boolean") and (.metadataIdentifiers | identifiers) and (.version | nonblank);
+        def native_state:
+          (keys | sort) == ["editable", "formDefinitionId", "formName", "metadataIdentifiers", "version"] and
+          (.editable | type == "boolean") and (.metadataIdentifiers | identifiers) and
+          (.version | nonblank) and (.formDefinitionId | nonblank) and (.formName | nonblank);
+        ((.target | ordinary_target) and (.observedState | ordinary_state) and (.preconditions | ordinary_state)) or
+        ((.target | native_target) and (.observedState | native_state) and (.preconditions | native_state))
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} metadata must match the supported target, observedState, and preconditions schema."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      if ! "${jq_bin}" -e '
+        def prohibited:
+          ascii_downcase | gsub("[^a-z0-9]"; "") |
+          test("approv|reject|signature|publish|release|clos|obsolet|qualitydecision|reviewdecision");
+        .target.version as $version |
+        .intendedChanges.metadataIdentifiers as $metadata_identifiers |
+        .observedState.editable == true and .preconditions.editable == true and
+        .observedState.version == $version and .preconditions.version == $version and
+        .observedState.metadataIdentifiers == $metadata_identifiers and
+        .preconditions.metadataIdentifiers == $metadata_identifiers and
+        (all($metadata_identifiers[]; prohibited | not)) and
+        if .target.recordKind == "native_form" then
+          .observedState.formDefinitionId == .target.formDefinitionId and
+          .preconditions.formDefinitionId == .target.formDefinitionId and
+          .observedState.formName == .target.formName and
+          .preconditions.formName == .target.formName
+        else true
+        end
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} requires exact editable metadata state and prohibits Quality-decision metadata identifiers."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
+    update_version_information)
+      if ! "${jq_bin}" -e '
+        def nonblank: type == "string" and test("\\S");
+        def target:
+          (keys | sort) == ["formDefinitionId", "partNumber", "version"] and all(.[]; nonblank);
+        def state:
+          (keys | sort) == ["canEditVersionInformation", "currentRevision", "currentVersionInformationTag", "editable", "expectedNextVersionInformationTag", "formDefinitionId", "status", "version"] and
+          (.canEditVersionInformation | type == "boolean") and (.editable | type == "boolean") and
+          (.currentRevision | nonblank) and (.currentVersionInformationTag | nonblank) and
+          (.expectedNextVersionInformationTag | nonblank) and (.formDefinitionId | nonblank) and
+          (.status | nonblank) and (.version | nonblank);
+        (.target | target) and (.observedState | state) and (.preconditions | state)
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} metadata must match the supported target, observedState, and preconditions schema."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      if ! "${jq_bin}" -e '
+        .observedState.editable == true and .preconditions.editable == true and
+        .observedState.canEditVersionInformation == true and .preconditions.canEditVersionInformation == true and
+        .observedState.status == "Draft" and .preconditions.status == "Draft" and
+        .observedState.version == .target.version and .preconditions.version == .target.version and
+        .observedState.currentRevision == .target.version and .preconditions.currentRevision == .target.version and
+        .observedState.formDefinitionId == .target.formDefinitionId and
+        .preconditions.formDefinitionId == .target.formDefinitionId
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} requires the exact editable target revision as safe-state preconditions."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
+    submit_review_response)
+      if ! "${jq_bin}" -e '
+        def nonblank: type == "string" and test("\\S");
+        def target:
+          (keys | sort) == ["partNumber", "reviewTaskId", "targetVersion"] and all(.[]; nonblank);
+        def state:
+          (keys | sort) == ["completionAvailable", "reviewTaskId", "reviewTaskVisible", "reviewerIdentity", "targetVersion", "taskStatus"] and
+          (.completionAvailable | type == "boolean") and (.reviewTaskVisible | type == "boolean") and
+          (.reviewTaskId | nonblank) and (.reviewerIdentity | nonblank) and
+          (.targetVersion | nonblank) and (.taskStatus | nonblank);
+        (.target | target) and (.observedState | state) and (.preconditions | state)
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} metadata must match the supported target, observedState, and preconditions schema."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      if ! "${jq_bin}" -e '
+        .observedState.reviewTaskVisible == true and .preconditions.reviewTaskVisible == true and
+        .observedState.completionAvailable == true and .preconditions.completionAvailable == true and
+        .observedState.taskStatus == "Pending" and .preconditions.taskStatus == "Pending" and
+        .observedState.reviewTaskId == .target.reviewTaskId and
+        .preconditions.reviewTaskId == .target.reviewTaskId and
+        .observedState.targetVersion == .target.targetVersion and
+        .preconditions.targetVersion == .target.targetVersion
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} requires a visible pending review task and completion-only controls as safe-state preconditions."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
     checkout_document)
       if ! "${jq_bin}" -e '
         def nonblank: type == "string" and test("\\S");
@@ -442,6 +861,7 @@ cognidox_write_validate_browser_action_contract() {
   local jq_bin="$3"
   local due_date
   local expected_effects
+  local notification_capable
 
   case "${action}" in
     request_review)
@@ -478,38 +898,105 @@ cognidox_write_validate_browser_action_contract() {
       ;;
     register_native_form)
       if ! "${jq_bin}" -e '
-        def descriptor:
-          type == "object" and
-          (keys | sort) == ["path", "sha256", "size"] and
-          (.path | type == "string" and startswith("/")) and
-          (.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
-          (.size | type == "number" and . >= 0 and floor == .);
-        (.intendedChanges | keys | sort) == ["fieldIdentifiers", "fieldManifestFile", "templateFile"] and
-        (.intendedChanges.templateFile | descriptor) and
-        (.intendedChanges.fieldManifestFile | descriptor) and
-        (.intendedChanges.fieldIdentifiers | type == "array" and length > 0 and
-          all(.[]; type == "string" and test("\\S")) and (unique | length) == length)
+        (.intendedChanges | keys | sort) == ["fieldIdentifiers", "fieldManifestFile", "templateFile"]
       ' "${specification_file}" >/dev/null 2>&1; then
         cognidox_error "register_native_form requires bound templateFile and fieldManifestFile descriptors and unique fieldIdentifiers."
         return "${COGNIDOX_QMS_EXIT_USAGE}"
       fi
+      cognidox_write_validate_browser_artifact_descriptor \
+        "${specification_file}" "templateFile" "${action}" "${jq_bin}" || return $?
+      cognidox_write_validate_browser_artifact_descriptor \
+        "${specification_file}" "fieldManifestFile" "${action}" "${jq_bin}" || return $?
+      cognidox_write_validate_browser_identifier_array \
+        "${specification_file}" "fieldIdentifiers" "${action}" "${jq_bin}" || return $?
       expected_effects='["Register one native Cognidox form definition."]'
       ;;
     fill_native_form)
       if ! "${jq_bin}" -e '
-        (.intendedChanges | keys | sort) == ["fieldIdentifiers", "valuesFile"] and
-        (.intendedChanges.valuesFile | type == "object") and
-        (.intendedChanges.valuesFile | keys | sort) == ["path", "sha256", "size"] and
-        (.intendedChanges.valuesFile.path | type == "string" and startswith("/")) and
-        (.intendedChanges.valuesFile.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
-        (.intendedChanges.valuesFile.size | type == "number" and . >= 0 and floor == .) and
-        (.intendedChanges.fieldIdentifiers | type == "array" and length > 0 and
-          all(.[]; type == "string" and test("\\S")) and (unique | length) == length)
+        (.intendedChanges | keys | sort) == ["fieldIdentifiers", "valuesFile"]
       ' "${specification_file}" >/dev/null 2>&1; then
         cognidox_error "fill_native_form requires a protected valuesFile descriptor and unique fieldIdentifiers."
         return "${COGNIDOX_QMS_EXIT_USAGE}"
       fi
+      cognidox_write_validate_browser_artifact_descriptor \
+        "${specification_file}" "valuesFile" "${action}" "${jq_bin}" || return $?
+      cognidox_write_validate_browser_identifier_array \
+        "${specification_file}" "fieldIdentifiers" "${action}" "${jq_bin}" || return $?
       expected_effects='["Update the listed native form fields."]'
+      ;;
+    submit_native_form_draft)
+      if ! "${jq_bin}" -e '
+        (.intendedChanges | keys | sort) == ["fieldIdentifiers", "titleBehavior", "valuesFile", "versionInformationTag"] and
+        (.intendedChanges.titleBehavior == "preserve" or
+          .intendedChanges.titleBehavior == "replace_from_protected_file") and
+        .intendedChanges.versionInformationTag == "Revision A"
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "submit_native_form_draft requires protected values, ordered fields, supported title behavior, and Revision A."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      cognidox_write_validate_browser_artifact_descriptor \
+        "${specification_file}" "valuesFile" "${action}" "${jq_bin}" || return $?
+      cognidox_write_validate_browser_identifier_array \
+        "${specification_file}" "fieldIdentifiers" "${action}" "${jq_bin}" || return $?
+      notification_capable="$("${jq_bin}" -r '.observedState.notificationCapable' "${specification_file}")"
+      expected_effects='["Update the listed native form fields from the protected values file.","Apply the planned native-form title behavior.","Submit one native-form Draft with Version Information Revision A."]'
+      if [[ "${notification_capable}" == "true" ]]; then
+        expected_effects='["Update the listed native form fields from the protected values file.","Apply the planned native-form title behavior.","Submit one native-form Draft with Version Information Revision A.","Notify Cognidox users configured for Draft submission."]'
+      fi
+      ;;
+    submit_native_form_issue)
+      if ! "${jq_bin}" -e '
+        (.intendedChanges | keys | sort) == ["fieldIdentifiers", "sourceDraftVersion", "valuesFile", "versionInformationTag"] and
+        (.intendedChanges.sourceDraftVersion | type == "string" and test("\\S")) and
+        .intendedChanges.sourceDraftVersion == .target.sourceDraftVersion and
+        .intendedChanges.versionInformationTag == "Revision A"
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "submit_native_form_issue requires protected values, ordered fields, the exact source Draft, and Revision A."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      cognidox_write_validate_browser_artifact_descriptor \
+        "${specification_file}" "valuesFile" "${action}" "${jq_bin}" || return $?
+      cognidox_write_validate_browser_identifier_array \
+        "${specification_file}" "fieldIdentifiers" "${action}" "${jq_bin}" || return $?
+      expected_effects='["Update the listed native form fields from the protected values file.","Create one native-form Issue from the exact source Draft with Version Information Revision A.","Notify Cognidox users configured for Issue submission."]'
+      ;;
+    update_document_metadata)
+      if ! "${jq_bin}" -e '
+        (.intendedChanges | keys | sort) == ["metadataIdentifiers", "valuesFile"]
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "update_document_metadata requires protected values and ordered visible metadata identifiers."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      cognidox_write_validate_browser_artifact_descriptor \
+        "${specification_file}" "valuesFile" "${action}" "${jq_bin}" || return $?
+      cognidox_write_validate_browser_identifier_array \
+        "${specification_file}" "metadataIdentifiers" "${action}" "${jq_bin}" || return $?
+      expected_effects='["Update the target document title, author, and listed metadata fields from the protected values file."]'
+      ;;
+    update_version_information)
+      if ! "${jq_bin}" -e '
+        (.intendedChanges | keys | sort) == ["expectedNextVersionInformationTag", "valuesFile"] and
+        (.intendedChanges.expectedNextVersionInformationTag |
+          type == "string" and test("^Revision [A-Z]$"))
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "update_version_information requires protected values and one expected Revision tag."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      cognidox_write_validate_browser_artifact_descriptor \
+        "${specification_file}" "valuesFile" "${action}" "${jq_bin}" || return $?
+      expected_effects='["Update Version Information and the issue comment for the target revision from the protected values file."]'
+      ;;
+    submit_review_response)
+      if ! "${jq_bin}" -e '
+        (.intendedChanges | keys | sort) == ["completionAction", "responseFile"] and
+        .intendedChanges.completionAction == "complete_review"
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "submit_review_response permits only a protected response and complete_review action."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      cognidox_write_validate_browser_artifact_descriptor \
+        "${specification_file}" "responseFile" "${action}" "${jq_bin}" || return $?
+      expected_effects='["Submit one protected response for the exact review task.","Complete the exact review task.","Notify Cognidox users configured for review completion."]'
       ;;
     checkout_document)
       if ! "${jq_bin}" -e '
@@ -545,9 +1032,12 @@ cognidox_write_build_browser_plan() {
   local base_url="$4"
   local specification_snapshot="${raw_plan}.browser-specification"
   local protected_values_snapshot="${raw_plan}.protected-values"
+  local protected_response_snapshot="${raw_plan}.protected-response"
   local registration_template_snapshot="${raw_plan}.registration-template"
   local registration_manifest_snapshot="${raw_plan}.registration-manifest"
   local action
+  local current_state_hash=""
+  local intended_state_hash=""
   local risk
 
   if [[ ! -f "${specification_file}" || ! -r "${specification_file}" ]]; then
@@ -576,8 +1066,16 @@ cognidox_write_build_browser_plan() {
 
   action="$("${jq_bin}" -r '.action // ""' "${specification_file}")"
   case "${action}" in
-    request_review|request_approval) risk="notify" ;;
-    register_native_form|fill_native_form|checkout_document) risk="normal" ;;
+    request_review|request_approval|submit_native_form_issue|submit_review_response) risk="notify" ;;
+    register_native_form|fill_native_form|checkout_document|update_document_metadata|update_version_information) risk="normal" ;;
+    submit_native_form_draft)
+      if "${jq_bin}" -e '.observedState.notificationCapable == true' \
+        "${specification_file}" >/dev/null 2>&1; then
+        risk="notify"
+      else
+        risk="normal"
+      fi
+      ;;
     *)
       cognidox_error "--browser-plan-spec action is not an allowed browser action."
       return "${COGNIDOX_QMS_EXIT_USAGE}"
@@ -604,7 +1102,7 @@ cognidox_write_build_browser_plan() {
     cognidox_error "--browser-plan-spec must not contain form values; use a protected values-file descriptor."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
-  if [[ "${risk}" == "notify" ]]; then
+  if [[ "${action}" == "request_review" || "${action}" == "request_approval" ]]; then
     if ! "${jq_bin}" -e '
       .recipients | type == "array" and length > 0 and all(.[]; type == "string" and test("\\S"))
     ' "${specification_file}" >/dev/null 2>&1; then
@@ -613,7 +1111,7 @@ cognidox_write_build_browser_plan() {
     fi
   elif ! "${jq_bin}" -e '(.recipients // []) | type == "array" and length == 0' \
     "${specification_file}" >/dev/null 2>&1; then
-    cognidox_error "normal-risk browser actions must not include recipients."
+    cognidox_error "browser actions without caller-selected recipients must not include recipients."
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
   cognidox_write_validate_browser_action_contract "${action}" "${specification_file}" "${jq_bin}" || return $?
@@ -627,11 +1125,35 @@ cognidox_write_build_browser_plan() {
       "registration template file" "${jq_bin}" "${registration_template_snapshot}" || return $?
     cognidox_write_snapshot_browser_artifact "${specification_file}" "fieldManifestFile" \
       "registration field manifest file" "${jq_bin}" "${registration_manifest_snapshot}" || return $?
+  elif [[ "${action}" == "submit_native_form_draft" || "${action}" == "submit_native_form_issue" ]]; then
+    cognidox_write_snapshot_protected_browser_artifact "${specification_file}" "valuesFile" \
+      "protected values file" "${jq_bin}" "${protected_values_snapshot}" || return $?
+    cognidox_write_validate_native_form_submission_boundary "${action}" "${specification_file}" \
+      "${jq_bin}" "${protected_values_snapshot}" || return $?
+  elif [[ "${action}" == "update_document_metadata" ]]; then
+    cognidox_write_snapshot_protected_browser_artifact "${specification_file}" "valuesFile" \
+      "protected values file" "${jq_bin}" "${protected_values_snapshot}" || return $?
+    cognidox_write_validate_metadata_values_boundary "${specification_file}" "${jq_bin}" \
+      "${protected_values_snapshot}" || return $?
+    current_state_hash="$("${jq_bin}" -Sc '.current' "${protected_values_snapshot}" | cognidox_write_sha256_stream)" || return $?
+    intended_state_hash="$("${jq_bin}" -Sc '.intended' "${protected_values_snapshot}" | cognidox_write_sha256_stream)" || return $?
+  elif [[ "${action}" == "update_version_information" ]]; then
+    cognidox_write_snapshot_protected_browser_artifact "${specification_file}" "valuesFile" \
+      "protected values file" "${jq_bin}" "${protected_values_snapshot}" || return $?
+    cognidox_write_validate_version_information_values_boundary "${specification_file}" "${jq_bin}" \
+      "${protected_values_snapshot}" || return $?
+    current_state_hash="$("${jq_bin}" -Sc '.current' "${protected_values_snapshot}" | cognidox_write_sha256_stream)" || return $?
+    intended_state_hash="$("${jq_bin}" -Sc '.intended' "${protected_values_snapshot}" | cognidox_write_sha256_stream)" || return $?
+  elif [[ "${action}" == "submit_review_response" ]]; then
+    cognidox_write_snapshot_protected_browser_artifact "${specification_file}" "responseFile" \
+      "protected review response file" "${jq_bin}" "${protected_response_snapshot}" || return $?
+    cognidox_write_validate_review_response_boundary "${protected_response_snapshot}" "${jq_bin}" || return $?
   fi
   cognidox_write_validate_browser_state_consistency \
     "${specification_file}" "${jq_bin}" || return $?
 
-  "${jq_bin}" -S --arg base_url "${base_url}" --arg risk "${risk}" '
+  "${jq_bin}" -S --arg base_url "${base_url}" --arg risk "${risk}" \
+    --arg current_state_hash "${current_state_hash}" --arg intended_state_hash "${intended_state_hash}" '
     {
       schemaVersion: 1,
       action: .action,
@@ -644,7 +1166,11 @@ cognidox_write_build_browser_plan() {
       notification: {capable: ($risk == "notify")},
       effects: .effects,
       preconditions: .preconditions
-    } + if has("recipients") then {recipients: .recipients} else {} end
+    } +
+    if has("recipients") then {recipients: .recipients} else {} end +
+    if $current_state_hash != "" then
+      {stateDigests: {currentSha256: $current_state_hash, intendedSha256: $intended_state_hash}}
+    else {} end
   ' "${specification_file}" >"${raw_plan}"
 }
 
