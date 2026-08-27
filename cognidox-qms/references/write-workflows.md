@@ -72,7 +72,7 @@ cognidox-qms/scripts/cognidox_qms.sh \
   --plan-out /tmp/draft.json
 ```
 
-A draft plan uses risk `normal` unless live preflight evidence shows a notification route. In that case, add `--notification-capable`. An issue plan always uses risk `notify`.
+A REST draft plan uses risk `normal` unless live preflight evidence shows a notification route. In that case, add `--notification-capable`. A REST Issue plan always uses risk `notify`. The browser no-notification exception does not apply because REST preflight does not expose authoritative recipient routing.
 
 The plan enforces the repository comment and version-information options. REST planning stops when the repository requires checkout. If checkout is appropriate, prepare and approve a separate `checkout_document` browser plan, then repeat REST preflight and create a new upload plan.
 

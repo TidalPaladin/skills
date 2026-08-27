@@ -72,7 +72,7 @@ cognidox-qms/scripts/cognidox_qms.sh \
 
 Browser-plan creation is local and makes no Cognidox REST request. It requires the configured tenant HTTPS base URL for plan binding, but it does not load or require the REST PAT. The later browser submission uses the retained authenticated browser session.
 
-The plan binds the configured tenant and adds `channel: browser`. Review and approval requests, native-form Issue submission, and review response completion derive risk `notify`. Native-form Draft submission derives risk `notify` only when visible state reports notification capability. Registration, native-form filling, metadata updates, Version Information updates, checkout, and non-notifying Draft submission derive risk `normal`. A composite uses the highest risk of its steps. The plan ID uses the same canonical SHA-256 calculation as REST plans.
+The plan binds the configured tenant and adds `channel: browser`. Review and approval requests always derive risk `notify`. Draft submission and review response completion derive risk from the visible `notificationCapable` field. Issue submission derives risk from the validated visible `notificationUsers` arrays. An empty Issue user list or `notificationCapable: false` derives risk `normal` only when all applicable visible-state fields match. Registration, native-form filling, metadata updates, Version Information updates, and checkout also derive risk `normal`. A composite uses the highest risk of its steps. The plan ID uses the same canonical SHA-256 calculation as REST plans.
 
 Each action accepts only these intended changes and effects:
 
@@ -82,11 +82,11 @@ Each action accepts only these intended changes and effects:
 | `request_approval` | `requestType: "approval request"`; optional nonblank `approvalQueue` and `instructions`; optional valid calendar `dueDate` in `YYYY-MM-DD` form | `Notify the selected recipients.`; `Create one pending approval request.` |
 | `register_native_form` | The template, field-manifest, and field-identifier contract below | `Register one native Cognidox form definition.` |
 | `fill_native_form` | The protected values-file and field-identifier contract below | `Update the listed native form fields.` |
-| `submit_native_form_draft` | Protected form values, ordered field identifiers, title behavior, and `Revision A` | `Update the listed native form fields from the protected values file.`; `Apply the planned native-form title behavior.`; `Submit one native-form Draft with Version Information Revision A.`; when notification-capable, `Notify Cognidox users configured for Draft submission.` |
-| `submit_native_form_issue` | Protected workflow values and comments, generated upload artifact, ordered field identifiers, unique notification users, exact source Draft, and preserved `Revision A` | `Use the bound native-form values from the protected workflow file.`<br>`Upload the bound form-submission.json artifact.`<br>`Use the exact source Draft and form definition.`<br>`Set Version Information to Revision A.`<br>`Enter the required Issue comment from the protected workflow file.`<br>`Configure the listed notification users and enter the protected notification comment.`<br>`Create one native-form Issue.` |
+| `submit_native_form_draft` | Protected form values, ordered field identifiers, title behavior, and `Revision A` | `Update the listed native form fields from the protected values file.`<br>`Apply the planned native-form title behavior.`<br>`Submit one native-form Draft with Version Information Revision A.`<br>Then use the applicable routing effect: `Notify Cognidox users configured for Draft submission.` or `Do not notify any Cognidox user.` |
+| `submit_native_form_issue` | Protected workflow values and comments, generated upload artifact, ordered field identifiers, unique notification users, exact source Draft, and preserved `Revision A` | Always use the first five effects below and end with `Create one native-form Issue.` For nonempty users, use `Configure the listed notification users and enter the protected notification comment.` For empty users, use `Enter the protected notification comment with no notification user selected.` and `Do not notify any Cognidox user.` |
 | `update_document_metadata` | Protected current/intended state and ordered visible editable metadata identifiers | `Update the target document title, author, and listed metadata fields from the protected values file.` |
 | `update_version_information` | Protected current/intended Version Information and issue comment, plus the expected next tag | `Update Version Information and the issue comment for the target revision from the protected values file.` |
-| `submit_review_response` | Protected response and `completionAction: "complete_review"` | `Submit one protected response for the exact review task.`; `Complete the exact review task.`; `Notify Cognidox users configured for review completion.` |
+| `submit_review_response` | Protected response and `completionAction: "complete_review"` | `Submit one protected response for the exact review task.`<br>`Complete the exact review task.`<br>Then use the applicable routing effect: `Notify Cognidox users configured for review completion.` or `Do not notify any Cognidox user.` |
 | `checkout_document` | Only `checkout: true` | `Check out the target document.` |
 
 The client rejects extra intended-change fields and any different effect text. An allowed action name cannot carry approval, publication, obsolescence, category changes, deletion, manual numbering, or another browser operation inside its nested fields.
@@ -99,15 +99,15 @@ Target and state metadata are also action-specific:
 | `register_native_form` | Required `categoryId`, `categoryPath`, `formName`; optional `categoryFormId`, `formId` | `canManageForms`, `categoryId`, `definitionPresent`, `duplicateName` |
 | `fill_native_form` | Required `partNumber`; optional `title`, `version` | `editable`, `fieldIdentifiers`, `formDefinitionId`, `latestVersion`, `status`, `version` |
 | `submit_native_form_draft` | `partNumber`, `draftVersion`, `formDefinitionId` | `canSubmitDraft`, `draftVersion`, `editable`, `fieldIdentifiers`, `formDefinitionId`, `notificationCapable`, `status`, `versionInformationTag` |
-| `submit_native_form_issue` | `partNumber`, `sourceDraftVersion`, `formDefinitionId` | `canCreateIssue`, `editable`, `fieldIdentifiers`, `formDefinitionId`, `latestVersion`, `sourceDraftVersion`, `status`, `versionInformationTag` |
+| `submit_native_form_issue` | `partNumber`, `sourceDraftVersion`, `formDefinitionId` | `canCreateIssue`, `editable`, `fieldIdentifiers`, `formDefinitionId`, `latestVersion`, `notificationUsers`, `sourceDraftVersion`, `status`, `versionInformationTag` |
 | `update_document_metadata` | `partNumber`, `recordKind`, `version`; native forms also require `formDefinitionId`, `formName` | `editable`, `metadataIdentifiers`, `version`; native forms also require `formDefinitionId`, `formName` |
 | `update_version_information` | `partNumber`, `version`, `formDefinitionId` | `canEditVersionInformation`, `currentRevision`, `currentVersionInformationTag`, `editable`, `expectedNextVersionInformationTag`, `formDefinitionId`, `status`, `version` |
-| `submit_review_response` | `partNumber`, `reviewTaskId`, `targetVersion` | `completionAvailable`, `reviewTaskId`, `reviewTaskVisible`, `reviewerIdentity`, `targetVersion`, `taskStatus` |
+| `submit_review_response` | `partNumber`, `reviewTaskId`, `targetVersion` | `completionAvailable`, `notificationCapable`, `reviewTaskId`, `reviewTaskVisible`, `reviewerIdentity`, `targetVersion`, `taskStatus` |
 | `checkout_document` | Required `partNumber`; optional `title`, `version` | `canCheckout`, `checkedOut`, `checkedOutBy`, `latestVersion`, `lockState`, `version` |
 
 Each object must use only its listed fields and the documented string, Boolean, integer, or identifier-array type. This prevents a prohibited operation from being hidden in `target`, `observedState`, or `preconditions`.
 
-The state must also show that the action is available. Review and approval requests require `recipientVisible: true` as a precondition. Registration requires the same category ID throughout, `definitionPresent: false` in observed state and preconditions, `canManageForms: true`, and `duplicateName: false`. Native-form filling requires `editable: true`. Draft and Issue submission require an editable Draft, action availability, an exact version and form definition, and identical ordered field identifiers. Metadata and Version Information updates require an editable exact version. Review response submission requires the exact visible pending task and completion control. Checkout requires `checkedOut: false` plus `canCheckout: true`. Reject the plan when any safe-state predicate is absent or false.
+The state must also show that the action is available. Review and approval requests require `recipientVisible: true` as a precondition. Registration requires the same category ID throughout. It also requires `definitionPresent: false`, `canManageForms: true`, and `duplicateName: false`. Native-form filling requires `editable: true`. Draft and Issue submission require an editable Draft and action availability. They also require an exact version, form definition, and ordered field identifiers. An Issue plan requires identical intended, observed, and precondition `notificationUsers` arrays. Metadata and Version Information updates require an editable exact version. Review response submission requires the exact pending task, completion control, and matching `notificationCapable` values. Checkout requires `checkedOut: false` plus `canCheckout: true`. Reject the plan when any safe-state predicate is absent or false.
 
 The client copies the specification to a private temporary snapshot before it validates any field. Validation and final plan construction use only that snapshot. It also snapshots each protected artifact before it verifies the artifact hash and size twice. New values and response files must be absolute, readable, regular non-symlink files with no group or other permission bits. Protected-value checks use only the verified mode-`0600` snapshot. A concurrent source-file change cannot alter a plan after the applicable snapshot starts.
 
@@ -152,7 +152,7 @@ Never put form values in a browser specification or plan. The client rejects sin
 
 ## Submit Native Forms
 
-`submit_native_form_draft` finalizes one Draft. Its protected JSON contains `formFields`, whose keys exactly match the ordered `fieldIdentifiers`. With `titleBehavior: "preserve"`, that is the only protected top-level key. With `titleBehavior: "replace_from_protected_file"`, the file also contains one nonblank `title`. The target, observed state, and preconditions bind the same Draft version and form definition. The visible form must remain editable and submittable with `versionInformationTag: "Revision A"`. If `notificationCapable` is true, the exact effect set includes the configured notification and the plan uses risk `notify`.
+`submit_native_form_draft` finalizes one Draft. Its protected JSON contains `formFields`, whose keys exactly match the ordered `fieldIdentifiers`. With `titleBehavior: "preserve"`, that is the only protected top-level key. With `titleBehavior: "replace_from_protected_file"`, the file also contains one nonblank `title`. The target, observed state, and preconditions bind the same Draft version and form definition. The visible form must remain editable and submittable with `versionInformationTag: "Revision A"`. If `notificationCapable` is true, the effect set includes the configured notification. The plan uses risk `notify`. If both visible-state fields are false, use the exact no-notification effect. The plan then uses risk `normal`.
 
 `submit_native_form_issue` creates one Issue from one exact source Draft. First, create one private workflow-values file with this exact shape:
 
@@ -175,7 +175,28 @@ cognidox-qms/scripts/cognidox_qms.sh \
 
 This local-only command does not load a token or contact Cognidox. It accepts one mode-`0600` regular non-symlink source file. It refuses an existing output or a symlink. The output name must be `form-submission.json`. The output contains canonical `{"formFields": ...}` JSON and uses mode `0600`. It reports only the absolute path, SHA-256, and size.
 
-The Issue plan binds both protected descriptors as `workflowValuesFile` and `formSubmissionFile`. It verifies that both `formFields` objects are semantically equal. Their keys must equal the ordered `fieldIdentifiers`. The plan also binds a nonempty unique `notificationUsers` list. It binds the exact source Draft, form definition, `Revision A`, seven ordered effects, and this postcondition shape:
+The Issue plan binds both protected descriptors as `workflowValuesFile` and `formSubmissionFile`. It verifies that both `formFields` objects are semantically equal. Their keys must equal the ordered `fieldIdentifiers`. The intended, observed, and precondition `notificationUsers` arrays must be identical and unique. The list can be empty only when both visible-state arrays are empty.
+
+All Issue plans use these first five effects:
+
+1. `Use the bound native-form values from the protected workflow file.`
+2. `Upload the bound form-submission.json artifact.`
+3. `Use the exact source Draft and form definition.`
+4. `Set Version Information to Revision A.`
+5. `Enter the required Issue comment from the protected workflow file.`
+
+For a nonempty user list, add this effect:
+
+- `Configure the listed notification users and enter the protected notification comment.`
+
+For an empty list, add these effects:
+
+- `Enter the protected notification comment with no notification user selected.`
+- `Do not notify any Cognidox user.`
+
+End both effect sets with `Create one native-form Issue.` The protected `notificationComment` remains nonblank in both modes.
+
+The plan binds the exact source Draft, form definition, `Revision A`, ordered effects, and this postcondition shape:
 
 ```json
 {
@@ -191,7 +212,7 @@ The Issue plan binds both protected descriptors as `workflowValuesFile` and `for
 }
 ```
 
-The source Draft must be the visible latest version, remain editable, use the planned form definition, and allow Issue creation. The intended source version must equal the target and both state objects. This action never copies values from an unbound version or form and always uses risk `notify`.
+The source Draft must be the visible latest version, remain editable, use the planned form definition, and allow Issue creation. The intended source version must equal the target and both state objects. This action never copies values from an unbound version or form. A nonempty user list uses risk `notify`. A validated empty list uses risk `normal` and the explicit no-notification effect.
 
 ## Composite Browser Workflows
 
@@ -215,7 +236,9 @@ A typed result reference has this exact form:
 }
 ```
 
-Use typed references only in a later step's target, observed state, or preconditions. The planner rejects forward references, missing captures, and unrelated targets. It also rejects duplicate step IDs, unknown fields, changed effects, registration, and prohibited actions. An outcome identifier cannot hide a Quality, MDR, CAPA, closure, approval, signature, publication, release, obsolescence, or deletion decision.
+Use typed references only in a later step's target, observed state, or preconditions. The planner resolves the capture to its action-specific source field and type. It also resolves the destination field type. The types must match. A bound expected-state value validates the later step. Only the documented dynamic string result `latestVersion` from `submit_native_form_issue` can use an unbound placeholder. The planner rejects unverified non-string captures, forward references, missing captures, and unrelated targets. It also rejects duplicate step IDs, unknown fields, changed effects, registration, and prohibited actions.
+
+The outcome validator checks lowercase tokens and prohibited stems. It rejects joined and morphological aliases for all prohibited QMS decisions. These include MDR, CAPA, approval, rejection, signature, publication, release, closure, obsolescence, and deletion. The exact `request_approval` token pair remains valid. It requests approval without performing it. For example, `submit_native_form_issue_and_request_approval` is valid.
 
 The composite plan uses schema version 2 and retains the typed references. It includes the validated ordered steps and flattens their effects in step order. It derives risk from the highest-risk step. One plan ID binds the complete sequence. For an Issue-plus-approval-request outcome, verify the Issue postconditions and captured version first. Configure recipients and request approval only after this verification. A mismatch stops the sequence.
 
@@ -264,7 +287,7 @@ The initial submitted native-form Draft establishes `Revision A`, and the first 
 
 `submit_review_response` binds one part number, target version, review-task ID, reviewer identity, and pending visible task. The protected response file contains exactly one nonblank string under `response`. `intendedChanges` contains only its descriptor and `completionAction: "complete_review"`.
 
-This action submits the protected response and completes that exact review task. It cannot approve, reject, sign, publish, release, close, obsolete, or otherwise make a Quality decision. It uses risk `notify` because review completion can notify configured Cognidox users. It does not accept caller-selected recipients.
+This action submits the protected response and completes that exact review task. It cannot make a Quality decision. It cannot approve, reject, sign, publish, release, close, or make a document obsolete. It does not accept caller-selected recipients. Both visible-state objects must bind the same Boolean `notificationCapable` value. A true value uses risk `notify` and the configured notification effect. A false value uses risk `normal` and the exact no-notification effect.
 
 ## Retain Browser State
 
@@ -287,6 +310,8 @@ Before each write, compare the visible state and all protected descriptors with 
 - A material new UI field or new effect appears.
 - The next step needs a prohibited operation.
 - The preceding step does not satisfy every expected postcondition.
+
+Visible no-notification evidence changes only the routing effect and risk. It does not remove exact-plan approval or final protected-data transmission approval.
 
 On partial completion, preserve the session, plan, completed step IDs, and verified results. Do not roll back completed QMS effects. Do not retry blindly. Report the completed effects and prepare a replacement plan only for the remaining work.
 

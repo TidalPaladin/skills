@@ -936,7 +936,8 @@ cat >"${SUBMIT_DRAFT_SPEC}" <<EOF
   "effects": [
     "Update the listed native form fields from the protected values file.",
     "Apply the planned native-form title behavior.",
-    "Submit one native-form Draft with Version Information Revision A."
+    "Submit one native-form Draft with Version Information Revision A.",
+    "Do not notify any Cognidox user."
   ],
   "preconditions": {
     "status": "Draft",
@@ -966,6 +967,7 @@ cat >"${SUBMIT_ISSUE_SPEC}" <<EOF
     "latestVersion": "A",
     "formDefinitionId": "complaint-form-1",
     "fieldIdentifiers": ["complaint_type", "reported_by"],
+    "notificationUsers": ["Synthetic Tim", "Synthetic Chase"],
     "versionInformationTag": "Revision A"
   },
   "intendedChanges": {
@@ -1001,6 +1003,7 @@ cat >"${SUBMIT_ISSUE_SPEC}" <<EOF
     "latestVersion": "A",
     "formDefinitionId": "complaint-form-1",
     "fieldIdentifiers": ["complaint_type", "reported_by"],
+    "notificationUsers": ["Synthetic Tim", "Synthetic Chase"],
     "versionInformationTag": "Revision A"
   },
   "expectedResult": {
@@ -1138,6 +1141,7 @@ cat >"${REVIEW_RESPONSE_SPEC}" <<EOF
   "observedState": {
     "reviewTaskVisible": true,
     "completionAvailable": true,
+    "notificationCapable": true,
     "taskStatus": "Pending",
     "reviewTaskId": "review-task-1",
     "targetVersion": "1",
@@ -1159,6 +1163,7 @@ cat >"${REVIEW_RESPONSE_SPEC}" <<EOF
   "preconditions": {
     "reviewTaskVisible": true,
     "completionAvailable": true,
+    "notificationCapable": true,
     "taskStatus": "Pending",
     "reviewTaskId": "review-task-1",
     "targetVersion": "1",
@@ -1444,6 +1449,7 @@ for browser_action in \
     --plan-out "${browser_plan}" --format json
   jq -e --arg action "${browser_action}" --arg risk "${expected_browser_risk}" '
     .action == $action and .channel == "browser" and .risk == $risk and
+    .notification.capable == ($risk == "notify") and
     (.planId | startswith("sha256:")) and (.recipients | not)
   ' "${browser_plan}" >/dev/null ||
     fail "${browser_action} should create a tenant-bound ${expected_browser_risk}-risk browser plan"
@@ -1456,17 +1462,94 @@ jq -e --arg workflow_path "${SUBMIT_ISSUE_VALUES}" \
     .intendedChanges.workflowValuesFile.path == $workflow_path and
     .intendedChanges.formSubmissionFile.path == $submission_path and
     .intendedChanges.notificationUsers == ["Synthetic Tim", "Synthetic Chase"] and
+    .observedState.notificationUsers == .intendedChanges.notificationUsers and
+    .preconditions.notificationUsers == .intendedChanges.notificationUsers and
     .expectedResult.resultId == "created_issue" and
     .expectedResult.captures == {version: "latestVersion"} and
     .effects[-1] == "Create one native-form Issue."
-  ' "${SUBMIT_ISSUE_PLAN}" >/dev/null ||
+' "${SUBMIT_ISSUE_PLAN}" >/dev/null ||
   fail "Issue plans should bind the complete protected submission workflow"
+
+no_notification_issue_spec="${TEMPORARY_ROOT}/no-notification-issue-spec.json"
+no_notification_issue_plan="${TEMPORARY_ROOT}/no-notification-issue-plan.json"
+jq '
+  .observedState.notificationUsers = [] |
+  .preconditions.notificationUsers = [] |
+  .intendedChanges.notificationUsers = [] |
+  .effects = [
+    "Use the bound native-form values from the protected workflow file.",
+    "Upload the bound form-submission.json artifact.",
+    "Use the exact source Draft and form definition.",
+    "Set Version Information to Revision A.",
+    "Enter the required Issue comment from the protected workflow file.",
+    "Enter the protected notification comment with no notification user selected.",
+    "Do not notify any Cognidox user.",
+    "Create one native-form Issue."
+  ]
+' "${SUBMIT_ISSUE_SPEC}" >"${no_notification_issue_spec}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${no_notification_issue_spec}" \
+  --plan-out "${no_notification_issue_plan}" --format json
+jq -e '
+  .action == "submit_native_form_issue" and .risk == "normal" and
+  .notification.capable == false and
+  .intendedChanges.notificationUsers == [] and
+  .observedState.notificationUsers == [] and .preconditions.notificationUsers == [] and
+  .effects[-3:] == [
+    "Enter the protected notification comment with no notification user selected.",
+    "Do not notify any Cognidox user.",
+    "Create one native-form Issue."
+  ]
+' "${no_notification_issue_plan}" >/dev/null ||
+  fail "Issue plans should permit an explicit visible no-notification route"
+[[ "$(jq -r '.planId' "${SUBMIT_ISSUE_PLAN}")" != \
+  "$(jq -r '.planId' "${no_notification_issue_plan}")" ]] ||
+  fail "changing Issue notification routing should change the exact plan ID"
+
+no_notification_issue_xtrace_plan="${TEMPORARY_ROOT}/no-notification-issue-xtrace-plan.json"
+run_client_xtrace "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${no_notification_issue_spec}" \
+  --plan-out "${no_notification_issue_xtrace_plan}" --format json
+if rg -q --fixed-strings \
+  -e "${ISSUE_VALUE_SENTINEL}" \
+  -e "${ISSUE_COMMENT_SENTINEL}" \
+  -e "${NOTIFICATION_COMMENT_SENTINEL}" \
+  "${no_notification_issue_xtrace_plan}" "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}"; then
+  fail "no-notification Issue planning must protect fields and comments under Bash tracing"
+fi
+
+mismatched_issue_users_spec="${TEMPORARY_ROOT}/mismatched-issue-notification-users.json"
+jq --slurpfile no_notification "${no_notification_issue_spec}" '
+  .intendedChanges.notificationUsers = [] |
+  .effects = $no_notification[0].effects
+' "${SUBMIT_ISSUE_SPEC}" >"${mismatched_issue_users_spec}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${mismatched_issue_users_spec}" \
+  --plan-out "${TEMPORARY_ROOT}/mismatched-issue-notification-users-plan.json"; then
+  fail "Issue planning should reject notification users that differ from visible routing"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "notification users must match" \
+  "Issue notification routing mismatches should require a replacement plan"
+
+stale_issue_users_spec="${TEMPORARY_ROOT}/stale-issue-notification-users.json"
+jq '.preconditions.notificationUsers = []' \
+  "${SUBMIT_ISSUE_SPEC}" >"${stale_issue_users_spec}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${stale_issue_users_spec}" \
+  --plan-out "${TEMPORARY_ROOT}/stale-issue-notification-users-plan.json"; then
+  fail "Issue planning should reject changed visible notification routing"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "notification users must match" \
+  "stale Issue notification routing should require a replacement plan"
 if rg -q --fixed-strings "${ISSUE_VALUE_SENTINEL}" \
-  "${SUBMIT_ISSUE_PLAN}" "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}" ||
+  "${SUBMIT_ISSUE_PLAN}" "${no_notification_issue_plan}" \
+    "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}" ||
   rg -q --fixed-strings "${ISSUE_COMMENT_SENTINEL}" \
-    "${SUBMIT_ISSUE_PLAN}" "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}" ||
+    "${SUBMIT_ISSUE_PLAN}" "${no_notification_issue_plan}" \
+      "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}" ||
   rg -q --fixed-strings "${NOTIFICATION_COMMENT_SENTINEL}" \
-    "${SUBMIT_ISSUE_PLAN}" "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}"; then
+    "${SUBMIT_ISSUE_PLAN}" "${no_notification_issue_plan}" \
+      "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}"; then
   fail "Issue planning must not disclose protected fields or comments"
 fi
 
@@ -1486,6 +1569,197 @@ jq -e '
 ' "${COMPOSITE_BROWSER_PLAN}" >/dev/null ||
   fail "composite plans should bind ordered steps and typed prior-result references"
 [[ ! -s "${LOG_FILE}" ]] || fail "composite browser planning must not make Cognidox requests"
+
+mixed_risk_composite_spec="${TEMPORARY_ROOT}/mixed-risk-composite.json"
+mixed_risk_composite_plan="${TEMPORARY_ROOT}/mixed-risk-composite-plan.json"
+jq --slurpfile no_notification_issue "${no_notification_issue_spec}" '
+  .steps[0] = ({stepId: "create_issue"} + $no_notification_issue[0])
+' "${COMPOSITE_BROWSER_SPEC}" >"${mixed_risk_composite_spec}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${mixed_risk_composite_spec}" \
+  --plan-out "${mixed_risk_composite_plan}" --format json
+jq -e '
+  .risk == "notify" and .notification.capable == true and
+  ([.effects[]] | index("Do not notify any Cognidox user.")) != null and
+  ([.effects[]] | index("Notify the selected recipients.")) != null
+' "${mixed_risk_composite_plan}" >/dev/null ||
+  fail "composite risk should remain the highest validated step risk"
+
+boolean_capture_composite_spec="${TEMPORARY_ROOT}/boolean-capture-composite.json"
+jq -n --slurpfile review "${BROWSER_NOTIFY_SPEC}" --slurpfile approval "${BROWSER_APPROVAL_SPEC}" '
+  ({stepId: "request_review"} + $review[0]
+    | .expectedResult = {
+        resultId: "review_request",
+        partNumber: .target.partNumber,
+        state: {reviewStatus: "Pending", editable: true},
+        captures: {verifiedEditable: "editable"}
+      }) as $review_step |
+  ({stepId: "request_approval"} + $approval[0]
+    | .target.partNumber = $review_step.target.partNumber
+    | .target.version = {
+        stepId: "request_review",
+        resultId: "review_request",
+        field: "verifiedEditable"
+      }
+    | .observedState.latestVersion = .target.version
+    | .preconditions.latestVersion = .target.version
+    | .expectedResult = {
+        resultId: "approval_request",
+        partNumber: $review_step.target.partNumber,
+        state: {approvalStatus: "Pending"},
+        captures: {}
+      }) as $approval_step |
+  {
+    action: "composite_browser_workflow",
+    outcome: "request_review_and_request_approval",
+    rootTarget: {partNumber: $review_step.target.partNumber},
+    steps: [$review_step, $approval_step]
+  }
+' >"${boolean_capture_composite_spec}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${boolean_capture_composite_spec}" \
+  --plan-out "${TEMPORARY_ROOT}/boolean-capture-composite-plan.json"; then
+  fail "composite planning should reject Boolean captures used in string fields"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "result reference type" \
+  "Boolean capture mismatches should explain the typed-reference boundary"
+
+array_capture_composite_spec="${TEMPORARY_ROOT}/array-capture-composite.json"
+jq -n --slurpfile form "${BROWSER_NORMAL_SPEC}" --slurpfile checkout "${BROWSER_CHECKOUT_SPEC}" '
+  ({stepId: "fill_form"} + $form[0]
+    | .expectedResult = {
+        resultId: "filled_form",
+        partNumber: .target.partNumber,
+        state: {status: "draft", fieldIdentifiers: .observedState.fieldIdentifiers},
+        captures: {verifiedFields: "fieldIdentifiers"}
+      }) as $form_step |
+  ({stepId: "checkout_document"} + $checkout[0]
+    | .target.partNumber = $form_step.target.partNumber
+    | .target.version = {
+        stepId: "fill_form",
+        resultId: "filled_form",
+        field: "verifiedFields"
+      }
+    | .expectedResult = {
+        resultId: "checked_out_document",
+        partNumber: $form_step.target.partNumber,
+        state: {checkedOut: true},
+        captures: {}
+      }) as $checkout_step |
+  {
+    action: "composite_browser_workflow",
+    outcome: "fill_native_form_and_checkout_document",
+    rootTarget: {partNumber: $form_step.target.partNumber},
+    steps: [$form_step, $checkout_step]
+  }
+' >"${array_capture_composite_spec}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${array_capture_composite_spec}" \
+  --plan-out "${TEMPORARY_ROOT}/array-capture-composite-plan.json"; then
+  fail "composite planning should reject array captures used in string fields"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "result reference type" \
+  "array capture mismatches should explain the typed-reference boundary"
+
+unbound_boolean_capture_spec="${TEMPORARY_ROOT}/unbound-boolean-capture-composite.json"
+jq 'del(.steps[0].expectedResult.state.editable)' \
+  "${boolean_capture_composite_spec}" >"${unbound_boolean_capture_spec}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${unbound_boolean_capture_spec}" \
+  --plan-out "${TEMPORARY_ROOT}/unbound-boolean-capture-composite-plan.json"; then
+  fail "composite planning should reject unverified non-string captures"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "unbound non-string result capture" \
+  "unbound non-string captures should explain the verified-result boundary"
+
+bound_string_capture_spec="${TEMPORARY_ROOT}/bound-string-capture-composite.json"
+bound_string_capture_plan="${TEMPORARY_ROOT}/bound-string-capture-composite-plan.json"
+jq '
+  .steps[0].expectedResult.state = {reviewStatus: "Pending", latestVersion: "2"} |
+  .steps[0].expectedResult.captures = {verifiedVersion: "latestVersion"} |
+  .steps[1].target.version.field = "verifiedVersion" |
+  .steps[1].observedState.latestVersion.field = "verifiedVersion" |
+  .steps[1].preconditions.latestVersion.field = "verifiedVersion"
+' "${boolean_capture_composite_spec}" >"${bound_string_capture_spec}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${bound_string_capture_spec}" \
+  --plan-out "${bound_string_capture_plan}" --format json
+jq -e '
+  .steps[1].target.version == {
+    stepId: "request_review", resultId: "review_request", field: "verifiedVersion"
+  }
+' "${bound_string_capture_plan}" >/dev/null ||
+  fail "composite planning should preserve a valid bound string reference"
+
+string_capture_mismatch_spec="${TEMPORARY_ROOT}/string-capture-mismatch-composite.json"
+jq '
+  .steps[1].target.version = "2" |
+  .steps[1].observedState.latestVersion = "2" |
+  .steps[1].preconditions.latestVersion = "2" |
+  .steps[1].observedState.recipientVisible = {
+    stepId: "request_review", resultId: "review_request", field: "verifiedVersion"
+  } |
+  .steps[1].preconditions.recipientVisible = .steps[1].observedState.recipientVisible
+' "${bound_string_capture_spec}" >"${string_capture_mismatch_spec}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${string_capture_mismatch_spec}" \
+  --plan-out "${TEMPORARY_ROOT}/string-capture-mismatch-composite-plan.json"; then
+  fail "composite planning should reject string captures used in Boolean fields"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "result reference type" \
+  "string capture mismatches should explain the typed-reference boundary"
+
+unsupported_capture_source_spec="${TEMPORARY_ROOT}/unsupported-capture-source-composite.json"
+jq '.steps[0].expectedResult.captures.verifiedVersion = "unsupportedState"' \
+  "${bound_string_capture_spec}" >"${unsupported_capture_source_spec}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${unsupported_capture_source_spec}" \
+  --plan-out "${TEMPORARY_ROOT}/unsupported-capture-source-composite-plan.json"; then
+  fail "composite planning should reject unsupported capture source fields"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "unsupported action-specific capture source field" \
+  "unsupported capture types should explain the action-specific source boundary"
+
+for safe_outcome in request_approval submit_native_form_issue_and_request_approval; do
+  safe_outcome_spec="${TEMPORARY_ROOT}/safe-${safe_outcome}-outcome.json"
+  safe_outcome_plan="${TEMPORARY_ROOT}/safe-${safe_outcome}-outcome-plan.json"
+  jq --arg outcome "${safe_outcome}" '.outcome = $outcome' \
+    "${COMPOSITE_BROWSER_SPEC}" >"${safe_outcome_spec}"
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${safe_outcome_spec}" \
+    --plan-out "${safe_outcome_plan}" --format json
+  assert_equals "${safe_outcome}" "$(jq -r '.outcome' "${safe_outcome_plan}")" \
+    "safe request_approval outcomes should remain valid"
+done
+
+for prohibited_outcome in \
+  document_approval \
+  documentapproval \
+  document_rejected \
+  document_signing \
+  document_publication \
+  documentpublication \
+  document_releasing \
+  document_closed \
+  document_obsolescent \
+  document_deleting \
+  documentdeleting \
+  mdrdetermination \
+  capadecision \
+  quality_decision \
+  quality_deciding \
+  qualitydecision; do
+  prohibited_outcome_spec="${TEMPORARY_ROOT}/prohibited-${prohibited_outcome}-outcome.json"
+  jq --arg outcome "${prohibited_outcome}" '.outcome = $outcome' \
+    "${COMPOSITE_BROWSER_SPEC}" >"${prohibited_outcome_spec}"
+  if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${prohibited_outcome_spec}" \
+    --plan-out "${TEMPORARY_ROOT}/prohibited-${prohibited_outcome}-outcome-plan.json"; then
+    fail "composite planning should reject prohibited outcome ${prohibited_outcome}"
+  fi
+  assert_contains "$(<"${STDERR_FILE}")" "hidden Quality decisions" \
+    "prohibited outcome aliases should explain the composite boundary"
+done
 
 alternate_recipients_spec="${TEMPORARY_ROOT}/alternate-composite-recipients.json"
 alternate_recipients_plan="${TEMPORARY_ROOT}/alternate-composite-recipients-plan.json"
@@ -1512,7 +1786,11 @@ run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
 
 alternate_issue_users_spec="${TEMPORARY_ROOT}/alternate-issue-users-spec.json"
 alternate_issue_users_plan="${TEMPORARY_ROOT}/alternate-issue-users-plan.json"
-jq '.intendedChanges.notificationUsers = ["Synthetic Tim", "Synthetic Jordan"]' \
+jq '
+  .intendedChanges.notificationUsers = ["Synthetic Tim", "Synthetic Jordan"] |
+  .observedState.notificationUsers = .intendedChanges.notificationUsers |
+  .preconditions.notificationUsers = .intendedChanges.notificationUsers
+' \
   "${SUBMIT_ISSUE_SPEC}" >"${alternate_issue_users_spec}"
 run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
   --create-browser-plan --browser-plan-spec "${alternate_issue_users_spec}" \
@@ -1520,7 +1798,11 @@ run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
 [[ "$(jq -r '.planId' "${SUBMIT_ISSUE_PLAN}")" != "$(jq -r '.planId' "${alternate_issue_users_plan}")" ]] ||
   fail "changing Issue notification users should change the exact plan ID"
 
-jq '.intendedChanges.notificationUsers = ["Synthetic Tim", "Synthetic Tim"]' \
+jq '
+  .intendedChanges.notificationUsers = ["Synthetic Tim", "Synthetic Tim"] |
+  .observedState.notificationUsers = .intendedChanges.notificationUsers |
+  .preconditions.notificationUsers = .intendedChanges.notificationUsers
+' \
   "${SUBMIT_ISSUE_SPEC}" >"${BROWSER_INVALID_SPEC}"
 if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
   --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
@@ -1554,8 +1836,8 @@ if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
   --plan-out "${TEMPORARY_ROOT}/legacy-submit-issue-plan.json"; then
   fail "Issue planning should reject the old incomplete schema"
 fi
-assert_contains "$(<"${STDERR_FILE}")" "protected workflow values" \
-  "legacy Issue specifications should require regeneration"
+assert_contains "$(<"${STDERR_FILE}")" "notification users must match" \
+  "legacy Issue specifications should require regeneration for visible notification routing"
 
 for composite_invalid_case in \
   duplicate_steps \
@@ -1758,6 +2040,13 @@ run_client_xtrace "${STDOUT_FILE}" "${STDERR_FILE}" \
   --plan-out "${TEMPORARY_ROOT}/submit-draft-xtrace-plan.json" --format json
 assert_not_contains "$(<"${STDERR_FILE}")" "${DRAFT_VALUE_SENTINEL}" \
   "protected native-form values must remain private under Bash tracing"
+jq -e '
+  .risk == "normal" and .notification.capable == false and
+  .observedState.notificationCapable == false and
+  .preconditions.notificationCapable == false and
+  .effects[-1] == "Do not notify any Cognidox user."
+' "${SUBMIT_DRAFT_PLAN}" >/dev/null ||
+  fail "Draft submission should bind the visible no-notification route"
 
 jq --arg path "${SUBMIT_DRAFT_ALTERNATE_VALUES}" \
   --arg sha256 "${submit_draft_alternate_values_hash}" \
@@ -1774,13 +2063,16 @@ fi
 jq '
   .observedState.notificationCapable = true |
   .preconditions.notificationCapable = true |
-  .effects += ["Notify Cognidox users configured for Draft submission."]
+  .effects[-1] = "Notify Cognidox users configured for Draft submission."
 ' "${SUBMIT_DRAFT_SPEC}" >"${BROWSER_INVALID_SPEC}"
 run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
   --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
   --plan-out "${TEMPORARY_ROOT}/notification-capable-submit-draft-plan.json" --format json
 assert_equals "notify" "$(jq -r '.risk' "${TEMPORARY_ROOT}/notification-capable-submit-draft-plan.json")" \
   "notification-capable Draft submission should require notification approval"
+[[ "$(jq -r '.planId' "${SUBMIT_DRAFT_PLAN}")" != \
+  "$(jq -r '.planId' "${TEMPORARY_ROOT}/notification-capable-submit-draft-plan.json")" ]] ||
+  fail "changing Draft notification routing should change the exact plan ID"
 
 jq --arg path "${FORM_SUBMISSION_FILE}" --arg sha256 "${form_submission_hash}" \
   --argjson size "${form_submission_size}" '
@@ -1938,6 +2230,32 @@ if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
 fi
 assert_contains "$(<"${STDERR_FILE}")" "increment exactly one letter" \
   "revision mismatch should explain the one-letter rule"
+
+no_notification_review_spec="${TEMPORARY_ROOT}/no-notification-review-response.json"
+no_notification_review_plan="${TEMPORARY_ROOT}/no-notification-review-response-plan.json"
+jq '
+  .observedState.notificationCapable = false |
+  .preconditions.notificationCapable = false |
+  .effects[-1] = "Do not notify any Cognidox user."
+' "${REVIEW_RESPONSE_SPEC}" >"${no_notification_review_spec}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${no_notification_review_spec}" \
+  --plan-out "${no_notification_review_plan}" --format json
+jq -e '
+  .action == "submit_review_response" and .risk == "normal" and
+  .notification.capable == false and
+  .observedState.notificationCapable == false and
+  .preconditions.notificationCapable == false and
+  .effects[-1] == "Do not notify any Cognidox user."
+' "${no_notification_review_plan}" >/dev/null ||
+  fail "review responses should bind a visible no-notification route"
+[[ "$(jq -r '.planId' "${REVIEW_RESPONSE_PLAN}")" != \
+  "$(jq -r '.planId' "${no_notification_review_plan}")" ]] ||
+  fail "changing review-response notification routing should change the exact plan ID"
+if rg -q --fixed-strings "${REVIEW_RESPONSE_SENTINEL}" \
+  "${no_notification_review_plan}" "${STDOUT_FILE}" "${STDERR_FILE}" "${LOG_FILE}"; then
+  fail "no-notification review plans must not disclose the protected response"
+fi
 
 jq '
   .observedState.reviewTaskVisible = false |

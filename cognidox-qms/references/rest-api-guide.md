@@ -65,7 +65,7 @@ Before a version session:
 6. Enforce comment and version-information requirements.
 7. Stop REST planning when the repository requires checkout. If checkout is appropriate, prepare and approve a separate `checkout_document` browser plan. After checkout, repeat REST preflight and generate a new version plan.
 
-Treat all issue uploads as notification-capable. Tenant routing can start an approval workflow after issue creation.
+Treat all REST Issue uploads as notification-capable. Tenant routing can start an approval workflow after Issue creation. REST preflight does not expose authoritative recipient routing, so it cannot prove a no-notification state. Verified browser no-notification plans do not change this REST boundary.
 
 The final plan includes the tenant API base URL and expected next version. `--apply-plan` rejects a tenant mismatch before network access. It then repeats these checks and rejects a version race.
 

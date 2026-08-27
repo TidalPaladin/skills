@@ -260,9 +260,24 @@ run_tests() {
   assert_contains "$(<"${BROWSER_WORKFLOW_GUIDE}")" \
     'Do not roll back completed QMS effects.' \
     "browser guidance should preserve partial completion"
+  assert_contains "$(<"${SKILL_DOC}")" \
+    'Browser no-notification status requires visible evidence.' \
+    "skill should require visible evidence for no-notification plans"
+  assert_contains "$(<"${BROWSER_WORKFLOW_GUIDE}")" \
+    'The intended, observed, and precondition `notificationUsers` arrays must be identical and unique.' \
+    "browser guidance should bind Issue notification routing"
+  assert_contains "$(<"${BROWSER_WORKFLOW_GUIDE}")" \
+    'The types must match. A bound expected-state value validates the later step.' \
+    "browser guidance should document typed composite references"
   assert_contains "$(<"${FORM_WORKFLOW_GUIDE}")" \
     '`submit_native_form_issue_and_request_approval`' \
     "form guidance should document the Issue-plus-approval composite"
+  assert_contains "$(<"${FORM_WORKFLOW_GUIDE}")" \
+    'Enter the protected nonblank `notificationComment` with no user selected.' \
+    "form guidance should preserve the protected no-notification comment"
+  assert_contains "$(<"${REST_API_GUIDE}")" \
+    'REST preflight does not expose authoritative recipient routing' \
+    "REST guidance should keep Issue uploads at notification risk"
 
   run_command env \
     TOKEN_FILE_AUTH_BASE_DIR="${secret_dir}" \
