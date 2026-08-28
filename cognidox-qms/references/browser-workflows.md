@@ -6,10 +6,12 @@ Use REST first. Use the built-in browser only when the REST client cannot perfor
 
 - `request_review`
 - `request_approval`
+- `set_document_approvers`
 - `register_native_form`
 - `fill_native_form`
 - `submit_native_form_draft`
 - `submit_native_form_issue`
+- `submit_document_issue`
 - `update_document_metadata`
 - `update_version_information`
 - `submit_review_response`
@@ -30,7 +32,7 @@ Write one single-action JSON specification with only these top-level fields:
 - `recipients`: A nonempty unique string array only for `request_review` or `request_approval`. Omit it for every other action.
 - `effects`: The exact ordered effect set for the selected action.
 - `preconditions`: A nonempty object with the state that must remain true until submission.
-- `expectedResult`: Required for `submit_native_form_issue` and `submit_review_response`. It binds a symbolic result ID, exact record lineage, postconditions, and captured fields. Composite steps require it for every action.
+- `expectedResult`: Required for `submit_native_form_issue`, `submit_document_issue`, and `submit_review_response`. It binds a symbolic result ID, exact record lineage, postconditions, and captured fields. Composite steps require it for every action.
 
 Example notification specification:
 
@@ -84,10 +86,12 @@ Each action accepts only these intended changes and effects:
 | --- | --- | --- |
 | `request_review` | `requestType: "document review"`; optional nonblank `instructions`; optional valid calendar `dueDate` in `YYYY-MM-DD` form | `Notify the selected recipients.`; `Create one pending review request.` |
 | `request_approval` | `requestType: "approval request"`; optional nonblank `approvalQueue` and `instructions`; optional valid calendar `dueDate` in `YYYY-MM-DD` form | `Notify the selected recipients.`; `Create one pending approval request.` |
+| `set_document_approvers` | Nonempty, unique `approvers` array taken from the visible approver picker | `Set the listed required approvers for the target document.` |
 | `register_native_form` | The template, field-manifest, and field-identifier contract below | `Register one native Cognidox form definition.` |
 | `fill_native_form` | The protected values-file and field-identifier contract below | `Update the listed native form fields.` |
 | `submit_native_form_draft` | Protected form values, ordered field identifiers, title behavior, and `Revision A` | `Update the listed native form fields from the protected values file.`<br>`Apply the planned native-form title behavior.`<br>`Submit one native-form Draft with Version Information Revision A.`<br>Then use the applicable routing effect: `Notify Cognidox users configured for Draft submission.` or `Do not notify any Cognidox user.` |
 | `submit_native_form_issue` | Protected workflow values and comments, generated upload artifact, ordered field identifiers, unique notification users, exact source Draft, and preserved `Revision A` | Always use the first five effects below and end with `Create one native-form Issue.` For nonempty users, use `Configure the listed notification users and enter the protected notification comment.` For empty users, use `Enter the protected notification comment with no notification user selected.` and `Do not notify any Cognidox user.` |
+| `submit_document_issue` | Bound Office upload file, protected Issue comment, unique notification users, exact source Draft, and one lettered Version Information tag | Upload the Office document, use the exact source Draft, set the bound Version Information, enter the protected Issue comment, then create one Office-document Issue. For empty users, include `Do not notify any Cognidox user.` |
 | `update_document_metadata` | Protected current/intended state and ordered visible editable metadata identifiers | `Update the target document title, author, and listed metadata fields from the protected values file.` |
 | `update_version_information` | Protected current/intended Version Information and issue comment, plus the expected next tag | `Update Version Information and the issue comment for the target revision from the protected values file.` |
 | `submit_review_response` | Protected response, `completionAction: "complete_review"`, explicit review outcome, exact UI control label, and expected success text | `Submit one protected response for the exact review task.`<br>`Complete the exact review task.`<br>Then use the applicable routing effect: `Notify Cognidox users configured for review completion.` or `Do not notify any Cognidox user.` |
@@ -100,10 +104,12 @@ Target and state metadata are also action-specific:
 | Action | Target fields | Observed-state and precondition fields |
 | --- | --- | --- |
 | `request_review`, `request_approval` | Required `partNumber`; optional `title`, `version` | `approvalStatus`, `checkedOut`, `editable`, `latestVersion`, `locked`, `recipientVisible`, `reviewStatus`, `version` |
+| `set_document_approvers` | Required `partNumber`; optional `title`, `version` | `canSetApprovers`, `currentApprovers`, `editable`, `latestVersion`, `version` |
 | `register_native_form` | Required `categoryId`, `categoryPath`, `formName`; optional `categoryFormId`, `formId` | `canManageForms`, `categoryId`, `definitionPresent`, `duplicateName` |
 | `fill_native_form` | Required `partNumber`; optional `title`, `version` | `editable`, `fieldIdentifiers`, `formDefinitionId`, `latestVersion`, `status`, `version` |
 | `submit_native_form_draft` | `partNumber`, `draftVersion`, `formDefinitionId` | `canSubmitDraft`, `draftVersion`, `editable`, `fieldIdentifiers`, `formDefinitionId`, `notificationCapable`, `status`, `versionInformationTag` |
 | `submit_native_form_issue` | `partNumber`, `sourceDraftVersion`, `formDefinitionId` | `canCreateIssue`, `editable`, `fieldIdentifiers`, `formDefinitionId`, `latestVersion`, `notificationUsers`, `sourceDraftVersion`, `status`, `versionInformationTag` |
+| `submit_document_issue` | `partNumber`, `sourceDraftVersion` | `canCreateIssue`, `editable`, `latestVersion`, `notificationUsers`, `sourceDraftVersion`, `status`, `versionInformationTag` |
 | `update_document_metadata` | `partNumber`, `recordKind`, `version`; native forms also require `formDefinitionId`, `formName` | `editable`, `metadataIdentifiers`, `version`; native forms also require `formDefinitionId`, `formName` |
 | `update_version_information` | `partNumber`, `version`, `formDefinitionId` | `canEditVersionInformation`, `currentRevision`, `currentVersionInformationTag`, `editable`, `expectedNextVersionInformationTag`, `formDefinitionId`, `status`, `version` |
 | `submit_review_response` | `partNumber`, `draftVersion`, `reviewerIdentity`, and exactly one `reviewPageUrl` or `reviewTaskLocator` | `draftVersion`, `signedInReviewerIdentity`, `reviewHistoryEntries`, the same task locator, and optional `notificationDisabledText` |
@@ -111,7 +117,7 @@ Target and state metadata are also action-specific:
 
 Each object must use only its listed fields and the documented string, Boolean, integer, or identifier-array type. This prevents a prohibited operation from being hidden in `target`, `observedState`, or `preconditions`.
 
-The state must also show that the action is available. Review and approval requests require `recipientVisible: true` as a precondition. Registration requires the same category ID throughout. It also requires `definitionPresent: false`, `canManageForms: true`, and `duplicateName: false`. Native-form filling requires `editable: true`. Draft and Issue submission require an editable Draft and action availability. They also require an exact version, form definition, and ordered field identifiers. An Issue plan requires identical intended, observed, and precondition `notificationUsers` arrays. Metadata and Version Information updates require an editable exact version. Review response submission requires identical complete history snapshots and one `Answer` control for the signed-in reviewer. Checkout requires `checkedOut: false` plus `canCheckout: true`. Reject the plan when any safe-state predicate is absent or false.
+The state must also show that the action is available. Review and approval requests require `recipientVisible: true` as a precondition. Setting approvers requires `canSetApprovers: true`, `editable: true`, and the exact current visible approver list. A request or approver-assignment precondition can include a nonempty `approvalGate` array. Each entry must use `MC-######-XX:Issue N:Approved`. Verify every referenced approval-history page immediately before the first write. Stop unless each Issue is approved. Registration requires the same category ID throughout. It also requires `definitionPresent: false`, `canManageForms: true`, and `duplicateName: false`. Native-form filling requires `editable: true`. Draft and Issue submission require an editable Draft and action availability. They also require an exact version, form definition, and ordered field identifiers. An Issue plan requires identical intended, observed, and precondition `notificationUsers` arrays. Metadata and Version Information updates require an editable exact version. Review response submission requires identical complete history snapshots and one `Answer` control for the signed-in reviewer. Checkout requires `checkedOut: false` plus `canCheckout: true`. Reject the plan when any safe-state predicate is absent or false.
 
 The client copies the specification to a private temporary snapshot before it validates any field. Validation and final plan construction use only that snapshot. It also snapshots each protected artifact before it verifies the artifact hash and size twice. New values and response files must be absolute, readable, regular non-symlink files with no group or other permission bits. Protected-value checks use only the verified mode-`0600` snapshot. A concurrent source-file change cannot alter a plan after the applicable snapshot starts.
 

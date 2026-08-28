@@ -577,6 +577,20 @@ cognidox_write_validate_native_form_issue_boundary() {
   fi
 }
 
+cognidox_write_validate_document_issue_boundary() {
+  local workflow_values_snapshot="$1"
+  local jq_bin="$2"
+
+  if ! "${jq_bin}" -e -s '
+    length == 1 and
+    (.[0] | type == "object" and (keys | sort) == ["issueComment"] and
+      (.issueComment | type == "string" and test("\\S")))
+  ' "${workflow_values_snapshot}" >/dev/null 2>&1; then
+    cognidox_error "submit_document_issue values must contain only a nonblank issueComment."
+    return "${COGNIDOX_QMS_EXIT_USAGE}"
+  fi
+}
+
 cognidox_write_browser_field_type() {
   local action="$1"
   local section="$2"
@@ -585,7 +599,7 @@ cognidox_write_browser_field_type() {
 
   "${jq_bin}" -ner --arg action "${action}" --arg section "${section}" --arg field "${field}" '
     def target_fields($selected_action):
-      if $selected_action == "request_review" or $selected_action == "request_approval" or
+      if $selected_action == "request_review" or $selected_action == "request_approval" or $selected_action == "set_document_approvers" or
           $selected_action == "fill_native_form" or $selected_action == "checkout_document" then
         ["partNumber", "title", "version"]
       elif $selected_action == "register_native_form" then
@@ -594,6 +608,8 @@ cognidox_write_browser_field_type() {
         ["draftVersion", "formDefinitionId", "partNumber"]
       elif $selected_action == "submit_native_form_issue" then
         ["formDefinitionId", "partNumber", "sourceDraftVersion"]
+      elif $selected_action == "submit_document_issue" then
+        ["partNumber", "sourceDraftVersion"]
       elif $selected_action == "update_document_metadata" then
         ["formDefinitionId", "formName", "partNumber", "recordKind", "version"]
       elif $selected_action == "update_version_information" then
@@ -603,7 +619,9 @@ cognidox_write_browser_field_type() {
       else [] end;
     def state_fields($selected_action):
       if $selected_action == "request_review" or $selected_action == "request_approval" then
-        ["approvalStatus", "checkedOut", "editable", "latestVersion", "locked", "recipientVisible", "reviewStatus", "version"]
+        ["approvalGate", "approvalStatus", "checkedOut", "editable", "latestVersion", "locked", "recipientVisible", "reviewStatus", "version"]
+      elif $selected_action == "set_document_approvers" then
+        ["approvalGate", "canSetApprovers", "currentApprovers", "editable", "latestVersion", "version"]
       elif $selected_action == "register_native_form" then
         ["canManageForms", "categoryId", "definitionPresent", "duplicateName"]
       elif $selected_action == "fill_native_form" then
@@ -612,6 +630,8 @@ cognidox_write_browser_field_type() {
         ["canSubmitDraft", "draftVersion", "editable", "fieldIdentifiers", "formDefinitionId", "notificationCapable", "status", "versionInformationTag"]
       elif $selected_action == "submit_native_form_issue" then
         ["canCreateIssue", "editable", "fieldIdentifiers", "formDefinitionId", "latestVersion", "notificationUsers", "sourceDraftVersion", "status", "versionInformationTag"]
+      elif $selected_action == "submit_document_issue" then
+        ["canCreateIssue", "editable", "latestVersion", "notificationUsers", "sourceDraftVersion", "status", "versionInformationTag"]
       elif $selected_action == "update_document_metadata" then
         ["editable", "formDefinitionId", "formName", "metadataIdentifiers", "version"]
       elif $selected_action == "update_version_information" then
@@ -624,12 +644,16 @@ cognidox_write_browser_field_type() {
     def expected_result_fields($selected_action):
       if $selected_action == "request_review" or $selected_action == "request_approval" then
         ["approvalStatus", "checkedOut", "editable", "latestVersion", "locked", "recipientVisible", "reviewStatus", "version"]
+      elif $selected_action == "set_document_approvers" then
+        ["canSetApprovers", "currentApprovers", "editable", "latestVersion", "version"]
       elif $selected_action == "fill_native_form" then
         ["editable", "fieldIdentifiers", "formDefinitionId", "latestVersion", "status", "version"]
       elif $selected_action == "submit_native_form_draft" then
         ["draftVersion", "fieldIdentifiers", "formDefinitionId", "latestVersion", "status", "versionInformationTag"]
       elif $selected_action == "submit_native_form_issue" then
         ["fieldIdentifiers", "formDefinitionId", "latestVersion", "sourceDraftVersion", "status", "versionInformationTag"]
+      elif $selected_action == "submit_document_issue" then
+        ["latestVersion", "sourceDraftVersion", "status", "versionInformationTag"]
       elif $selected_action == "update_document_metadata" then
         ["editable", "formDefinitionId", "formName", "metadataIdentifiers", "version"]
       elif $selected_action == "update_version_information" then
@@ -640,13 +664,13 @@ cognidox_write_browser_field_type() {
         ["checkedOut", "checkedOutBy", "latestVersion", "lockState", "version"]
       else [] end;
     def field_type($selected_field):
-      if ["canCheckout", "canCreateIssue", "canEditVersionInformation", "canManageForms", "canSubmitDraft",
+      if ["canCheckout", "canCreateIssue", "canEditVersionInformation", "canManageForms", "canSetApprovers", "canSubmitDraft",
           "checkedOut", "definitionPresent", "duplicateName", "editable", "locked", "notificationCapable",
-          "recipientVisible", "answerAvailable"] | index($selected_field) then
+          "recipientVisible", "answerAvailable", "completionAvailable", "reviewTaskVisible"] | index($selected_field) then
         "boolean"
       elif $selected_field == "reviewHistoryEntries" then
         "review-history"
-      elif ["fieldIdentifiers", "metadataIdentifiers", "notificationUsers"] | index($selected_field) then
+      elif ["approvalGate", "currentApprovers", "fieldIdentifiers", "metadataIdentifiers", "notificationUsers"] | index($selected_field) then
         "array"
       elif $selected_field == "categoryId" then "number"
       else "string" end;
@@ -664,8 +688,8 @@ cognidox_write_validate_browser_expected_result() {
   local jq_bin="$3"
 
   if ! "${jq_bin}" -e 'has("expectedResult")' "${specification_file}" >/dev/null 2>&1; then
-    if [[ "${action}" == "submit_native_form_issue" ]]; then
-      cognidox_error "submit_native_form_issue requires exact expected Issue postconditions."
+    if [[ "${action}" == "submit_native_form_issue" || "${action}" == "submit_document_issue" ]]; then
+      cognidox_error "${action} requires exact expected Issue postconditions."
       return "${COGNIDOX_QMS_EXIT_USAGE}"
     elif [[ "${action}" == "submit_review_response" ]]; then
       cognidox_error "submit_review_response requires exact review completion postconditions."
@@ -680,7 +704,7 @@ cognidox_write_validate_browser_expected_result() {
     def field_type($field):
       if ["answerAvailable", "checkedOut", "editable", "locked", "recipientVisible"] | index($field) then
         "boolean"
-      elif ["fieldIdentifiers", "metadataIdentifiers"] | index($field) then
+      elif ["approvalGate", "currentApprovers", "fieldIdentifiers", "metadataIdentifiers"] | index($field) then
         "array"
       else "string" end;
     def valid_state_entry:
@@ -690,13 +714,17 @@ cognidox_write_validate_browser_expected_result() {
       else $entry.value | nonblank end;
     def allowed_state_fields($selected_action):
       if $selected_action == "request_review" or $selected_action == "request_approval" then
-        ["approvalStatus", "checkedOut", "editable", "latestVersion", "locked", "recipientVisible", "reviewStatus", "version"]
+        ["approvalGate", "approvalStatus", "checkedOut", "editable", "latestVersion", "locked", "recipientVisible", "reviewStatus", "version"]
+      elif $selected_action == "set_document_approvers" then
+        ["approvalGate", "canSetApprovers", "currentApprovers", "editable", "latestVersion", "version"]
       elif $selected_action == "fill_native_form" then
         ["editable", "fieldIdentifiers", "formDefinitionId", "latestVersion", "status", "version"]
       elif $selected_action == "submit_native_form_draft" then
         ["draftVersion", "fieldIdentifiers", "formDefinitionId", "latestVersion", "status", "versionInformationTag"]
       elif $selected_action == "submit_native_form_issue" then
         ["fieldIdentifiers", "formDefinitionId", "latestVersion", "sourceDraftVersion", "status", "versionInformationTag"]
+      elif $selected_action == "submit_document_issue" then
+        ["latestVersion", "sourceDraftVersion", "status", "versionInformationTag"]
       elif $selected_action == "update_document_metadata" then
         ["editable", "formDefinitionId", "formName", "metadataIdentifiers", "version"]
       elif $selected_action == "update_version_information" then
@@ -736,6 +764,15 @@ cognidox_write_validate_browser_expected_result() {
         return "${COGNIDOX_QMS_EXIT_USAGE}"
       }
       ;;
+    set_document_approvers)
+      "${jq_bin}" -e '
+        .expectedResult.state.currentApprovers == .intendedChanges.approvers and
+        .expectedResult.captures == {approvers: "currentApprovers"}
+      ' "${specification_file}" >/dev/null 2>&1 || {
+        cognidox_error "set_document_approvers expectedResult must bind the selected approvers."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      }
+      ;;
     submit_native_form_issue)
       if ! "${jq_bin}" -e '
         .expectedResult.state == {
@@ -746,6 +783,18 @@ cognidox_write_validate_browser_expected_result() {
         } and .expectedResult.captures == {version: "latestVersion"}
       ' "${specification_file}" >/dev/null 2>&1; then
         cognidox_error "submit_native_form_issue expectedResult must bind the Issue state and captured version."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
+    submit_document_issue)
+      if ! "${jq_bin}" -e '
+        .expectedResult.state == {
+          status: "Issue",
+          sourceDraftVersion: .target.sourceDraftVersion,
+          versionInformationTag: .intendedChanges.versionInformationTag
+        } and .expectedResult.captures == {version: "latestVersion"}
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "submit_document_issue expectedResult must bind the Issue state and captured version."
         return "${COGNIDOX_QMS_EXIT_USAGE}"
       fi
       ;;
@@ -976,10 +1025,11 @@ cognidox_write_validate_browser_metadata_contract() {
           (keys - ["partNumber", "title", "version"] | length) == 0 and
           all(to_entries[]; .value | nonblank);
         def request_state:
-          (keys - ["approvalStatus", "checkedOut", "editable", "latestVersion", "locked", "recipientVisible", "reviewStatus", "version"] | length) == 0 and
+          (keys - ["approvalGate", "approvalStatus", "checkedOut", "editable", "latestVersion", "locked", "recipientVisible", "reviewStatus", "version"] | length) == 0 and
           all(to_entries[];
             if .key == "checkedOut" or .key == "editable" or .key == "locked" or .key == "recipientVisible"
             then .value | type == "boolean"
+            elif .key == "approvalGate" then .value | type == "array" and length > 0 and all(.[]; nonblank and test("^MC-[0-9]{6}-(PN|RE):Issue [1-9][0-9]*:Approved$")) and (unique | length) == length
             else .value | nonblank
             end);
         (.target | document_target) and
@@ -993,6 +1043,29 @@ cognidox_write_validate_browser_metadata_contract() {
         .preconditions.recipientVisible == true
       ' "${specification_file}" >/dev/null 2>&1; then
         cognidox_error "${action} requires recipientVisible: true safe-state preconditions."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
+    set_document_approvers)
+      if ! "${jq_bin}" -e '
+        def nonblank: type == "string" and test("\\S");
+        def document_target:
+          (.partNumber | nonblank) and
+          (keys - ["partNumber", "title", "version"] | length) == 0 and
+          all(to_entries[]; .value | nonblank);
+        def approver_state:
+          (keys - ["approvalGate", "canSetApprovers", "currentApprovers", "editable", "latestVersion", "version"] | length) == 0 and
+          all(to_entries[];
+            if .key == "canSetApprovers" or .key == "editable" then .value | type == "boolean"
+            elif .key == "approvalGate" then .value | type == "array" and length > 0 and all(.[]; nonblank and test("^MC-[0-9]{6}-(PN|RE):Issue [1-9][0-9]*:Approved$")) and (unique | length) == length
+            elif .key == "currentApprovers" then .value | type == "array" and all(.[]; nonblank) and (unique | length) == length
+            else .value | nonblank end);
+        (.target | document_target) and
+        (.observedState | approver_state) and
+        (.preconditions | approver_state) and
+        .preconditions.canSetApprovers == true and .preconditions.editable == true
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "set_document_approvers requires an editable record, visible current approvers, and canSetApprovers: true."
         return "${COGNIDOX_QMS_EXIT_USAGE}"
       fi
       ;;
@@ -1117,6 +1190,40 @@ cognidox_write_validate_browser_metadata_contract() {
         .preconditions.versionInformationTag == "Revision A"
       ' "${specification_file}" >/dev/null 2>&1; then
         cognidox_error "${action} requires the exact editable source Draft and visible form, and notification users must match visible routing."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
+    submit_document_issue)
+      if ! "${jq_bin}" -e '
+        def nonblank: type == "string" and test("\\S");
+        def notification_users:
+          type == "array" and all(.[]; nonblank) and (unique | length) == length;
+        def target:
+          (keys | sort) == ["partNumber", "sourceDraftVersion"] and all(.[]; nonblank);
+        def state:
+          (keys | sort) == ["canCreateIssue", "editable", "latestVersion", "notificationUsers", "sourceDraftVersion", "status", "versionInformationTag"] and
+          (.canCreateIssue | type == "boolean") and (.editable | type == "boolean") and
+          (.notificationUsers | notification_users) and (.latestVersion | nonblank) and
+          (.sourceDraftVersion | nonblank) and (.status | nonblank) and
+          (.versionInformationTag | type == "string" and test("^Revision [A-Z]$"));
+        (.target | target) and (.observedState | state) and (.preconditions | state)
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "submit_document_issue metadata must match the supported target, observedState, preconditions, and unique notification users schema."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      if ! "${jq_bin}" -e '
+        .target.sourceDraftVersion as $source_draft |
+        .intendedChanges.versionInformationTag as $revision |
+        .observedState.editable == true and .preconditions.editable == true and
+        .observedState.canCreateIssue == true and .preconditions.canCreateIssue == true and
+        .observedState.status == "Draft" and .preconditions.status == "Draft" and
+        .observedState.sourceDraftVersion == $source_draft and .preconditions.sourceDraftVersion == $source_draft and
+        .observedState.latestVersion == $source_draft and .preconditions.latestVersion == $source_draft and
+        .observedState.notificationUsers == .intendedChanges.notificationUsers and
+        .preconditions.notificationUsers == .intendedChanges.notificationUsers and
+        .observedState.versionInformationTag == $revision and .preconditions.versionInformationTag == $revision
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "submit_document_issue requires the exact editable source Draft and visible notification routing."
         return "${COGNIDOX_QMS_EXIT_USAGE}"
       fi
       ;;
@@ -1340,6 +1447,18 @@ cognidox_write_validate_browser_action_contract() {
       fi
       expected_effects='["Notify the selected recipients.","Create one pending approval request."]'
       ;;
+    set_document_approvers)
+      if ! "${jq_bin}" -e '
+        .intendedChanges |
+          (keys | sort) == ["approvers"] and
+          (.approvers | type == "array" and length > 0 and
+            all(.[]; type == "string" and test("\\S")) and (unique | length) == length)
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "set_document_approvers requires one or more unique visible approvers."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      expected_effects='["Set the listed required approvers for the target document."]'
+      ;;
     register_native_form)
       if ! "${jq_bin}" -e '
         (.intendedChanges | keys | sort) == ["fieldIdentifiers", "fieldManifestFile", "templateFile"]
@@ -1413,6 +1532,29 @@ cognidox_write_validate_browser_action_contract() {
         expected_effects='["Use the bound native-form values from the protected workflow file.","Upload the bound form-submission.json artifact.","Use the exact source Draft and form definition.","Set Version Information to Revision A.","Enter the required Issue comment from the protected workflow file.","Enter the protected notification comment with no notification user selected.","Do not notify any Cognidox user.","Create one native-form Issue."]'
       else
         expected_effects='["Use the bound native-form values from the protected workflow file.","Upload the bound form-submission.json artifact.","Use the exact source Draft and form definition.","Set Version Information to Revision A.","Enter the required Issue comment from the protected workflow file.","Configure the listed notification users and enter the protected notification comment.","Create one native-form Issue."]'
+      fi
+      ;;
+    submit_document_issue)
+      if ! "${jq_bin}" -e '
+        (.intendedChanges | keys | sort) == ["issueValuesFile", "notificationUsers", "sourceDraftVersion", "uploadFile", "versionInformationTag"] and
+        (.intendedChanges.sourceDraftVersion | type == "string" and test("\\S")) and
+        .intendedChanges.sourceDraftVersion == .target.sourceDraftVersion and
+        (.intendedChanges.versionInformationTag | type == "string" and test("^Revision [A-Z]$")) and
+        (.intendedChanges.notificationUsers | type == "array" and
+          all(.[]; type == "string" and test("\\S")) and (unique | length) == length)
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "submit_document_issue requires the Office file, protected Issue comment, unique notification users, exact source Draft, and one Revision tag."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      cognidox_write_validate_browser_artifact_descriptor \
+        "${specification_file}" "uploadFile" "${action}" "${jq_bin}" || return $?
+      cognidox_write_validate_browser_artifact_descriptor \
+        "${specification_file}" "issueValuesFile" "${action}" "${jq_bin}" || return $?
+      if "${jq_bin}" -e '.intendedChanges.notificationUsers | length == 0' \
+        "${specification_file}" >/dev/null 2>&1; then
+        expected_effects="$("${jq_bin}" -cn --arg revision "$("${jq_bin}" -r '.intendedChanges.versionInformationTag' "${specification_file}")" '["Upload the bound Office document file.","Use the exact source Draft.",("Set Version Information to " + $revision + "."),"Enter the required Issue comment from the protected values file.","Do not notify any Cognidox user.","Create one Office-document Issue."]')"
+      else
+        expected_effects="$("${jq_bin}" -cn --arg revision "$("${jq_bin}" -r '.intendedChanges.versionInformationTag' "${specification_file}")" '["Upload the bound Office document file.","Use the exact source Draft.",("Set Version Information to " + $revision + "."),"Enter the required Issue comment from the protected values file.","Configure the listed notification users.","Create one Office-document Issue."]')"
       fi
       ;;
     update_document_metadata)
@@ -1585,7 +1727,7 @@ cognidox_write_build_composite_browser_plan() {
     step_id="$("${jq_bin}" -r '.stepId' "${original_step}")"
     step_action="$("${jq_bin}" -r '.action' "${original_step}")"
     case "${step_action}" in
-      request_review|request_approval|fill_native_form|submit_native_form_draft|submit_native_form_issue|update_document_metadata|update_version_information|submit_review_response|checkout_document) ;;
+      request_review|request_approval|set_document_approvers|fill_native_form|submit_native_form_draft|submit_native_form_issue|submit_document_issue|update_document_metadata|update_version_information|submit_review_response|checkout_document) ;;
       *)
         cognidox_error "${step_action} is not an allowed browser action inside a one-lineage composite workflow."
         return "${COGNIDOX_QMS_EXIT_USAGE}"
@@ -1799,6 +1941,7 @@ cognidox_write_build_browser_plan() {
   fi
   case "${action}" in
     request_review|request_approval) risk="notify" ;;
+    set_document_approvers) risk="normal" ;;
     register_native_form|fill_native_form|checkout_document|update_document_metadata|update_version_information) risk="normal" ;;
     submit_native_form_draft)
       if "${jq_bin}" -e '.observedState.notificationCapable == true' \
@@ -1808,7 +1951,7 @@ cognidox_write_build_browser_plan() {
         risk="normal"
       fi
       ;;
-    submit_native_form_issue)
+    submit_native_form_issue|submit_document_issue)
       if "${jq_bin}" -e '.observedState.notificationUsers == []' \
         "${specification_file}" >/dev/null 2>&1; then
         risk="normal"
@@ -1886,6 +2029,12 @@ cognidox_write_build_browser_plan() {
       "protected form-submission.json" "${jq_bin}" "${form_submission_snapshot}" || return $?
     cognidox_write_validate_native_form_issue_boundary "${specification_file}" "${jq_bin}" \
       "${workflow_values_snapshot}" "${form_submission_snapshot}" || return $?
+  elif [[ "${action}" == "submit_document_issue" ]]; then
+    cognidox_write_snapshot_browser_artifact "${specification_file}" "uploadFile" \
+      "Office document upload file" "${jq_bin}" "${form_submission_snapshot}" || return $?
+    cognidox_write_snapshot_protected_browser_artifact "${specification_file}" "issueValuesFile" \
+      "protected Issue values file" "${jq_bin}" "${workflow_values_snapshot}" || return $?
+    cognidox_write_validate_document_issue_boundary "${workflow_values_snapshot}" "${jq_bin}" || return $?
   elif [[ "${action}" == "update_document_metadata" ]]; then
     cognidox_write_snapshot_private_configuration "${metadata_allowlist_path}" \
       "tenant metadata allowlist" "${metadata_allowlist_snapshot}" || return $?
