@@ -6,7 +6,6 @@ readonly SYNC_SCRIPT="${REPO_ROOT}/scripts/sync_codex_to_repo.sh"
 readonly AGENT_VALIDATOR="${REPO_ROOT}/scripts/validate_codex_agents.py"
 readonly PR_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/pr-lifecycle-reporter.toml"
 readonly CITATION_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/citation-verifier.toml"
-readonly COGNIDOX_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/cognidox-qms-worker.toml"
 readonly PROJECT_CONFIG="${REPO_ROOT}/.codex/config.toml"
 readonly ROOT_GUIDANCE="${REPO_ROOT}/AGENTS.md"
 readonly CITATION_SKILL="${REPO_ROOT}/citation-verifier/SKILL.md"
@@ -104,7 +103,6 @@ run_sync() {
 test_agent_source_contract() {
   assert_file_exists "$PR_AGENT_SOURCE"
   assert_file_exists "$CITATION_AGENT_SOURCE"
-  assert_file_exists "$COGNIDOX_AGENT_SOURCE"
   assert_file_exists "$CITATION_SKILL"
   assert_file_exists "$CITATION_INTERFACE"
   assert_path_missing "${REPO_ROOT}/citation-verifier/scripts"
@@ -133,16 +131,6 @@ test_agent_source_contract() {
   assert_contains "$CITATION_AGENT_SOURCE" 'Do not modify local files, Git state'
   assert_contains "$CITATION_AGENT_SOURCE" 'Return exactly one citation verification'
   assert_not_contains "$CITATION_AGENT_SOURCE" 'dissertation'
-  assert_contains "$COGNIDOX_AGENT_SOURCE" 'name = "cognidox_qms_worker"'
-  assert_contains "$COGNIDOX_AGENT_SOURCE" 'model = "gpt-5.6-luna"'
-  assert_contains "$COGNIDOX_AGENT_SOURCE" 'model_reasoning_effort = "medium"'
-  assert_contains "$COGNIDOX_AGENT_SOURCE" 'sandbox_mode = "workspace-write"'
-  assert_contains "$COGNIDOX_AGENT_SOURCE" 'approval_policy = "never"'
-  assert_contains "$COGNIDOX_AGENT_SOURCE" 'exactly one bounded read partition, one deterministic-plan preparation assignment, or one exact approved normal-risk REST plan'
-  assert_contains "$COGNIDOX_AGENT_SOURCE" 'exact plan path, exact plan ID, and confirmation that the user approved that ID'
-  assert_contains "$COGNIDOX_AGENT_SOURCE" 'risk: normal'
-  assert_contains "$COGNIDOX_AGENT_SOURCE" 'Do not perform notification, destructive, browser, policy-sensitive, ambiguous-recovery, or cross-document synthesis work.'
-  assert_contains "$COGNIDOX_AGENT_SOURCE" 'Do not edit repository files or Git state.'
   assert_contains "$CITATION_SKILL" 'name: citation-verifier'
   assert_contains "$CITATION_SKILL" 'Verify one citation occurrence at a time.'
   assert_contains "$CITATION_SKILL" 'Status: VERIFIED | PARTIAL | INACCURATE | UNVERIFIABLE'
@@ -173,11 +161,6 @@ test_agent_source_contract() {
   assert_contains "$ROOT_GUIDANCE" 'assign exactly one citation occurrence to each instance'
   assert_contains "$ROOT_GUIDANCE" 'source path, line or unique context, citation key, complete surrounding claim, and bibliography entry'
   assert_contains "$ROOT_GUIDANCE" 'consolidate citation reports in source order'
-  assert_contains "$ROOT_GUIDANCE" 'at least three Cognidox documents'
-  assert_contains "$ROOT_GUIDANCE" 'at least two independent normal-risk REST writes'
-  assert_contains "$ROOT_GUIDANCE" 'up to eight `cognidox_qms_worker` instances per ordered wave'
-  assert_contains "$ROOT_GUIDANCE" 'consolidate results in target order'
-  assert_contains "$ROOT_GUIDANCE" 'Keep notification, destructive, browser, policy-sensitive, ambiguous-recovery, and cross-document synthesis work with the main agent.'
   assert_contains "$SYNC_SCRIPT" "--exclude='.venv/'"
   assert_contains "$SYNC_SCRIPT" "--exclude='.pytest_cache/'"
   assert_contains "$SYNC_SCRIPT" "--exclude='.ruff_cache/'"
@@ -359,7 +342,6 @@ test_missing_codex_home_dry_run_succeeds_without_writes() {
   assert_path_missing "$codex_home"
   assert_contains "$output" 'pr-lifecycle-reporter.toml'
   assert_contains "$output" 'citation-verifier.toml'
-  assert_contains "$output" 'cognidox-qms-worker.toml'
   assert_contains "$output" 'max_threads = 8'
 }
 
@@ -390,7 +372,6 @@ EOF
   assert_contains "$output" 'max_threads = 8'
   assert_contains "$output" 'pr-lifecycle-reporter.toml'
   assert_contains "$output" 'citation-verifier.toml'
-  assert_contains "$output" 'cognidox-qms-worker.toml'
 }
 
 test_apply_syncs_agents_and_preserves_unrelated_state() {
@@ -418,7 +399,6 @@ EOF
 
   assert_files_equal "$PR_AGENT_SOURCE" "${codex_home}/agents/pr-lifecycle-reporter.toml"
   assert_files_equal "$CITATION_AGENT_SOURCE" "${codex_home}/agents/citation-verifier.toml"
-  assert_files_equal "$COGNIDOX_AGENT_SOURCE" "${codex_home}/agents/cognidox-qms-worker.toml"
   assert_file_exists "${codex_home}/agents/personal-agent.toml"
   assert_files_equal "${REPO_ROOT}/AGENTS.md" "${codex_home}/AGENTS.md"
   assert_file_exists "${codex_home}/skills/manage-pr-lifecycle/SKILL.md"
