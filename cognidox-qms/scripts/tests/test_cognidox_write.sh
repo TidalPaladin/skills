@@ -534,6 +534,8 @@ readonly SUBMIT_DRAFT_SPEC="${TEMPORARY_ROOT}/submit-native-form-draft-spec.json
 readonly SUBMIT_DRAFT_PLAN="${TEMPORARY_ROOT}/submit-native-form-draft-plan.json"
 readonly SUBMIT_ISSUE_SPEC="${TEMPORARY_ROOT}/submit-native-form-issue-spec.json"
 readonly SUBMIT_ISSUE_PLAN="${TEMPORARY_ROOT}/submit-native-form-issue-plan.json"
+readonly SUBMIT_DOCUMENT_ISSUE_SPEC="${TEMPORARY_ROOT}/submit-document-issue-spec.json"
+readonly SUBMIT_DOCUMENT_ISSUE_PLAN="${TEMPORARY_ROOT}/submit-document-issue-plan.json"
 readonly COMPOSITE_BROWSER_SPEC="${TEMPORARY_ROOT}/composite-browser-workflow-spec.json"
 readonly COMPOSITE_BROWSER_PLAN="${TEMPORARY_ROOT}/composite-browser-workflow-plan.json"
 readonly UPDATE_METADATA_SPEC="${TEMPORARY_ROOT}/update-document-metadata-spec.json"
@@ -545,6 +547,8 @@ readonly REVIEW_RESPONSE_PLAN="${TEMPORARY_ROOT}/submit-review-response-plan.jso
 readonly SUBMIT_DRAFT_VALUES="${TEMPORARY_ROOT}/submit-native-form-draft-values.json"
 readonly SUBMIT_DRAFT_ALTERNATE_VALUES="${TEMPORARY_ROOT}/submit-native-form-draft-alternate-values.json"
 readonly SUBMIT_ISSUE_VALUES="${TEMPORARY_ROOT}/submit-native-form-issue-values.json"
+readonly SUBMIT_DOCUMENT_ISSUE_VALUES="${TEMPORARY_ROOT}/submit-document-issue-values.json"
+readonly DOCUMENT_ISSUE_FILE="${TEMPORARY_ROOT}/document-issue.docx"
 readonly FORM_SUBMISSION_FILE="${TEMPORARY_ROOT}/form-submission.json"
 readonly MISMATCHED_FORM_SUBMISSION_FILE="${TEMPORARY_ROOT}/mismatched-form-submission.json"
 readonly ALTERNATE_ISSUE_VALUES="${TEMPORARY_ROOT}/alternate-submit-native-form-issue-values.json"
@@ -607,6 +611,8 @@ printf '{"formFields":{"complaint_type":"alternate-private-value","reported_by":
 printf '{"formFields":{"complaint_type":"%s","reported_by":"Synthetic Reporter"},"issueComment":"%s","notificationComment":"%s"}\n' \
   "${ISSUE_VALUE_SENTINEL}" "${ISSUE_COMMENT_SENTINEL}" "${NOTIFICATION_COMMENT_SENTINEL}" \
   >"${SUBMIT_ISSUE_VALUES}"
+printf '{"issueComment":"%s"}\n' "${ISSUE_COMMENT_SENTINEL}" >"${SUBMIT_DOCUMENT_ISSUE_VALUES}"
+printf 'synthetic-office-document-bytes\n' >"${DOCUMENT_ISSUE_FILE}"
 printf '{"formFields":{"complaint_type":"%s","reported_by":"Synthetic Reporter"},"issueComment":"Alternate approved comment","notificationComment":"%s"}\n' \
   "${ISSUE_VALUE_SENTINEL}" "${NOTIFICATION_COMMENT_SENTINEL}" >"${ALTERNATE_ISSUE_VALUES}"
 printf '{"current":{"title":"TS-000014-FM, Earlier Complaint, 26 AUG 2026","author":"Synthetic Author","metadata":{"complaint_category":"old","source":"internal"}},"intended":{"title":"TS-000014-FM, %s, 27 AUG 2026","author":"Synthetic Updated Author","metadata":{"complaint_category":"new","source":"internal"}}}\n' \
@@ -631,6 +637,7 @@ chmod 600 \
   "${SUBMIT_DRAFT_VALUES}" \
   "${SUBMIT_DRAFT_ALTERNATE_VALUES}" \
   "${SUBMIT_ISSUE_VALUES}" \
+  "${SUBMIT_DOCUMENT_ISSUE_VALUES}" \
   "${ALTERNATE_ISSUE_VALUES}" \
   "${UPDATE_METADATA_VALUES}" \
   "${INVALID_METADATA_VALUES}" \
@@ -662,6 +669,10 @@ submit_draft_alternate_values_hash="$(sha256_file "${SUBMIT_DRAFT_ALTERNATE_VALU
 submit_draft_alternate_values_size="$(wc -c <"${SUBMIT_DRAFT_ALTERNATE_VALUES}" | tr -d ' ')"
 submit_issue_values_hash="$(sha256_file "${SUBMIT_ISSUE_VALUES}")"
 submit_issue_values_size="$(wc -c <"${SUBMIT_ISSUE_VALUES}" | tr -d ' ')"
+submit_document_issue_values_hash="$(sha256_file "${SUBMIT_DOCUMENT_ISSUE_VALUES}")"
+submit_document_issue_values_size="$(wc -c <"${SUBMIT_DOCUMENT_ISSUE_VALUES}" | tr -d ' ')"
+document_issue_file_hash="$(sha256_file "${DOCUMENT_ISSUE_FILE}")"
+document_issue_file_size="$(wc -c <"${DOCUMENT_ISSUE_FILE}" | tr -d ' ')"
 alternate_issue_values_hash="$(sha256_file "${ALTERNATE_ISSUE_VALUES}")"
 alternate_issue_values_size="$(wc -c <"${ALTERNATE_ISSUE_VALUES}" | tr -d ' ')"
 
@@ -1015,6 +1026,38 @@ cat >"${SUBMIT_ISSUE_SPEC}" <<EOF
       "sourceDraftVersion": "A",
       "versionInformationTag": "Revision A"
     },
+    "captures": {"version": "latestVersion"}
+  }
+}
+EOF
+
+cat >"${SUBMIT_DOCUMENT_ISSUE_SPEC}" <<EOF
+{
+  "action": "submit_document_issue",
+  "target": {"partNumber": "TS-000015-RE", "sourceDraftVersion": "B"},
+  "observedState": {
+    "status": "Draft", "editable": true, "canCreateIssue": true,
+    "sourceDraftVersion": "B", "latestVersion": "B",
+    "notificationUsers": [], "versionInformationTag": "Revision B"
+  },
+  "intendedChanges": {
+    "uploadFile": {"path": "${DOCUMENT_ISSUE_FILE}", "sha256": "${document_issue_file_hash}", "size": ${document_issue_file_size}},
+    "issueValuesFile": {"path": "${SUBMIT_DOCUMENT_ISSUE_VALUES}", "sha256": "${submit_document_issue_values_hash}", "size": ${submit_document_issue_values_size}},
+    "notificationUsers": [], "sourceDraftVersion": "B", "versionInformationTag": "Revision B"
+  },
+  "effects": [
+    "Upload the bound Office document file.", "Use the exact source Draft.",
+    "Set Version Information to Revision B.", "Enter the required Issue comment from the protected values file.",
+    "Do not notify any Cognidox user.", "Create one Office-document Issue."
+  ],
+  "preconditions": {
+    "status": "Draft", "editable": true, "canCreateIssue": true,
+    "sourceDraftVersion": "B", "latestVersion": "B",
+    "notificationUsers": [], "versionInformationTag": "Revision B"
+  },
+  "expectedResult": {
+    "resultId": "created_issue", "partNumber": "TS-000015-RE",
+    "state": {"status": "Issue", "sourceDraftVersion": "B", "versionInformationTag": "Revision B"},
     "captures": {"version": "latestVersion"}
   }
 }
@@ -1527,6 +1570,67 @@ jq -e --arg workflow_path "${SUBMIT_ISSUE_VALUES}" \
     .effects[-1] == "Create one native-form Issue."
 ' "${SUBMIT_ISSUE_PLAN}" >/dev/null ||
   fail "Issue plans should bind the complete protected submission workflow"
+
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${SUBMIT_DOCUMENT_ISSUE_SPEC}" \
+  --plan-out "${SUBMIT_DOCUMENT_ISSUE_PLAN}" --format json
+jq -e --arg upload_path "${DOCUMENT_ISSUE_FILE}" --arg values_path "${SUBMIT_DOCUMENT_ISSUE_VALUES}" '
+  .action == "submit_document_issue" and .risk == "normal" and
+  .intendedChanges.uploadFile.path == $upload_path and
+  .intendedChanges.issueValuesFile.path == $values_path and
+  .intendedChanges.notificationUsers == [] and
+  .observedState.notificationUsers == [] and .preconditions.notificationUsers == [] and
+  .expectedResult.captures == {version: "latestVersion"} and
+  .effects[-2:] == ["Do not notify any Cognidox user.", "Create one Office-document Issue."]
+' "${SUBMIT_DOCUMENT_ISSUE_PLAN}" >/dev/null ||
+  fail "Office-document Issue plans should bind file, comment, and empty notification routing"
+
+document_issue_notify_spec="${TEMPORARY_ROOT}/submit-document-issue-notify-spec.json"
+jq '
+  .observedState.notificationUsers = ["Synthetic Tim"] |
+  .preconditions.notificationUsers = ["Synthetic Tim"] |
+  .intendedChanges.notificationUsers = ["Synthetic Tim"] |
+  .effects[4] = "Configure the listed notification users."
+' "${SUBMIT_DOCUMENT_ISSUE_SPEC}" >"${document_issue_notify_spec}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${document_issue_notify_spec}" \
+  --plan-out "${TEMPORARY_ROOT}/submit-document-issue-notify-plan.json" --format json
+jq -e '.action == "submit_document_issue" and .risk == "notify" and .notification.capable == true' \
+  "${TEMPORARY_ROOT}/submit-document-issue-notify-plan.json" >/dev/null ||
+  fail "Office-document Issue plans should derive notify risk for visible notification users"
+
+mismatched_document_issue_users_spec="${TEMPORARY_ROOT}/mismatched-document-issue-users.json"
+jq '.intendedChanges.notificationUsers = ["Synthetic Tim"]' \
+  "${SUBMIT_DOCUMENT_ISSUE_SPEC}" >"${mismatched_document_issue_users_spec}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${mismatched_document_issue_users_spec}" \
+  --plan-out "${TEMPORARY_ROOT}/mismatched-document-issue-users-plan.json"; then
+  fail "Office-document Issue planning should reject notification users that differ from visible routing"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "visible notification routing" \
+  "Office-document Issue notification routing mismatches should require a replacement plan"
+
+stale_document_issue_spec="${TEMPORARY_ROOT}/stale-document-issue.json"
+jq '.preconditions.latestVersion = "C"' \
+  "${SUBMIT_DOCUMENT_ISSUE_SPEC}" >"${stale_document_issue_spec}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${stale_document_issue_spec}" \
+  --plan-out "${TEMPORARY_ROOT}/stale-document-issue-plan.json"; then
+  fail "Office-document Issue planning should reject a stale source Draft"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "exact editable source Draft" \
+  "Office-document Issue stale Drafts should require a replacement plan"
+
+changed_document_issue_artifact_spec="${TEMPORARY_ROOT}/changed-document-issue-artifact.json"
+jq '.intendedChanges.uploadFile.sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' \
+  "${SUBMIT_DOCUMENT_ISSUE_SPEC}" >"${changed_document_issue_artifact_spec}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${changed_document_issue_artifact_spec}" \
+  --plan-out "${TEMPORARY_ROOT}/changed-document-issue-artifact-plan.json"; then
+  fail "Office-document Issue planning should reject a changed upload artifact"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "does not match" \
+  "Office-document Issue upload artifacts should match their bound descriptor"
 
 no_notification_issue_spec="${TEMPORARY_ROOT}/no-notification-issue-spec.json"
 no_notification_issue_plan="${TEMPORARY_ROOT}/no-notification-issue-plan.json"
