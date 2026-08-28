@@ -1,4 +1,0 @@
-interface:
-  display_name: "DDP Lifecycle"
-  short_description: "Review DDP phase evidence and gates"
-  default_prompt: "Use $ddp-lifecycle to review Phase 3 design evidence."
