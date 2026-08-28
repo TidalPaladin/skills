@@ -21,10 +21,6 @@ readonly -a SHELL_FILES=(
   token-file-auth/scripts/tests/test_token_file_auth.sh
   circleci-job-results/scripts/fetch_circleci_job_results.sh
   circleci-job-results/scripts/tests/test_fetch_circleci_job_results.sh
-  cognidox-qms/scripts/cognidox_qms.sh
-  cognidox-qms/scripts/cognidox_write.sh
-  cognidox-qms/scripts/tests/test_cognidox_qms.sh
-  cognidox-qms/scripts/tests/test_cognidox_write.sh
 )
 
 cd "$REPO_ROOT"
@@ -108,9 +104,9 @@ done
 
 scripts/test_ci.sh
 
-run_ci_tool ruff format --check scripts inspect-dataset review-fix-loop emend cognidox-qms/scripts
+run_ci_tool ruff format --check scripts inspect-dataset review-fix-loop emend
 run_ci_tool ruff check --target-version py311 --select E4,E7,E9,F,I,ISC \
-  scripts inspect-dataset review-fix-loop emend cognidox-qms/scripts
+  scripts inspect-dataset review-fix-loop emend
 run_ci_tool env PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1 \
   basedpyright --level error \
   scripts/validate_codex_agents.py \
@@ -118,15 +114,11 @@ run_ci_tool env PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1 \
   review-fix-loop/scripts/run_review.py \
   review-fix-loop/tests/test_run_review.py \
   emend/scripts/check_asd_ste100.py \
-  emend/tests/test_check_asd_ste100.py \
-  cognidox-qms/scripts/cognidox_office_form.py \
-  cognidox-qms/scripts/tests/test_cognidox_office_form.py
+  emend/tests/test_check_asd_ste100.py
 run_ci_tool shellcheck --severity=error "${SHELL_FILES[@]}"
 run_ci_tool pytest -q review-fix-loop/tests
 run_ci_tool pytest --cov=emend/scripts --cov-report=term-missing \
   --cov-fail-under=90 -q emend/tests
-run_ci_tool pytest --cov=cognidox_office_form --cov-report=term-missing \
-  --cov-fail-under=90 -q cognidox-qms/scripts/tests/test_cognidox_office_form.py
 
 run_notify_wake_tool "$PYTHON_VERSION" ruff format --check runtime scripts tests
 run_notify_wake_tool "$PYTHON_VERSION" ruff check runtime scripts tests
@@ -141,8 +133,6 @@ done
 
 token-file-auth/scripts/tests/test_token_file_auth.sh
 circleci-job-results/scripts/tests/test_fetch_circleci_job_results.sh
-cognidox-qms/scripts/tests/test_cognidox_qms.sh
-cognidox-qms/scripts/tests/test_cognidox_write.sh
 scripts/test_sync_codex_to_repo.sh
 
 run_ci_tool actionlint
