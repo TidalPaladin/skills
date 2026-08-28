@@ -278,6 +278,27 @@ run_tests() {
   assert_contains "$(<"${REST_API_GUIDE}")" \
     'REST preflight does not expose authoritative recipient routing' \
     "REST guidance should keep Issue uploads at notification risk"
+  assert_contains "$(<"${BROWSER_WORKFLOW_GUIDE}")" \
+    '`Answer` is the authoritative pending-review indicator for the signed-in reviewer.' \
+    "browser guidance should use Answer as the review-task authority"
+  assert_contains "$(<"${BROWSER_WORKFLOW_GUIDE}")" \
+    'Inspect every review-history entry for the current Draft.' \
+    "browser guidance should require complete review-history inspection"
+  assert_contains "$(<"${BROWSER_WORKFLOW_GUIDE}")" \
+    'record the completed review and stop the remaining batch.' \
+    "browser guidance should stop a batch after unexpected email notification"
+  assert_contains "$(<"${BROWSER_WORKFLOW_GUIDE}")" \
+    'Automatic submitter email is notification behavior.' \
+    "browser guidance should treat automatic submitter email as notification"
+  assert_contains "$(<"${SKILL_DOC}")" \
+    'Review completion uses risk `notify` by default.' \
+    "skill guidance should default review completion to notification risk"
+  assert_contains "$(<"${FORM_WORKFLOW_GUIDE}")" \
+    'Bind the complete Draft review history and the visible `Answer` control.' \
+    "form guidance should use the strict review-history contract"
+  assert_not_contains "$(<"${FORM_WORKFLOW_GUIDE}")" \
+    'Bind visible `notificationCapable` in both state objects.' \
+    "form guidance should not retain the removed review notification schema"
 
   run_command env \
     TOKEN_FILE_AUTH_BASE_DIR="${secret_dir}" \
