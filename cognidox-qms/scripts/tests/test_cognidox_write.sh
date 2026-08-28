@@ -1135,17 +1135,26 @@ cat >"${REVIEW_RESPONSE_SPEC}" <<EOF
   "action": "submit_review_response",
   "target": {
     "partNumber": "TS-000014-FM",
-    "targetVersion": "1",
-    "reviewTaskId": "review-task-1"
+    "draftVersion": "1",
+    "reviewerIdentity": "Synthetic Reviewer",
+    "reviewPageUrl": "https://mock.cognidox.example/cgi-bin/review-history?part=TS-000014-FM&version=1"
   },
   "observedState": {
-    "reviewTaskVisible": true,
-    "completionAvailable": true,
-    "notificationCapable": true,
-    "taskStatus": "Pending",
-    "reviewTaskId": "review-task-1",
-    "targetVersion": "1",
-    "reviewerIdentity": "Synthetic Reviewer"
+    "draftVersion": "1",
+    "signedInReviewerIdentity": "Synthetic Reviewer",
+    "reviewPageUrl": "https://mock.cognidox.example/cgi-bin/review-history?part=TS-000014-FM&version=1",
+    "reviewHistoryEntries": [
+      {
+        "reviewerIdentity": "Synthetic Completed Reviewer",
+        "outcome": "Accepted",
+        "answerAvailable": false
+      },
+      {
+        "reviewerIdentity": "Synthetic Reviewer",
+        "outcome": null,
+        "answerAvailable": true
+      }
+    ]
   },
   "intendedChanges": {
     "responseFile": {
@@ -1153,7 +1162,10 @@ cat >"${REVIEW_RESPONSE_SPEC}" <<EOF
       "sha256": "${review_response_values_hash}",
       "size": ${review_response_values_size}
     },
-    "completionAction": "complete_review"
+    "completionAction": "complete_review",
+    "reviewOutcome": "updates_required",
+    "reviewControlLabel": "Updates Required",
+    "expectedSuccessText": "Draft requires updates"
   },
   "effects": [
     "Submit one protected response for the exact review task.",
@@ -1161,13 +1173,33 @@ cat >"${REVIEW_RESPONSE_SPEC}" <<EOF
     "Notify Cognidox users configured for review completion."
   ],
   "preconditions": {
-    "reviewTaskVisible": true,
-    "completionAvailable": true,
-    "notificationCapable": true,
-    "taskStatus": "Pending",
-    "reviewTaskId": "review-task-1",
-    "targetVersion": "1",
-    "reviewerIdentity": "Synthetic Reviewer"
+    "draftVersion": "1",
+    "signedInReviewerIdentity": "Synthetic Reviewer",
+    "reviewPageUrl": "https://mock.cognidox.example/cgi-bin/review-history?part=TS-000014-FM&version=1",
+    "reviewHistoryEntries": [
+      {
+        "reviewerIdentity": "Synthetic Completed Reviewer",
+        "outcome": "Accepted",
+        "answerAvailable": false
+      },
+      {
+        "reviewerIdentity": "Synthetic Reviewer",
+        "outcome": null,
+        "answerAvailable": true
+      }
+    ]
+  },
+  "expectedResult": {
+    "resultId": "completed_review",
+    "partNumber": "TS-000014-FM",
+    "state": {
+      "draftVersion": "1",
+      "reviewerIdentity": "Synthetic Reviewer",
+      "reviewOutcome": "updates_required",
+      "resultPageText": "Draft requires updates",
+      "answerAvailable": false
+    },
+    "captures": {}
   }
 }
 EOF
@@ -1456,6 +1488,32 @@ for browser_action in \
   [[ ! -s "${LOG_FILE}" ]] || fail "${browser_action} planning must not make Cognidox requests"
 done
 
+jq -e '
+  .action == "submit_review_response" and .risk == "notify" and
+  .target.draftVersion == "1" and
+  .target.reviewerIdentity == "Synthetic Reviewer" and
+  (.target.reviewPageUrl | startswith("https://mock.cognidox.example/")) and
+  (.target | has("reviewTaskId") | not) and
+  (.observedState.reviewHistoryEntries | length) == 2 and
+  .observedState.reviewHistoryEntries[0].answerAvailable == false and
+  .observedState.reviewHistoryEntries[1].answerAvailable == true and
+  .intendedChanges.reviewOutcome == "updates_required" and
+  .intendedChanges.reviewControlLabel == "Updates Required" and
+  .intendedChanges.expectedSuccessText == "Draft requires updates" and
+  .expectedResult.state.resultPageText == .intendedChanges.expectedSuccessText and
+  .expectedResult.state.answerAvailable == false and
+  .effects[-1] == "Notify Cognidox users configured for review completion."
+' "${REVIEW_RESPONSE_PLAN}" >/dev/null ||
+  fail "review completion should bind full history, explicit outcome, automatic notification risk, and exact postconditions"
+bash -c 'source "$1"; cognidox_write_render_plan "$2" jq' \
+  bash "${COGNIDOX_WRITE_SCRIPT}" "${REVIEW_RESPONSE_PLAN}" >"${STDOUT_FILE}"
+assert_contains "$(<"${STDOUT_FILE}")" "Review outcome" \
+  "readable review plans should label the normalized outcome"
+assert_contains "$(<"${STDOUT_FILE}")" "Review control label" \
+  "readable review plans should label the visible UI control"
+assert_contains "$(<"${STDOUT_FILE}")" "Expected success text" \
+  "readable review plans should label the bound result-page text"
+
 jq -e --arg workflow_path "${SUBMIT_ISSUE_VALUES}" \
   --arg submission_path "${FORM_SUBMISSION_FILE}" '
     .action == "submit_native_form_issue" and .risk == "notify" and
@@ -1660,6 +1718,37 @@ if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
 fi
 assert_contains "$(<"${STDERR_FILE}")" "result reference type" \
   "array capture mismatches should explain the typed-reference boundary"
+
+review_history_capture_spec="${TEMPORARY_ROOT}/review-history-capture-composite.json"
+jq -n --slurpfile form "${BROWSER_NORMAL_SPEC}" --slurpfile review "${REVIEW_RESPONSE_SPEC}" '
+  ({stepId: "fill_form"} + $form[0]
+    | .expectedResult = {
+        resultId: "filled_form",
+        partNumber: .target.partNumber,
+        state: {status: "draft", fieldIdentifiers: .observedState.fieldIdentifiers},
+        captures: {verifiedFields: "fieldIdentifiers"}
+      }) as $form_step |
+  ({stepId: "complete_review"} + $review[0]
+    | .target.partNumber = $form_step.target.partNumber
+    | .expectedResult.partNumber = $form_step.target.partNumber
+    | .observedState.reviewHistoryEntries = {
+        stepId: "fill_form", resultId: "filled_form", field: "verifiedFields"
+      }
+    | .preconditions.reviewHistoryEntries = .observedState.reviewHistoryEntries) as $review_step |
+  {
+    action: "composite_browser_workflow",
+    outcome: "fill_native_form_and_submit_review_response",
+    rootTarget: {partNumber: $form_step.target.partNumber},
+    steps: [$form_step, $review_step]
+  }
+' >"${review_history_capture_spec}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${review_history_capture_spec}" \
+  --plan-out "${TEMPORARY_ROOT}/review-history-capture-composite-plan.json"; then
+  fail "composite planning should reject identifier arrays used as review-history snapshots"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "result reference type" \
+  "review-history references should keep their action-specific composite type"
 
 unbound_boolean_capture_spec="${TEMPORARY_ROOT}/unbound-boolean-capture-composite.json"
 jq 'del(.steps[0].expectedResult.state.editable)' \
@@ -2233,9 +2322,9 @@ assert_contains "$(<"${STDERR_FILE}")" "increment exactly one letter" \
 
 no_notification_review_spec="${TEMPORARY_ROOT}/no-notification-review-response.json"
 no_notification_review_plan="${TEMPORARY_ROOT}/no-notification-review-response-plan.json"
-jq '
-  .observedState.notificationCapable = false |
-  .preconditions.notificationCapable = false |
+jq --arg statement "Cognidox completion notifications are disabled." '
+  .observedState.notificationDisabledText = $statement |
+  .preconditions.notificationDisabledText = $statement |
   .effects[-1] = "Do not notify any Cognidox user."
 ' "${REVIEW_RESPONSE_SPEC}" >"${no_notification_review_spec}"
 run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
@@ -2244,8 +2333,8 @@ run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
 jq -e '
   .action == "submit_review_response" and .risk == "normal" and
   .notification.capable == false and
-  .observedState.notificationCapable == false and
-  .preconditions.notificationCapable == false and
+  .observedState.notificationDisabledText == "Cognidox completion notifications are disabled." and
+  .preconditions.notificationDisabledText == .observedState.notificationDisabledText and
   .effects[-1] == "Do not notify any Cognidox user."
 ' "${no_notification_review_plan}" >/dev/null ||
   fail "review responses should bind a visible no-notification route"
@@ -2257,17 +2346,161 @@ if rg -q --fixed-strings "${REVIEW_RESPONSE_SENTINEL}" \
   fail "no-notification review plans must not disclose the protected response"
 fi
 
+jq --arg statement "Cognidox completion notifications are enabled." '
+  .observedState.notificationDisabledText = $statement |
+  .preconditions.notificationDisabledText = $statement |
+  .effects[-1] = "Do not notify any Cognidox user."
+' "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/enabled-notification-review-plan.json"; then
+  fail "review responses should reject notificationDisabledText that says notifications are enabled"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "explicitly state that review completion notifications are disabled" \
+  "no-notification evidence should prove that review completion notifications are disabled"
+
 jq '
-  .observedState.reviewTaskVisible = false |
-  .preconditions.reviewTaskVisible = false
+  .target |= del(.reviewPageUrl) + {reviewTaskLocator: "Review history row 2, Respond"} |
+  .observedState |= del(.reviewPageUrl) + {reviewTaskLocator: "Review history row 2, Respond"} |
+  .observedState.reviewHistoryEntries[1].answerAvailable = false |
+  .preconditions = .observedState
 ' "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
 if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
   --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
   --plan-out "${TEMPORARY_ROOT}/missing-review-task-plan.json"; then
-  fail "review responses should reject a missing reviewer task"
+  fail "review responses should not infer a pending task from a Respond link without Answer"
 fi
-assert_contains "$(<"${STDERR_FILE}")" "visible pending review task" \
-  "missing review tasks should fail the safe-state contract"
+assert_contains "$(<"${STDERR_FILE}")" "exactly one Answer control" \
+  "Answer should be the authoritative pending-review indicator"
+
+for review_outcome in updates_required decline_review accept_review; do
+  case "${review_outcome}" in
+    updates_required)
+      review_control_label="Updates Required"
+      review_success_text="Draft requires updates"
+      ;;
+    decline_review)
+      review_control_label="Decline Review"
+      review_success_text="Review declined"
+      ;;
+    accept_review)
+      review_control_label="Accept"
+      review_success_text="Review accepted"
+      ;;
+  esac
+  jq --arg outcome "${review_outcome}" --arg label "${review_control_label}" \
+    --arg success "${review_success_text}" '
+      .intendedChanges.reviewOutcome = $outcome |
+      .intendedChanges.reviewControlLabel = $label |
+      .intendedChanges.expectedSuccessText = $success |
+      .expectedResult.state.reviewOutcome = $outcome |
+      .expectedResult.state.resultPageText = $success
+    ' "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+  run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/${review_outcome}-review-plan.json" --format json
+  assert_equals "${review_outcome}" \
+    "$(jq -r '.intendedChanges.reviewOutcome' "${TEMPORARY_ROOT}/${review_outcome}-review-plan.json")" \
+    "review responses should accept the explicitly directed ${review_outcome} outcome"
+done
+
+for required_review_field in reviewOutcome reviewControlLabel expectedSuccessText; do
+  jq --arg field "${required_review_field}" 'del(.intendedChanges[$field])' \
+    "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+  if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/missing-${required_review_field}-review-plan.json"; then
+    fail "review responses should require ${required_review_field}"
+  fi
+  assert_contains "$(<"${STDERR_FILE}")" "explicit outcome" \
+    "missing review outcome bindings should explain the explicit-outcome contract"
+done
+
+jq '.intendedChanges.reviewOutcome = "approve_document"' \
+  "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/unsupported-review-outcome-plan.json"; then
+  fail "review responses should reject unsupported or Quality-approval outcomes"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "explicit outcome" \
+  "unsupported review outcomes should explain the reviewer-outcome contract"
+
+for synthetic_task_field in reviewTaskId taskId reviewId; do
+  jq --arg field "${synthetic_task_field}" '
+    .target[$field] = "synthetic-task-1" |
+    .observedState[$field] = "synthetic-task-1" |
+    .preconditions[$field] = "synthetic-task-1"
+  ' "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+  if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+    --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+    --plan-out "${TEMPORARY_ROOT}/synthetic-${synthetic_task_field}-plan.json"; then
+    fail "review responses should reject synthetic ${synthetic_task_field} values"
+  fi
+  assert_contains "$(<"${STDERR_FILE}")" "visible task identity" \
+    "synthetic task identifiers should explain the visible-identity contract"
+done
+
+jq '
+  .target |= del(.reviewPageUrl) + {reviewTaskLocator: "Review history row 2, Answer"} |
+  .observedState |= del(.reviewPageUrl) + {reviewTaskLocator: "Review history row 2, Answer"} |
+  .preconditions = .observedState
+' "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/review-task-locator-plan.json" --format json
+assert_equals "Review history row 2, Answer" \
+  "$(jq -r '.target.reviewTaskLocator' "${TEMPORARY_ROOT}/review-task-locator-plan.json")" \
+  "review responses should accept an exact visible task locator when no review page URL is available"
+
+jq '.target.reviewPageUrl = "https://other.example/cgi-bin/review-history"' \
+  "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/cross-tenant-review-page-plan.json"; then
+  fail "review responses should reject cross-tenant review page URLs"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "tenant HTTPS origin" \
+  "cross-tenant review pages should explain the tenant binding"
+
+jq '.preconditions.notificationDisabledText = "Cognidox completion notifications are disabled."' \
+  "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/one-sided-disabled-notification-plan.json"; then
+  fail "review responses should reject one-sided no-notification evidence"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "matching review-history snapshots" \
+  "no-notification evidence should be present in both state snapshots"
+
+jq 'del(.expectedResult)' "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/missing-review-postconditions-plan.json"; then
+  fail "review responses should require result-page and review-history postconditions"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "exact review completion postconditions" \
+  "missing review postconditions should explain the result verification contract"
+
+jq '.expectedResult.state.answerAvailable = true' \
+  "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/answer-remains-after-review-plan.json"; then
+  fail "review responses should require Answer to disappear after completion"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "Answer control is gone" \
+  "review postconditions should require review-history completion evidence"
+
+jq '.expectedResult.state.resultPageText = "Unexpected result"' \
+  "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"
+if run_client "${STDOUT_FILE}" "${STDERR_FILE}" \
+  --create-browser-plan --browser-plan-spec "${BROWSER_INVALID_SPEC}" \
+  --plan-out "${TEMPORARY_ROOT}/mismatched-review-success-text-plan.json"; then
+  fail "review responses should bind the exact expected result-page text"
+fi
+assert_contains "$(<"${STDERR_FILE}")" "result page" \
+  "review postconditions should explain success-text mismatches"
 
 jq '.intendedChanges.decision = "approve"' \
   "${REVIEW_RESPONSE_SPEC}" >"${BROWSER_INVALID_SPEC}"

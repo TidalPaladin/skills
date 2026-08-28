@@ -94,6 +94,10 @@ cognidox_write_render_plan() {
       "repository.baseUrl": "Tenant API base URL",
       "target.partNumber": "Target part number",
       "target.title": "Target title",
+      "target.draftVersion": "Target Draft version",
+      "target.reviewerIdentity": "Target reviewer identity",
+      "target.reviewPageUrl": "Review page URL",
+      "target.reviewTaskLocator": "Review task locator",
       "category.id": "Category ID",
       "category.path": "Category path",
       "documentType.code": "Document type code",
@@ -137,6 +141,9 @@ cognidox_write_render_plan() {
       "intendedChanges.responseFile.path": "Protected review-response file path",
       "intendedChanges.responseFile.sha256": "Protected review-response file SHA-256",
       "intendedChanges.responseFile.size": "Protected review-response file size in bytes",
+      "intendedChanges.reviewOutcome": "Review outcome",
+      "intendedChanges.reviewControlLabel": "Review control label",
+      "intendedChanges.expectedSuccessText": "Expected success text",
       "stateDigests.currentSha256": "Protected current state SHA-256",
       "stateDigests.intendedSha256": "Protected intended state SHA-256",
       "policy.metadataAllowlistFile.path": "Tenant metadata allowlist path",
@@ -144,6 +151,7 @@ cognidox_write_render_plan() {
       "policy.metadataAllowlistFile.size": "Tenant metadata allowlist size in bytes",
       "notification.capable": "Notification capable",
       "preconditions.notificationCapable": "Notification capable precondition",
+      "preconditions.notificationDisabledText": "Visible disabled-notification statement",
       "request.title": "Requested title",
       "request.version": "Requested version",
       "request.issueType": "Requested issue type",
@@ -591,7 +599,7 @@ cognidox_write_browser_field_type() {
       elif $selected_action == "update_version_information" then
         ["formDefinitionId", "partNumber", "version"]
       elif $selected_action == "submit_review_response" then
-        ["partNumber", "reviewTaskId", "targetVersion"]
+        ["draftVersion", "partNumber", "reviewerIdentity", "reviewPageUrl", "reviewTaskLocator"]
       else [] end;
     def state_fields($selected_action):
       if $selected_action == "request_review" or $selected_action == "request_approval" then
@@ -609,7 +617,7 @@ cognidox_write_browser_field_type() {
       elif $selected_action == "update_version_information" then
         ["canEditVersionInformation", "currentRevision", "currentVersionInformationTag", "editable", "expectedNextVersionInformationTag", "formDefinitionId", "status", "version"]
       elif $selected_action == "submit_review_response" then
-        ["completionAvailable", "notificationCapable", "reviewTaskId", "reviewTaskVisible", "reviewerIdentity", "targetVersion", "taskStatus"]
+        ["draftVersion", "notificationDisabledText", "reviewHistoryEntries", "reviewPageUrl", "reviewTaskLocator", "signedInReviewerIdentity"]
       elif $selected_action == "checkout_document" then
         ["canCheckout", "checkedOut", "checkedOutBy", "latestVersion", "lockState", "version"]
       else [] end;
@@ -627,15 +635,17 @@ cognidox_write_browser_field_type() {
       elif $selected_action == "update_version_information" then
         ["currentRevision", "currentVersionInformationTag", "expectedNextVersionInformationTag", "formDefinitionId", "status", "version"]
       elif $selected_action == "submit_review_response" then
-        ["reviewTaskId", "targetVersion", "taskStatus"]
+        ["answerAvailable", "draftVersion", "resultPageText", "reviewerIdentity", "reviewOutcome"]
       elif $selected_action == "checkout_document" then
         ["checkedOut", "checkedOutBy", "latestVersion", "lockState", "version"]
       else [] end;
     def field_type($selected_field):
       if ["canCheckout", "canCreateIssue", "canEditVersionInformation", "canManageForms", "canSubmitDraft",
-          "checkedOut", "completionAvailable", "definitionPresent", "duplicateName", "editable", "locked",
-          "notificationCapable", "recipientVisible", "reviewTaskVisible"] | index($selected_field) then
+          "checkedOut", "definitionPresent", "duplicateName", "editable", "locked", "notificationCapable",
+          "recipientVisible", "answerAvailable"] | index($selected_field) then
         "boolean"
+      elif $selected_field == "reviewHistoryEntries" then
+        "review-history"
       elif ["fieldIdentifiers", "metadataIdentifiers", "notificationUsers"] | index($selected_field) then
         "array"
       elif $selected_field == "categoryId" then "number"
@@ -657,6 +667,9 @@ cognidox_write_validate_browser_expected_result() {
     if [[ "${action}" == "submit_native_form_issue" ]]; then
       cognidox_error "submit_native_form_issue requires exact expected Issue postconditions."
       return "${COGNIDOX_QMS_EXIT_USAGE}"
+    elif [[ "${action}" == "submit_review_response" ]]; then
+      cognidox_error "submit_review_response requires exact review completion postconditions."
+      return "${COGNIDOX_QMS_EXIT_USAGE}"
     fi
     return 0
   fi
@@ -665,7 +678,7 @@ cognidox_write_validate_browser_expected_result() {
     def identifiers:
       type == "array" and all(.[]; nonblank) and (unique | length) == length;
     def field_type($field):
-      if ["checkedOut", "editable", "locked", "recipientVisible"] | index($field) then
+      if ["answerAvailable", "checkedOut", "editable", "locked", "recipientVisible"] | index($field) then
         "boolean"
       elif ["fieldIdentifiers", "metadataIdentifiers"] | index($field) then
         "array"
@@ -689,7 +702,7 @@ cognidox_write_validate_browser_expected_result() {
       elif $selected_action == "update_version_information" then
         ["currentRevision", "currentVersionInformationTag", "expectedNextVersionInformationTag", "formDefinitionId", "status", "version"]
       elif $selected_action == "submit_review_response" then
-        ["reviewTaskId", "targetVersion", "taskStatus"]
+        ["answerAvailable", "draftVersion", "resultPageText", "reviewerIdentity", "reviewOutcome"]
       elif $selected_action == "checkout_document" then
         ["checkedOut", "checkedOutBy", "latestVersion", "lockState", "version"]
       else [] end;
@@ -733,6 +746,20 @@ cognidox_write_validate_browser_expected_result() {
         } and .expectedResult.captures == {version: "latestVersion"}
       ' "${specification_file}" >/dev/null 2>&1; then
         cognidox_error "submit_native_form_issue expectedResult must bind the Issue state and captured version."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      ;;
+    submit_review_response)
+      if ! "${jq_bin}" -e '
+        .expectedResult.state == {
+          answerAvailable: false,
+          draftVersion: .target.draftVersion,
+          resultPageText: .intendedChanges.expectedSuccessText,
+          reviewerIdentity: .target.reviewerIdentity,
+          reviewOutcome: .intendedChanges.reviewOutcome
+        } and .expectedResult.captures == {}
+      ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "submit_review_response expectedResult must verify the result page and that the Answer control is gone."
         return "${COGNIDOX_QMS_EXIT_USAGE}"
       fi
       ;;
@@ -938,6 +965,7 @@ cognidox_write_validate_browser_metadata_contract() {
   local action="$1"
   local specification_file="$2"
   local jq_bin="$3"
+  local base_url="$4"
 
   case "${action}" in
     request_review|request_approval)
@@ -1170,31 +1198,71 @@ cognidox_write_validate_browser_metadata_contract() {
       fi
       ;;
     submit_review_response)
-      if ! "${jq_bin}" -e '
+      if ! "${jq_bin}" -e --arg base_url "${base_url}" '
         def nonblank: type == "string" and test("\\S");
+        def tenant_origin:
+          $base_url | capture("^(?<origin>https://[^/]+)(?:/|$)").origin;
         def target:
-          (keys | sort) == ["partNumber", "reviewTaskId", "targetVersion"] and all(.[]; nonblank);
+          (keys - ["draftVersion", "partNumber", "reviewerIdentity", "reviewPageUrl", "reviewTaskLocator"] | length) == 0 and
+          (.draftVersion | nonblank) and (.partNumber | nonblank) and (.reviewerIdentity | nonblank) and
+          (has("reviewPageUrl") != has("reviewTaskLocator")) and
+          ((has("reviewPageUrl") | not) or
+            (.reviewPageUrl | nonblank and startswith((tenant_origin) + "/"))) and
+          ((has("reviewTaskLocator") | not) or (.reviewTaskLocator | nonblank));
+        def history_entry:
+          (keys | sort) == ["answerAvailable", "outcome", "reviewerIdentity"] and
+          (.answerAvailable | type == "boolean") and
+          (.reviewerIdentity | nonblank) and
+          (.outcome == null or (.outcome | nonblank));
         def state:
-          (keys | sort) == ["completionAvailable", "notificationCapable", "reviewTaskId", "reviewTaskVisible", "reviewerIdentity", "targetVersion", "taskStatus"] and
-          (.completionAvailable | type == "boolean") and (.notificationCapable | type == "boolean") and
-          (.reviewTaskVisible | type == "boolean") and
-          (.reviewTaskId | nonblank) and (.reviewerIdentity | nonblank) and
-          (.targetVersion | nonblank) and (.taskStatus | nonblank);
+          (keys - ["draftVersion", "notificationDisabledText", "reviewHistoryEntries", "reviewPageUrl", "reviewTaskLocator", "signedInReviewerIdentity"] | length) == 0 and
+          (.draftVersion | nonblank) and (.signedInReviewerIdentity | nonblank) and
+          (has("reviewPageUrl") != has("reviewTaskLocator")) and
+          ((has("reviewPageUrl") | not) or (.reviewPageUrl | nonblank)) and
+          ((has("reviewTaskLocator") | not) or (.reviewTaskLocator | nonblank)) and
+          ((has("notificationDisabledText") | not) or (.notificationDisabledText | nonblank)) and
+          (.reviewHistoryEntries | type == "array" and length > 0 and all(.[]; history_entry));
         (.target | target) and (.observedState | state) and (.preconditions | state)
       ' "${specification_file}" >/dev/null 2>&1; then
-        cognidox_error "${action} metadata must match the supported target, observedState, and preconditions schema."
+        cognidox_error "${action} must bind a visible task identity on the tenant HTTPS origin and strict review-history snapshots."
         return "${COGNIDOX_QMS_EXIT_USAGE}"
       fi
       if ! "${jq_bin}" -e '
-        .observedState.reviewTaskVisible == true and .preconditions.reviewTaskVisible == true and
-        .observedState.completionAvailable == true and .preconditions.completionAvailable == true and
-        .observedState.taskStatus == "Pending" and .preconditions.taskStatus == "Pending" and
-        .observedState.reviewTaskId == .target.reviewTaskId and
-        .preconditions.reviewTaskId == .target.reviewTaskId and
-        .observedState.targetVersion == .target.targetVersion and
-        .preconditions.targetVersion == .target.targetVersion
+        .target as $target |
+        .observedState == .preconditions and
+        .observedState.draftVersion == $target.draftVersion and
+        .observedState.signedInReviewerIdentity == $target.reviewerIdentity and
+        (if $target | has("reviewPageUrl") then
+          .observedState.reviewPageUrl == $target.reviewPageUrl
+        else
+          .observedState.reviewTaskLocator == $target.reviewTaskLocator
+        end) and
+        ([.observedState.reviewHistoryEntries[] | select(.answerAvailable)] | length) == 1 and
+        ([.observedState.reviewHistoryEntries[] | select(.answerAvailable)][0].reviewerIdentity ==
+          $target.reviewerIdentity)
       ' "${specification_file}" >/dev/null 2>&1; then
-        cognidox_error "${action} requires a visible pending review task and completion-only controls as safe-state preconditions."
+        cognidox_error "${action} requires matching review-history snapshots with exactly one Answer control for the signed-in reviewer."
+        return "${COGNIDOX_QMS_EXIT_USAGE}"
+      fi
+      if "${jq_bin}" -e '.observedState | has("notificationDisabledText")' \
+        "${specification_file}" >/dev/null 2>&1 &&
+        ! "${jq_bin}" -e '
+          def contains_any($needles):
+            . as $text | [$needles[] as $needle | $text | contains($needle)] | any;
+          def disabled_notification_statement:
+            ascii_downcase |
+            contains_any(["review", "completion"]) and
+            contains_any(["notification", "email", "e-mail"]) and
+            (contains_any(["not disabled", "enabled"]) | not) and
+            (
+              (contains_any(["disabled", "turned off"]) and
+                (contains_any(["will be sent", "shall be sent", "are sent", "is sent"]) | not)) or
+              contains_any(["will not be sent", "shall not be sent", "are not sent", "is not sent"]) or
+              (contains_any(["no notification", "no email", "no e-mail"]) and contains("sent"))
+            );
+          .observedState.notificationDisabledText | disabled_notification_statement
+        ' "${specification_file}" >/dev/null 2>&1; then
+        cognidox_error "${action} notificationDisabledText must explicitly state that review completion notifications are disabled."
         return "${COGNIDOX_QMS_EXIT_USAGE}"
       fi
       ;;
@@ -1375,18 +1443,24 @@ cognidox_write_validate_browser_action_contract() {
       ;;
     submit_review_response)
       if ! "${jq_bin}" -e '
-        (.intendedChanges | keys | sort) == ["completionAction", "responseFile"] and
-        .intendedChanges.completionAction == "complete_review"
+        def nonblank: type == "string" and test("\\S");
+        (.intendedChanges | keys | sort) == ["completionAction", "expectedSuccessText", "responseFile", "reviewControlLabel", "reviewOutcome"] and
+        .intendedChanges.completionAction == "complete_review" and
+        (.intendedChanges.reviewOutcome == "updates_required" or
+          .intendedChanges.reviewOutcome == "decline_review" or
+          .intendedChanges.reviewOutcome == "accept_review") and
+        (.intendedChanges.reviewControlLabel | nonblank) and
+        (.intendedChanges.expectedSuccessText | nonblank)
       ' "${specification_file}" >/dev/null 2>&1; then
-        cognidox_error "submit_review_response permits only a protected response and complete_review action."
+        cognidox_error "submit_review_response requires a protected response, complete_review action, and explicit outcome, UI control, and success text."
         return "${COGNIDOX_QMS_EXIT_USAGE}"
       fi
       cognidox_write_validate_browser_artifact_descriptor \
         "${specification_file}" "responseFile" "${action}" "${jq_bin}" || return $?
-      notification_capable="$("${jq_bin}" -r '.observedState.notificationCapable' "${specification_file}")"
-      expected_effects='["Submit one protected response for the exact review task.","Complete the exact review task.","Do not notify any Cognidox user."]'
-      if [[ "${notification_capable}" == "true" ]]; then
-        expected_effects='["Submit one protected response for the exact review task.","Complete the exact review task.","Notify Cognidox users configured for review completion."]'
+      expected_effects='["Submit one protected response for the exact review task.","Complete the exact review task.","Notify Cognidox users configured for review completion."]'
+      if "${jq_bin}" -e '.observedState | has("notificationDisabledText")' \
+        "${specification_file}" >/dev/null 2>&1; then
+        expected_effects='["Submit one protected response for the exact review task.","Complete the exact review task.","Do not notify any Cognidox user."]'
       fi
       ;;
     checkout_document)
@@ -1743,11 +1817,11 @@ cognidox_write_build_browser_plan() {
       fi
       ;;
     submit_review_response)
-      if "${jq_bin}" -e '.observedState.notificationCapable == true' \
+      if "${jq_bin}" -e '.observedState | has("notificationDisabledText")' \
         "${specification_file}" >/dev/null 2>&1; then
-        risk="notify"
-      else
         risk="normal"
+      else
+        risk="notify"
       fi
       ;;
     *)
@@ -1767,7 +1841,7 @@ cognidox_write_build_browser_plan() {
     return "${COGNIDOX_QMS_EXIT_USAGE}"
   fi
   cognidox_write_validate_browser_metadata_contract \
-    "${action}" "${specification_file}" "${jq_bin}" || return $?
+    "${action}" "${specification_file}" "${jq_bin}" "${base_url}" || return $?
   if "${jq_bin}" -e '
     [.. | objects | keys[] | ascii_downcase]
       | any(. == "value" or . == "values" or . == "formvalue" or . == "formvalues" or

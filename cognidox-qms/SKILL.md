@@ -72,7 +72,11 @@ Use this wording for every browser approval request:
 
 > Present the complete plan. Ask once for approval of the exact plan ID and final transmission of the identified protected data to Cognidox. After approval, execute all listed substeps without further confirmation.
 
-Browser no-notification status requires visible evidence. An empty Issue user list must match both visible-state arrays. Draft and review-response plans must bind `notificationCapable: false`. These plans use risk `normal` and include `Do not notify any Cognidox user.` Exact-plan approval and protected-data confirmation still apply. Review and approval requests remain notification-only. REST Issue uploads remain risk `notify` because REST preflight does not expose authoritative recipient routing.
+Browser no-notification status requires visible evidence. An empty Issue user list must match both visible-state arrays. Draft plans must bind `notificationCapable: false`.
+
+Review completion uses risk `notify` by default. It uses risk `normal` only when both state snapshots bind the same visible disabled-notification statement. These plans include `Do not notify any Cognidox user.` Exact-plan approval and protected-data confirmation still apply.
+
+Review and approval requests remain notification-only. REST Issue uploads remain risk `notify` because REST preflight does not expose authoritative recipient routing.
 
 `--apply-plan` rejects a different tenant before it sends a request. It then repeats all preflight checks. It rejects a changed file, version race, lock, permission change, duplicate title, invalid type, or other stale precondition.
 
@@ -134,9 +138,15 @@ Each browser action has fixed target, observed-state, intended-change, effect, p
 
 New protected values and response files must be absolute, regular non-symlink files with no group or other access. Plans bind their SHA-256, byte size, exact JSON shape, and exact field-key set. Metadata and Version Information plans also record separate SHA-256 digests for protected current and intended state. Before an `update_document_metadata` plan, set `COGNIDOX_QMS_METADATA_ALLOWLIST` to the absolute private tenant allowlist JSON path. Every planned metadata identifier must be in that tenant-bound allowlist, and the plan binds the policy file path, SHA-256, and size. The initial submitted native-form Draft uses `Revision A`; the first Issue preserves that tag; each later Version Information update increments exactly one letter.
 
+Before a review-response plan, inspect every history entry for the current Draft. Record each reviewer, visible outcome, and whether `Answer` remains. Only `Answer` identifies a pending task for the signed-in reviewer. Do not use `Respond` for task status. Bind the part number, Draft version, reviewer identity, and tenant review-page URL or exact visible task locator. Do not create a synthetic task ID.
+
+Require the user to direct `updates_required`, `decline_review`, or `accept_review`. Bind the exact visible control label and expected result text. These values are reviewer responses. They are not Quality approval, rejection, release, publication, or signature. After submission, verify the result text. Then reopen the complete review history and verify that `Answer` is gone.
+
 Reuse one authenticated Cognidox tab or session. Preserve its handle, current page, pending plan ID, and completed composite results in task state across turns. Keep the local plan. Before approval, use the browser only for read-only discovery; local protected-file preparation is also allowed. After approval, perform all listed navigation, entry, upload, selection, and clicks without another confirmation. Before each write, recheck the target, version, protected descriptors, recipients, notification routing, effects, preconditions, and visible state. Verify each step's postconditions before the next step.
 
 Stop if the record or version changed, a protected artifact changed, the recipient set changed, notification routing is unexpected, a material new UI field appears, a new effect is required, or a prohibited operation is required. On partial completion, keep the session and verified results. Do not roll back or retry blindly. Create and obtain approval for a replacement plan for the remaining work.
+
+If a completed review reports an unexpected email notification, record the completed action and stop the remaining batch. Create `notify` replacement plans for the remaining reviews.
 
 If reusable browser automation or authenticated state is unavailable, report the limitation and stop. Do not use web search or undocumented SOAP automation as a substitute. After an interrupted or ambiguous submission, retain the tab and plan and inspect the current state. Never retry blindly.
 
@@ -158,11 +168,13 @@ Keep policy interpretation, naming, categorization, readable plan presentation, 
 
 Do not use this skill to:
 
-- Approve or reject content, provide an electronic signature, or perform the approval itself.
+- Perform a Quality approval or rejection, provide an electronic signature, or perform the approval itself.
 - Publish, unpublish, release, close, or make a document obsolete.
 - Delete or change a category.
 - Use a manual part number.
 - Infer a Quality decision, MDR determination, CAPA decision, or closure.
+
+An explicitly user-directed `submit_review_response` outcome is a reviewer response. It does not authorize a prohibited Quality action.
 
 Do not implement these operations through SOAP. The available vendor CLI is proprietary and cannot be included in this repository. Read `references/soap-guide.md` for the SOAP boundary.
 
