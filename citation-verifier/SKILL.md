@@ -1,12 +1,21 @@
 ---
 name: citation-verifier
-description: Verify academic citations in scholarly writing by confirming that the cited work exists, its bibliographic metadata is correct, and the source supports the surrounding claim. Use for every new or changed academic citation and for systematic citation audits.
+description: Verify new or changed academic citations, or audit existing citations against their surrounding claims.
 ---
 
 # Citation Verifier
 
 Verify one citation occurrence at a time. Treat repeated uses of the same work
 as separate claim checks when their surrounding claims differ.
+
+## Parent Assignment
+
+For every citation-verification task, the parent agent must invoke `citation_verifier`.
+Establish source order and assign exactly one citation occurrence to each instance.
+Include the source path, line or unique context, citation key, complete surrounding claim, and bibliography entry.
+Use waves of at most eight instances and preserve their read-only permission mode.
+Then consolidate citation reports in source order.
+An assigned verifier checks its occurrence directly and does not delegate again.
 
 ## Workflow
 

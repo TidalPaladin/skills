@@ -1,12 +1,16 @@
 # Known Public CVE Check
 
-Public CVE data changes continuously. Run current scanners and consult official CVE or vendor sources on every audit invocation. Do not rely on model memory.
+Use current scanners and primary advisory sources for the public CVE pass.
+Run this pass during a full audit, including its lightweight Plan Mode inspection.
+For a narrowed audit, apply it only when security or dependency exposure is in scope.
 
 ## Cybersecurity Scope
 
-Cybersecurity analysis is out of scope by default. The permitted default work is to determine whether known public CVEs affect repository dependencies, runtimes, containers, actions, vendored components, or documented configurations.
+Default cybersecurity work covers known public CVE applicability in dependencies, runtimes, containers, actions, vendored code, and documented configurations.
 
-Use public CVE records, vendor advisories, manifests, lockfiles, version metadata, and scanner results. Inspect source only when needed to determine whether a public CVE's documented affected feature or configuration is in use. Do not search for novel vulnerabilities, perform threat modeling or adversarial probing, run exploit-focused fuzzing, construct payloads, or reproduce exploits unless the user explicitly requests broader cybersecurity analysis in the skill invocation.
+Use public records, vendor advisories, manifests, lockfiles, and scanner results.
+Inspect source only to check a known CVE's affected feature or configuration.
+Novel vulnerability searches, adversarial probing, exploit fuzzing, payloads, and exploit reproduction require an explicit broader request.
 
 If broader cybersecurity analysis is explicitly requested, keep it defensive and limited to the stated purpose. Omit weaponization, evasion, persistence, exfiltration, targeting, or other operational details that are not necessary for identification, prevention, validation, or remediation.
 
@@ -26,10 +30,11 @@ Record the files used to establish this inventory.
 
 Prefer repository-configured security checks. Otherwise use read-only ecosystem tools already available:
 
-- Rust: `cargo audit` or configured `cargo deny check advisories`; use `cargo tree -i <crate>` to trace affected paths.
+- Rust: `cargo audit` or configured `cargo deny check advisories`. Use `cargo tree -i <crate>` to trace affected paths.
 - Python: a configured scanner or `uvx pip-audit` against exported locked requirements, including shipped groups and separately reporting development-only findings.
 - Node: the owning package manager's JSON audit command, such as `npm audit --json`, `pnpm audit --json`, or `yarn npm audit --recursive --json`.
-- Containers and system packages: the configured scanner or `trivy fs .`; scan an image only when it already exists or a repository command builds it safely.
+- Containers and system packages: use the configured scanner or `trivy fs .`.
+  Scan existing images or images built safely through repository commands.
 - Other ecosystems: use the repository scanner, OSV tooling, or the ecosystem's maintained advisory database.
 
 Do not install global tools without approval. A missing scanner, failed command, unsupported lockfile, or network failure is an incomplete surface, not a clean result.
@@ -46,9 +51,12 @@ Evaluate the repository's ongoing checks separately from the point-in-time audit
 - Runs in CI for relevant changes and on a schedule so newly published advisories are detected without a code change.
 - Produces a visible failure or tracked report for applicable findings and keeps suppressions documented with evidence.
 
-If no adequate standing pipeline exists, draft a finding even when the current scan reports no vulnerabilities. Use `quality` as the primary vector with `security` and `dependencies` as secondary labels when available. Keep a confirmed vulnerable dependency as a separate `bug` finding; fixing one advisory does not resolve the missing-pipeline finding.
+Report a missing pipeline when it leaves a concrete advisory-detection gap.
+A clean current scan does not resolve that ongoing gap.
+Use `quality` as the primary vector and applicable secondary labels.
+Keep a confirmed vulnerable dependency as a separate `bug` finding.
 
-For a partial pipeline, record uncovered surfaces and admit a finding when the gap can allow relevant vulnerabilities to reach shipped, CI, build, or contributor workflows without detection.
+Report partial coverage when the gap could let relevant advisories escape detection in shipped, CI, build, or contributor workflows.
 
 ## Source and Provenance
 

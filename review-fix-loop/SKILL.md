@@ -1,6 +1,6 @@
 ---
 name: review-fix-loop
-description: Run bounded review, verification, fix, and validation cycles over uncommitted or current-branch changes. Use only when the user explicitly invokes $review-fix-loop and wants the main task to address findings until a native Codex review is clean or the iteration cap is reached; start Goal Mode automatically when no goal is active.
+description: Review and fix changes until clean or capped, starting Goal Mode when needed. Use only on explicit $review-fix-loop invocation.
 ---
 
 # Review Fix Loop
@@ -13,7 +13,8 @@ Call `get_goal` before inspecting the repository. Track whether this workflow cr
 
 - When no goal is active, call `create_goal` before initializing the loop. Build the objective from the requested `scope`, optional `base`, and `max-iterations` values. Require a clean native review and unchanged passing repository gates, preserve unrelated changes, and include the configured stop conditions. For `scope=auto`, describe the runner-selected pinned scope rather than inspecting Git before creating the goal.
 - When a goal is already active, retain it and run the loop under that goal. Do not replace an existing goal.
-- If goal tools are unavailable, do not claim Goal Mode is active. Stop before repository inspection and tell the user that they must start the equivalent goal with the Goal Mode controls or `/goal`.
+- If goal tools are unavailable, report that Goal Mode is inactive.
+  Stop before repository inspection and identify the equivalent Goal Mode control or `/goal` action.
 - If `create_goal` reports that an unfinished goal already exists, call `get_goal` again and retain that goal. Stop on other goal configuration failures.
 
 Goal activation does not expand the current sandbox, approval policy, or repository permissions. Do not set a goal token budget unless the user explicitly supplied one.
@@ -58,10 +59,10 @@ uv run --no-project python "$SKILL_DIR/scripts/run_review.py" review \
 
 The runner launches one structured `codex exec` reviewer with these fixed controls:
 
-- model `gpt-5.6-luna` with medium reasoning;
-- ephemeral execution;
-- read-only sandbox and no approvals;
-- JSON events, the schema in `references/review-result.schema.json`, and a structured last message;
+- model `gpt-5.6-luna` with medium reasoning.
+- ephemeral execution.
+- read-only sandbox and no approvals.
+- JSON events, the schema in `references/review-result.schema.json`, and a structured last message.
 - a scope-specific prompt that tells the reviewer which Git diff to inspect.
 
 Do not replace this command with `codex exec review` while that command starts a review request without forwarding `--output-schema`. Native review targets and positional prompts are also mutually exclusive. The structured `codex exec` turn preserves the required schema while keeping the reviewer isolated and read-only.
@@ -78,11 +79,13 @@ For each returned finding:
 4. Implement the smallest safe fix. Preserve unrelated user changes.
 5. Run focused formatting, linting, type checking, and tests for the changed area.
 
-After addressing the round, run another review round. If a finding requires a public API change, dependency change, or material behavior decision, pause and request user direction.
+After addressing the round, run another review round. Ask only when a necessary
+API, dependency, or behavior change exceeds the scope already authorized.
 
 ## Confirm a Clean Result
 
-When a round returns `clean`, run the repository's standard formatting, linting, type-checking, and test commands. Prefer project-defined Make targets.
+When a round returns `clean`, verify the repository's required gates for that state.
+Reuse passing results when no relevant input has changed. Prefer project-defined Make targets.
 
 Any edit after the clean review, including an edit made by a formatter or validation fix, invalidates that result. Run another review round before declaring the scope clean. If no edit occurs and all required checks pass, the goal is complete.
 
@@ -96,7 +99,9 @@ If this workflow created the goal and no required work remains, call `update_goa
 - Reviewer failure: The runner retries one clearly transient process failure without consuming an iteration. Stop after the second transient failure.
 - Configuration, authentication, unavailable-model, and malformed-output failures: Stop on the first failure. Do not change models or weaken the read-only controls.
 
-An iteration limit or first-time failure does not make the goal complete or blocked. Use `update_goal` with `status=blocked` only after the same blocker has recurred for at least three consecutive goal turns and meaningful progress is impossible without user input or an external state change. Otherwise leave the goal active.
+An iteration limit or first failure does not establish a terminal goal state.
+Use `status=blocked` only after the same blocker recurs for at least three consecutive goal turns.
+Meaningful progress must require user input or an external state change. Otherwise leave the goal active.
 
 Do not stage, commit, push, publish, or fetch while using this skill. Repository edits needed to fix verified findings are allowed in the main task.
 
@@ -104,11 +109,11 @@ Do not stage, commit, push, publish, or fetch while using this skill. Repository
 
 At handoff, report:
 
-- selected scope;
-- selected base ref and merge-base SHA for session scope;
-- completed logical iterations and the configured cap;
-- whether the workflow created or reused the goal and its final state;
-- whether a clean review was confirmed;
-- last findings or their verified dispositions;
-- focused and full validation commands with pass, fail, or not-run state;
+- selected scope.
+- selected base ref and merge-base SHA for session scope.
+- completed logical iterations and the configured cap.
+- whether the workflow created or reused the goal and its final state.
+- whether a clean review was confirmed.
+- last findings or their verified dispositions.
+- focused and full validation commands with pass, fail, or not-run state.
 - any blocker that needs user direction.

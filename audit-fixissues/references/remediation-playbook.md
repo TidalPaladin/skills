@@ -62,7 +62,8 @@ For a reproducible bug:
 
 For future bug risk, add a test that demonstrates the missing invariant, failure boundary, or unprotected state transition. Do not alter behavior merely to satisfy a vague risk claim.
 
-For a theoretical bug, attempt to turn the claimed reachable path into a failing test. If repository facts disprove a precondition or no credible failure can be demonstrated, document that result and block the issue rather than guessing.
+For a theoretical bug, attempt a failing test of the claimed path.
+If facts disprove it or no credible failure exists, record the evidence and block that issue.
 
 For a security advisory:
 
@@ -75,13 +76,17 @@ For a security advisory:
 
 Treat security-driven public API, runtime, schema, or documented-workflow breakage as approval-gated unless the issue already authorizes it.
 
-Keep security validation defensive and contained. Prefer scanner evidence, safe regression fixtures, and isolated tests. Use only the exploit detail needed to confirm applicability or remediation, and omit operational payloads or instructions that do not support that outcome.
+Keep security validation defensive. Prefer scanner evidence, safe regression fixtures, and isolated tests.
+Use only the exploit detail needed to confirm applicability or remediation.
 
-For a missing security-audit pipeline, choose one or more maintained repository-appropriate scanners, expose a reproducible local command, cover every applicable dependency and artifact surface, run the checks for relevant changes and on a schedule, and make findings visible and actionable. Validate both a clean run and the failure or reporting path without introducing a real vulnerable dependency.
+For a missing audit pipeline, choose maintained scanners and a reproducible local command.
+Cover applicable surfaces and run checks on relevant changes and a schedule.
+Validate clean and failure paths with synthetic fixtures.
 
 ## Performance Work
 
-Create or extend a repeatable benchmark before optimizing. Use the repository's established framework; otherwise use Criterion for Rust, `pytest-benchmark` or `pyperf` for Python, Benchmark.js or a repeatable Node runner for JavaScript, `testing.B` for Go, or JMH for Java.
+Create a repeatable benchmark before optimization. Use the established framework.
+Otherwise use the language-specific defaults in `$benchmark-optimize`.
 
 Capture the applicable metrics with the same workload and environment before and after the change:
 
@@ -96,7 +101,9 @@ Use representative inputs, warm-up, and stable environment assumptions. If sever
 
 For build or CI optimization, hold required tests, security checks, quality gates, and output artifacts constant. Treat skipped validation or reduced coverage as a behavior change, not a performance gain.
 
-Ship an optimization only when the result exceeds observed noise or provides a justified resource reduction. If no meaningful gain exists, keep useful benchmark coverage only when benchmark coverage is itself part of the issue; otherwise record the evidence and block the optimization.
+Retain optimization changes only when improvement exceeds noise or justifies a resource reduction.
+Keep benchmark-only changes when benchmark coverage is part of the issue.
+Otherwise record the evidence and block the optimization.
 
 Include baseline, optimized result, absolute and percentage delta, uncertainty, resource effects, and correctness tests in the pull request.
 
@@ -108,7 +115,9 @@ Prefer direct control flow, clear domain names, immutable values, named constant
 
 When the issue describes a systemic design smell, confirm the repeated evidence before changing architecture. Keep the pull-request boundary reviewable and defer unrelated local cleanup.
 
-For a missing quality-gate finding, use repository-native formatters, linters or quality checks, compilers, and static type checkers where practical. Provide one documented local entry point, run non-mutating checks in CI, include relevant production and test code, and confirm that a representative violation fails the gate. Keep local and CI commands aligned.
+For missing quality gates, use repository-native formatters, linters, compilers, and type checks where applicable.
+Provide one local entrypoint and non-mutating CI checks for relevant production and test code.
+Confirm that a representative violation fails the gate.
 
 ## Enhancement Work
 
@@ -129,17 +138,21 @@ Synchronize the intended target branch before final validation. For a published 
 Read the Pull Request Creation section of `$git-github-workflow` before drafting the body. Create the pull request as a draft through the GitHub app or connector and follow that format in full:
 
 - Use `## Motivation`, `## Solution`, `## Changes`, and `## Test plan` in that order.
-- Describe the end-user or runtime problem under Motivation and the complete branch diff relative to the target under Solution and Changes.
+- Describe the runtime problem under Motivation. Cover the complete branch diff under Solution and Changes.
 - Record focused and repository-wide validation under Test plan.
-- Include `## Test suite changes (Required when test coverage changed)` when tests were removed, significantly altered, or changed in coverage intent; otherwise omit it.
+- Include `## Test suite changes (Required when test coverage changed)` when tests were removed, significantly altered, or changed in coverage intent. Otherwise omit it.
 - Include concise usage examples, tables, or diagrams when they materially improve review, and include only critical deferred work.
 - End with the required `Generated with <tool name>` attribution.
 
 Include the issue traceability, risks, security evidence, benchmark results, and test-suite changes required by the branch. Add `Closes #N` for the original same-repository issue or `Closes OWNER/REPOSITORY#N` for a cross-repository issue. A non-default target does not remove this body requirement.
 
-Fetch the created pull request again and verify its complete body. Correct any missing or stale required section, conditional test disclosure, generation attribution, or closing keyword through the GitHub app or connector, then re-fetch the pull request. Treat an uncorrectable body as a blocker rather than handing it to lifecycle management.
+Fetch the created pull request again and verify its complete body.
+Correct missing sections, conditional test disclosure, generation attribution, and closing keywords. Re-fetch the result.
+Treat an uncorrectable body as a blocker.
 
-After creation, verify only that the pull request is open, targets the intended base, and remains a draft. Do not wait for CI, promote the draft, request a review, post `@codex review`, reply to or resolve review threads, enable auto-merge, or merge. Hand the draft to `$manage-pr-lifecycle`.
+Verify the PR is open, targets the intended base, and remains a draft.
+Do not wait for CI or perform review, promotion, thread, or merge actions.
+Hand the draft to `$manage-pr-lifecycle`.
 
 ## Dependency Stacks
 
@@ -152,7 +165,8 @@ Use `main` or `master` as the base unless all of these conditions hold:
 
 Keep stacks one level deep by default. Set the child base to the parent branch and state the dependency in both pull requests. Update the child when the parent changes.
 
-Leave post-publication parent updates and retargeting to `$manage-pr-lifecycle`. If the expected merge strategy makes the initial stack unsafe to publish without later history rewriting, block publication and request approval.
+Leave post-publication parent updates and retargeting to `$manage-pr-lifecycle`.
+If safe publication requires later history rewriting, block publication until that rewrite is authorized.
 
 ## Completion Report
 
@@ -161,4 +175,6 @@ For each issue, report:
 | Issue | Category and priority | Branch | Draft PR and base | Validation | Result |
 | --- | --- | --- | --- | --- | --- |
 
-List test changes, security evidence, benchmark deltas, and blockers after the table. Provide a paste-ready `$manage-pr-lifecycle` handoff for every draft. End by stating that every opened pull request follows the `$git-github-workflow` body format, contains its required closing keyword, remains a draft, has no requested reviews, and was not merged.
+Report test changes, security evidence, benchmark deltas, and blockers.
+Provide a `$manage-pr-lifecycle` handoff for each draft.
+Confirm body conformance, closing keywords, draft status, and the absence of review or merge actions.

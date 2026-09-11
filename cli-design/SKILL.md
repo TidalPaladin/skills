@@ -1,49 +1,21 @@
 ---
 name: cli-design
-description: Design and review command-line interface user experience standards for text and JSON output, color handling, verbosity, progress reporting, stdout/stderr separation, and exit-code semantics. Use when implementing new CLI commands, refactoring CLI output, defining flags such as --color/--format/--quiet/--verbose/--progress, or auditing a tool for Unix composability and automation-safe behavior.
+description: Design or review CLI flags, output, progress, and exit behavior.
 ---
 
 # CLI Design
 
-## Overview
+Preserve the existing command contract unless the task includes changing it.
+Use the relevant sections of
+[CLI conventions](references/cli-design.md) for output or flag design.
 
-Apply consistent CLI UX conventions across output structure, flags, colors, status reporting, and machine-readable formats.
-Read `references/cli-design.md` first and treat it as the canonical style guide.
+Choose features that serve the command. A small command does not need every
+format, verbosity, color, or progress option.
 
-## Workflow
+Keep primary data on stdout and diagnostics on stderr. Structured output must
+remain parseable and free of terminal escapes. Define exit codes that distinguish
+success, reported findings, and execution failure.
 
-1. Identify command intent and output modes (human text, machine JSON, optional JSONL streaming).
-2. Define flags and precedence:
-   - `--format {text|json}`
-   - `--color {auto|always|never}` and `--no-color`
-   - `--quiet` and `--verbose` (mutually exclusive)
-   - `--progress {auto|always|never}` where relevant
-3. Specify stream ownership:
-   - stdout: primary data/report
-   - stderr: progress, warnings, diagnostics, runtime errors
-4. Design text layout:
-   - status header or title variant
-   - sectioned blocks with aligned key-value pairs
-   - consistent number formatting and deterministic ordering
-5. Design machine output:
-   - JSON document for non-streaming cases
-   - JSONL for streaming or append-only workflows
-   - color and progress disabled for JSON mode
-6. Define exit code contract (`0`, `1`, `2`) and map all outcomes explicitly.
-7. Validate with representative runs:
-   - terminal vs piped stdout
-   - `--format json` parseability (`jq`)
-   - `--quiet` and `--verbose` behavior
-   - `--color` and `--progress` precedence
-
-## Deliverables
-
-When asked to implement or review a CLI, provide:
-- A concise contract for flags, output modes, and exit codes.
-- A concrete output sketch (text and JSON examples if applicable).
-- Any gaps or regressions against `references/cli-design.md`.
-- Exact code changes needed to enforce the contract.
-
-## Reference
-
-- Primary guide: `references/cli-design.md`
+For new output modes, specify precedence, deterministic ordering, and behavior
+with redirected streams. Test applicable terminal, pipe, error, and machine
+output paths. Report the resulting contract and validation.

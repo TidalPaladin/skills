@@ -1,6 +1,8 @@
 # CLI Design Reference
 
-Design principles for CLI tools. Follow these conventions when building new CLI tools or extending existing ones.
+Use the sections relevant to the requested CLI change.
+Preserve established interfaces unless changing them is in scope.
+Layout examples are options, not mandatory output templates.
 
 ## Table of Contents
 
@@ -101,11 +103,11 @@ Use `✓` (green) for pass/enabled and `✗` (red) for fail/disabled.
 
 Use these for boolean states and per-item verification results. For non-boolean states, use explicit text labels (e.g., `active`, `degraded`, `offline`) with semantic color.
 
-If terminal/font compatibility is uncertain, provide an ASCII fallback (`+` / `x`) via a dedicated flag (for example, `--ascii`) or automatically when Unicode output is disabled.
+If Unicode support is uncertain, provide an ASCII fallback through a flag or detected output mode.
 
 ## Progressive Disclosure
 
-Support three verbosity tiers via `--quiet` and `--verbose` flags:
+When multiple verbosity levels serve the command, use these tiers:
 
 | Mode | Content |
 |------|---------|
@@ -149,7 +151,8 @@ For categorical distributions, render aligned tables with count and percentage c
 
 ## Color Control
 
-Always provide `--color {auto|always|never}` and `--no-color` (alias for `--color never`).
+When the command emits color, provide `--color {auto|always|never}`.
+Use `--no-color` as an alias for `--color never`.
 
 Resolution logic (pseudocode):
 
@@ -174,7 +177,8 @@ Implement color through a centralized styles module so all color can be globally
 
 ## Dual Output Format
 
-Support `--format {text|json}` (default: `text`).
+For commands with human and automation consumers, support `--format {text|json}`.
+Use text by default unless the existing contract specifies otherwise.
 
 - **Text**: human-readable, colored output as described in this document.
 - **JSON**: machine-readable, pretty-printed. Contains the same data model as text but structured for programmatic consumption.
@@ -196,7 +200,8 @@ Distinguish between "the tool ran correctly and found problems" (exit 1) and "th
 
 ## Progress Feedback
 
-Use a progress library (`indicatif` in Rust, `tqdm`/`rich` in Python, `ora`/`cli-progress` in Node) for progress indication.
+Use existing progress support when progress helps users assess long operations.
+Add a library only when its benefit justifies the dependency.
 
 **Progress bars** for bounded work (known item count):
 ```
@@ -210,8 +215,8 @@ Processing files [=========>                    ] 1,234/5,678 (2m 30s)
 
 - Progress bars use cyan/blue fill.
 - Spinners use cyan.
-- Clear progress output when done so it doesn't linger in the final output.
-- Tick spinners at ~80ms intervals, progress bars at ~100ms.
+- Clear completed progress output.
+- Use the library's refresh defaults unless measurement supports a change.
 - Write progress to **stderr** so stdout remains clean for piping.
 - Support `--progress {auto|always|never}` where auto disables progress when stderr is not a terminal.
 
@@ -224,11 +229,12 @@ Reserve **stdout** for primary output — the data the user asked for. Everythin
 | stdout | Report output, JSON documents, JSONL records, piped data |
 | stderr | Progress bars, spinners, error messages, warnings, debug/diagnostic logs |
 
-This separation is what makes CLI tools composable. When a user pipes output to `jq`, a file, or another program, progress and errors stay visible in the terminal while clean data flows through the pipe.
+Keep data parseable when stdout goes to `jq`, a file, or another program.
+Progress and diagnostics remain on stderr.
 
 Rules of thumb:
 - If it would corrupt `--format json` output, it belongs on stderr.
-- If it's ephemeral (progress, status updates), it belongs on stderr.
+- Put transient progress and status updates on stderr.
 - If a downstream program should consume it, it belongs on stdout.
 
 ## Error Reporting
@@ -243,7 +249,8 @@ Use error chaining to preserve context (e.g., `anyhow` in Rust, chained exceptio
 
 ## JSONL for Streaming
 
-When a tool produces streaming or append-only results (e.g., writing to a long-running output file, emitting records as they're processed), use newline-delimited JSON (JSONL) rather than a single JSON document. This allows consumers to process records incrementally.
+Use newline-delimited JSON (JSONL) for streaming or append-only results.
+Consumers can process each record as it arrives.
 
 ## Unix Composability
 
