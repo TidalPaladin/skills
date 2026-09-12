@@ -26,7 +26,8 @@ Record an evidence confidence for triage:
 - `high-confidence theoretical`: a reachable path and violated invariant establish the failure or cost without a practical reproduction.
 - `risk`: no current defect is established, but a fragile high-impact path lacks a critical control or test.
 
-Reject pure style preferences, single-use abstraction requests, speculative extensibility, low-impact defensive changes, minor wording polish, and performance claims without measurements or a sound resource argument.
+Reject subjective style changes, speculative abstractions, and low-impact polish.
+Require measurements or a realistic resource argument for performance claims.
 
 ## Bugs and Future Bug Risk
 
@@ -44,9 +45,11 @@ For a current bug, supply a minimal deterministic reproduction or test whenever 
 
 For a theoretical bug, trace the reachable path from input or state to failure. Name each necessary precondition and the violated invariant. Do not call unreachable or purely hypothetical code a bug.
 
-For future bug risk, describe the credible regression scenario, why existing controls would miss it, and the test or invariant coverage needed. Do not imply the defect already occurs.
+For future bug risk, describe the regression scenario and why existing controls would miss it.
+Name the required invariant or coverage. Do not imply the defect already occurs.
 
-Do not use this bug pass to search for novel vulnerabilities, authentication or authorization weaknesses, injection paths, exploit primitives, or other cybersecurity findings. Broader cybersecurity analysis requires an explicit request in the skill invocation.
+Do not search for novel vulnerabilities or exploit paths during the default bug pass.
+Broader cybersecurity analysis requires an explicit request.
 
 Run the known public CVE workflow in `security-audit.md`. Classify an applicable public CVE as a bug even when no exploit has been observed.
 
@@ -68,9 +71,12 @@ Look for concrete maintenance costs:
 
 Treat repeated local smells as one design finding when they share an architectural cause. State the responsibility, coupling, or policy-boundary problem and its effects. Do not prescribe a replacement architecture, helper layout, or refactor sequence.
 
-Treat the absence of all applicable formatting, lint or code-quality, and static type-checking pipelines as a finding even when the sampled code is clean. An adequate gate has a documented repository-owned local command, runs in check-only mode in CI, covers relevant production and test code, and fails visibly when violations occur. Static type checking is applicable when the language provides a practical compiler or established checker for the repository's code.
+Report missing quality gates when they leave a concrete defect-detection gap.
+Prefer reproducible local commands and check-only CI that covers the affected code.
+Use language and repository context to determine which gates apply.
 
-When only some gate families or paths are missing, admit a finding if the uncovered code creates a material maintenance or defect-detection gap. Consolidate missing gates with the same CI and contributor-workflow root cause rather than filing one issue per tool.
+Report partial gate gaps when they create material maintenance or defect-detection costs.
+Consolidate gaps that share a CI or contributor-workflow cause.
 
 Prefer findings that reduce cognitive load, defect risk, change amplification, or test difficulty. Do not request behavior changes under a quality label unless the current behavior is itself the problem.
 
@@ -84,11 +90,16 @@ Review five resource dimensions when relevant:
 4. Disk storage: duplicate artifacts, retention, compression, indexing overhead, generated outputs, and unbounded growth.
 5. Network: request count, payload volume, round trips, connection reuse, retries, backoff, batching, queueing, and tail latency.
 
-Treat compilation time, build time, and CI execution time as valid performance surfaces. Inspect clean and incremental builds, repeated compilation, cache misses, duplicate dependency or environment setup, unnecessary artifact work, serialized independent jobs, and repeated checks. Measure compiler or build duration, job duration, end-to-end workflow wall time, and relevant runner or cache conditions. Reducing test coverage, security checks, or required quality gates is not a performance improvement.
+Build and CI duration are valid performance surfaces.
+Inspect repeated builds, setup, cache misses, artifact work, and unnecessary serialization.
+Measure representative durations and runner conditions.
+Reduced tests, security checks, or required gates do not count as performance improvements.
 
-Use objective signals such as profiles, slow tests, production traces, benchmark regressions, high fan-out, large representative inputs, or known hot paths. When measurement is unavailable, require a clear complexity or resource argument tied to realistic scale.
+Use profiles, slow tests, traces, benchmark regressions, or representative workloads.
+Without measurements, require a complexity or resource argument tied to realistic scale.
 
-Review benchmark coverage for important pathways. A benchmark-gap issue must name the workload, input sizes, metrics, environment controls, warm-up or sampling method, and comparison needed to detect regressions. A benchmark design may be concrete; the optimization design may not.
+For consequential benchmark gaps, name the workload, input sizes, metrics, environment, sampling method, and comparison.
+Specify benchmark design when useful. Leave optimization design to remediation.
 
 Reject micro-optimizations that are outside a consequential path or are likely to disappear within measurement noise.
 
@@ -130,7 +141,7 @@ After the five passes:
 
 - Revisit high-risk modules with their tests, benchmarks, docs, and dependency surfaces together.
 - Consolidate candidates with the same root cause.
-- Check whether a quality smell creates a bug risk or performance cost and choose the primary vector based on the dominant impact.
+- Choose the primary vector from the dominant impact when quality problems also cause bugs or performance costs.
 - Check whether a proposed enhancement already exists behind an undocumented interface.
 - Check whether documentation mismatch explains reported user friction.
 - Record inspected areas with no findings so Goal Mode can detect audit saturation.

@@ -14,7 +14,7 @@ Use the repository's documented priority definitions and labels when they exist.
 
 Otherwise use:
 
-- `P0`: active or readily exploitable critical vulnerability, corruption or data loss, safety impact, or a failure that makes the repository broadly unusable.
+- `P0`: critical vulnerability, data loss, safety impact, or a failure that makes the repository broadly unusable.
 - `P1`: major common-path bug, serious security exposure, severe resource regression, or high-impact fragility with a credible failure path.
 - `P2`: material but bounded reliability, maintainability, performance, usability, or documentation problem.
 - `P3`: modest but clear value, good evidence, bounded work, and a strong chance of maintainer acceptance.
@@ -85,17 +85,23 @@ For future bug risk, say explicitly that no current defect was reproduced. Descr
 
 ### Known Public CVE
 
-Add the CVE ID, correlated advisory IDs, affected package and dependency path, current and vulnerable versions, known patched range, applicability, severity, check date, scanner provenance, and primary-source links. Keep remediation mechanics out of the issue.
+Include advisory IDs, affected package and dependency path, current and vulnerable versions, and patched range.
+Record applicability, severity, check date, scanner provenance, and primary sources.
+Keep remediation mechanics out of the issue.
 
 Establish applicability from public CVE conditions, versions, dependency resolution, and safe checks. Do not reproduce the exploit or include payloads and operational exploitation details.
 
-For a missing standing security-audit pipeline, name the dependency and artifact surfaces inspected, existing scripts and CI workflows, trigger or schedule coverage, reporting behavior, and the gaps that allow new advisories to go undetected. State when the point-in-time scan is clean. Do not prescribe a scanner unless repository policy already selects one.
+For an audit-pipeline gap, name inspected surfaces, existing scripts, triggers, reporting, and missed advisory coverage.
+State when the current scan is clean. Name a scanner only when policy already selects it.
 
 ### Quality
 
-Name each concrete occurrence, the shared responsibility or coupling problem when systemic, the resulting change cost or defect risk, and public behavior that must remain stable. Do not prescribe a refactor structure.
+Name concrete occurrences and any shared coupling problem.
+Explain the maintenance cost or defect risk and behavior that must remain stable.
+Do not prescribe refactor structure.
 
-For missing quality gates, name the manifests, scripts, CI workflows, and documented commands checked; identify which applicable formatting, lint or code-quality, and static type-checking families or paths are uncovered; and describe the reproducible local and CI outcome required. Do not prescribe a specific tool unless repository policy already selects it.
+For missing quality gates, identify inspected configuration and commands, uncovered paths, and required local and CI outcomes.
+Name a tool only when policy selects it.
 
 ### Performance
 
@@ -115,7 +121,7 @@ Describe the user need, current limitation, representative use cases, desired be
 
 ### Documentation
 
-Quote or paraphrase the conflicting claim, identify the repository source of truth, name all affected documents, and state the consistent outcome. Keep quoted source text short.
+Identify the conflicting claim, canonical source, affected documents, and consistent outcome. Keep quotations short.
 
 ## Draft Review and Filing
 
@@ -127,4 +133,7 @@ Before presenting a draft:
 4. Remove solution language and subjective style claims.
 5. Confirm priority and labels follow repository conventions.
 
-Before filing an approved draft, repeat the evidence, duplicate, and label checks because upstream state may have changed. Never create a custom label, file an unapproved issue, close an issue, or add closing semantics without approval.
+Before filing, refresh evidence, duplicates, and labels.
+File issues or create labels only within the user's requested scope.
+Honor existing authorization without another checkpoint.
+Do not close issues or add closing semantics during an audit.

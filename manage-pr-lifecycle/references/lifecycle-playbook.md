@@ -16,17 +16,22 @@
 
 ## Connector and Repository Boundaries
 
-Use local `git` for remotes, checkouts, target synchronization, conflict resolution, commits, worktrees, and pushes. Use the Codex GitHub app or connector for pull-request metadata, changed files, comments, reviews, review threads, ready-for-review transitions, reviewer requests, CI metadata, workflow logs, workflow reruns, pull-request body updates, and issue-state reads or updates.
+Use local `git` for checkout operations and the connector for remote metadata, reviews, CI, body updates, and issue state.
 
-Run the `$git-github-workflow` availability check before the first GitHub-side operation. Never silently fall back to `gh`. If a required connector capability is unavailable, report the exact gap and request user direction.
+Use the connector when it supports the operation.
+Otherwise use authenticated `gh` under `$git-github-workflow` authority.
+Reporters must also follow their agent definition's narrower permissions.
 
-Use one reusable worktree when the main checkout contains unrelated changes or several repositories are involved. Process branches sequentially when practical. Add another worktree only for an active dependency stack or to protect unrelated dirty work, and remove task-created worktrees when no longer needed.
+Use a reusable worktree to protect unrelated changes.
+Add another only for a dependency stack or incompatible concurrent branch state.
+Remove task-created worktrees when their work is preserved.
 
 Never invoke connector merge, auto-merge, or review-dismissal actions. Resolve only Codex-authored review threads whose findings you directly addressed. Never unresolve a thread or resolve a human-authored thread. Never rebase or force-push a published branch without explicit approval.
 
 ## Target Ordering and State Snapshot
 
-Honor explicit order first. Otherwise identify pull requests whose target is another selected pull-request branch, process parents before children, and order independent targets by ascending pull-request number. Keep this order stable for the iteration.
+Honor explicit order. Otherwise process selected parents before children.
+Sort independent PRs by ascending number and retain that order.
 
 For every target, fetch:
 
@@ -39,7 +44,9 @@ For every target, fetch:
 - Top-level comments, formal review submissions, inline review comments, and review threads with resolved and outdated state.
 - Linked issue bodies and new comments when they define acceptance criteria or report new evidence.
 
-Do not count a review trigger as a completed review. Record the commit or material revision covered by each Codex and human review, and whether each named human was previously requested. Re-fetch all state that may have changed before assigning the final status.
+A review trigger is not a completed review.
+Record the revision covered by each review and each named human's request history.
+Refresh changed state before classification.
 
 Report merged or closed pull requests as `terminal`. Do not reopen or mutate a pull request. For a merged pull request, permit only the closing-linked issue confirmation defined below.
 
@@ -50,13 +57,13 @@ Do not merge the target branch merely because the pull-request branch is behind.
 1. Fetch the current target and head branches.
 2. Verify that the local head matches the published pull-request head before editing.
 3. Inspect mergeability, actual conflicts, relevant target changes, and any branch-protection requirement that the head contain the current target.
-4. Leave the published head unchanged when it is behind but conflict-free, no relevant target change must be incorporated, and repository policy permits merging while behind.
-5. Merge the target into the published head only to resolve an actual conflict, incorporate a target change required for correctness, satisfy an up-to-date branch-protection rule, or follow an explicit user instruction.
+4. Preserve the head when it has no conflicts or required target changes and policy permits it to remain behind.
+5. Merge the target only for conflicts, correctness, an up-to-date branch rule, or explicit instruction.
 6. When a merge is required, resolve conflicts against current requirements and inspect every resolution for lost behavior or tests.
-7. When a merge is performed, run focused checks for conflicted surfaces, then repository-standard formatting, linting, type checks, tests, scans, and benchmarks that the resolution can affect.
+7. Validate conflicted surfaces and run repository gates affected by the merge.
 8. Commit and push a performed merge as a new commit. Do not amend, rebase, squash, or force-push.
 
-For a stacked child, use its declared parent branch as the target until the parent lands. After the parent lands, inspect the child diff against the repository default branch. Retarget only when the diff remains correct without rewriting history; otherwise request approval.
+For a stacked child, use its declared parent branch as the target until the parent lands. After the parent lands, inspect the child diff against the repository default branch. Retarget only when the diff remains correct without rewriting history. Otherwise request approval.
 
 Treat missing push permission, unsafe history rewriting, or irreconcilable conflict requirements as blockers. Continue with independent targets.
 
@@ -71,7 +78,9 @@ Read the Pull Request Creation section of `$git-github-workflow` and validate th
 - `## Test suite changes (Required when test coverage changed)` when tests were removed, significantly altered, or changed in coverage intent.
 - The required generation attribution and any closing keyword already associated with the pull request.
 
-Use concise usage examples, tables, or diagrams when they materially improve review. Include only critical deferred work. Correct missing, stale, or malformed content through the GitHub app or connector when the evidence is available, then re-fetch the body. Treat a body that cannot be corrected as a blocker. Do not promote the draft, request review, or classify the pull request as merge-ready until the body conforms.
+Use examples when useful. Include only critical deferred work.
+Correct stale body content from available evidence and re-fetch it.
+An uncorrectable body blocks promotion, review requests, and merge readiness.
 
 ## Closing-Linked Issue Confirmation
 
@@ -80,7 +89,7 @@ Treat supported closing-keyword references in the pull-request body and GitHub D
 GitHub's Issues API can return issues and pull requests. Fetch each candidate object and inspect its `pull_request` field before classifying it. When that field is present, exclude the object from Issue closure and never send an issue-state update for it. Apply the remaining checks only to confirmed issues:
 
 1. Report `none` when no confirmed closing-linked issue remains after filtering.
-2. Report `closed` when every linked issue is already closed. Otherwise report `pending` while the pull request is open; an open issue is expected before merge.
+2. Report `closed` when every linked issue is already closed. Otherwise report `pending` while the pull request is open. An open issue is expected before merge.
 3. Report `deferred` when the pull request was closed without merging or merged into a non-default branch. Do not close the issue before the change lands on the repository default branch.
 4. When the pull request is confirmed merged into the repository default branch, fetch every confirmed closing-linked issue. Report already-closed issues as `closed`.
 5. Close each remaining open issue with state reason `completed` through the GitHub app or connector. Re-fetch every issue changed during the iteration and report it as `closed-by-lifecycle` only after the closed state is confirmed.
@@ -109,7 +118,7 @@ After a push, re-fetch reviews and threads. Do not assume a code update changes 
 
 Associate status and workflow results with the current head SHA. Do not treat a passing or failing run on an older commit as current.
 
-Do not treat a target-branch update alone as invalidating passing CI on an unchanged head unless repository policy or the CI provider explicitly requires an up-to-date branch.
+An unchanged head retains valid CI unless repository policy or the provider requires an up-to-date branch.
 
 For a failure:
 
@@ -119,7 +128,8 @@ For a failure:
 4. Rerun only failed jobs when evidence supports a transient failure and the connector exposes a narrow rerun.
 5. Report external failures with the required owner or infrastructure action.
 
-Do not use reruns to hide deterministic failures. Run local equivalents before pushing a CI fix. Allow normal CI to run for pushed commits. Do not use CI skip directives, intentionally defer CI across the pull-request queue, or create empty commits solely to trigger CI.
+Do not hide deterministic failures with reruns. Validate CI fixes locally.
+Allow normal push-triggered CI. Do not use skip directives, queue deferrals, or empty commits to manipulate CI.
 
 ## Codex Review
 
@@ -129,29 +139,41 @@ Inspect top-level comments and review submissions for:
 - An `@codex review` trigger posted after the last completed review.
 - Codex findings and the commits or replies that address them.
 
-When a pull request is still a draft, promote it only after implementation is complete, local checks pass, it has no merge conflicts, no known branch-caused CI failure remains, and known findings are addressed. Being behind the target does not prevent promotion unless repository policy requires an up-to-date branch.
+Promote a draft only when implementation and local checks are complete, conflicts are absent, and known findings are addressed.
+No known branch-caused CI failure may remain.
+Being behind is allowed unless repository policy requires an up-to-date branch.
 
-Post exactly `@codex review` as a top-level comment when the pull request is ready, a review is warranted, and no equivalent trigger is pending.
+When review is warranted and the PR is ready, post exactly `@codex review` as a top-level comment.
+Do not repeat a pending equivalent trigger.
 
-Permit multiple Codex reviews, but request another only when the changes since the latest completed public Codex review are sufficiently significant. Material changes to behavior, public interfaces, architecture, security posture, schemas, or a substantial portion of the patch qualify. Target-only merges, formatting, test-only updates, and narrow fixes responding to existing review findings do not. Record why each additional review was necessary.
+Request another Codex review only for significant changes since the latest completed public review.
+Behavior, interfaces, architecture, security, schemas, or a substantial patch revision qualify.
+Target-only merges, formatting, test-only updates, and narrow finding fixes do not qualify.
+Record the reason for each additional review.
 
 ## Human Approval
 
-Wait until a completed Codex review exists, all its findings are addressed, and directly addressed Codex threads are resolved before requesting a human review. Inspect current requested reviewers, prior review requests, and submitted human reviews before deciding whether another request is allowed.
+Before human review, require a completed Codex review with all findings addressed and directly addressed Codex threads resolved.
+Inspect current requests, request history, and submitted reviews.
 
 If the invocation names a reviewer:
 
 1. Confirm that the login is not a bot and can be requested when the connector exposes that check.
 2. Do not request the reviewer when a request is already pending or a current approval exists.
 3. If the reviewer has never been requested for this pull request, request them once through the connector.
-4. If the reviewer was requested before, request them again only after directly addressing comments or findings they made after the preceding request, or when the user explicitly instructs you to request another review.
+4. Repeat a request only after directly addressing that reviewer's subsequent findings, or on explicit user instruction.
 5. Once the reviewer has approved, do not request them again unless the user explicitly instructs you to do so. A stale approval alone does not justify another request.
 
-If prior review-request history is unavailable and current state cannot establish that the named reviewer has never been requested, do not risk a duplicate request. Report `waiting` and state what history or user instruction is needed.
+If history cannot establish that a request is new, report `waiting`.
+Identify the missing history or instruction. Do not risk a duplicate request.
 
-If no reviewer is named and no current human approval exists, report `waiting` and state that a reviewer login or independent human approval is needed. Never choose a reviewer.
+Without a named reviewer or current human approval, report `waiting`.
+Request a reviewer login or independent approval. Never choose a reviewer.
 
-Count only a current, non-bot `APPROVED` review. Treat dismissed approvals and approvals followed by substantial changes as stale. After a substantial change, complete any warranted Codex review cycle, then apply the human-request rules above instead of automatically requesting renewed human approval.
+Count only a current non-bot `APPROVED` review.
+Dismissal or substantial later changes make approval stale.
+Complete any warranted Codex review and follow the human-request rules.
+Staleness alone does not authorize another request.
 
 ## Readiness Classification
 
@@ -166,15 +188,17 @@ Require all of the following for `merge-ready`:
 
 - The pull request is open and non-draft.
 - The intended target is correct and no merge conflicts exist.
-- Any repository requirement that the head contain the current target is satisfied; otherwise, being behind the target is allowed.
+- Any repository requirement that the head contain the current target is satisfied. Otherwise, being behind the target is allowed.
 - Required checks pass on the current head.
-- A completed public Codex review covers the current material revision, all findings are addressed, and directly addressed Codex threads are resolved.
+- A completed public Codex review covers the current material revision.
+- All findings are addressed and directly addressed Codex threads are resolved.
 - A current non-bot approval exists and all human findings are addressed.
 - The pull-request body matches the complete current diff, validation, risks, and issue traceability.
 - The pull-request body follows the required `$git-github-workflow` structure and conditional test-suite disclosure.
 - Branch-protection requirements pass.
 
-Human-authored threads may remain unresolved. If their resolution is a branch-protection requirement, classify the pull request as blocked on reviewer or maintainer resolution rather than resolving the thread.
+Leave human-authored threads unresolved.
+If branch protection requires resolution, report a blocker for the reviewer or maintainer.
 
 ## Completion Report
 
@@ -190,4 +214,5 @@ After the table:
 1. List each blocker and the exact user, reviewer, maintainer, permission, or infrastructure action required.
 2. List the next expected lifecycle step for every non-terminal target.
 3. State which conflicts, review findings, and CI failures were addressed during the iteration.
-4. State that no pull request was merged during the iteration, identify every issue closed or confirmed closed, identify any Codex threads resolved, and confirm that no human-authored thread was resolved.
+4. Report issue closures, confirmations, and resolved Codex threads.
+   Confirm that no PR was merged and no human-authored thread was resolved.

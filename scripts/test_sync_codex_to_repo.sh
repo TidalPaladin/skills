@@ -8,6 +8,7 @@ readonly PR_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/pr-lifecycle-reporter.toml"
 readonly CITATION_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/citation-verifier.toml"
 readonly PROJECT_CONFIG="${REPO_ROOT}/.codex/config.toml"
 readonly ROOT_GUIDANCE="${REPO_ROOT}/AGENTS.md"
+readonly REPOSITORY_GUIDANCE="${REPO_ROOT}/REPOSITORY.md"
 readonly CITATION_SKILL="${REPO_ROOT}/citation-verifier/SKILL.md"
 readonly CITATION_INTERFACE="${REPO_ROOT}/citation-verifier/agents/openai.yaml"
 readonly EMEND_SKILL="${REPO_ROOT}/emend/SKILL.md"
@@ -24,6 +25,7 @@ readonly GOAL_INTERFACE="${REPO_ROOT}/goal-mode/agents/openai.yaml"
 readonly REVIEW_SKILL="${REPO_ROOT}/review-fix-loop/SKILL.md"
 readonly REVIEW_INTERFACE="${REPO_ROOT}/review-fix-loop/agents/openai.yaml"
 readonly AUTORESEARCH_SKILL="${REPO_ROOT}/autoresearch/SKILL.md"
+readonly AUTORESEARCH_LIFECYCLE="${REPO_ROOT}/autoresearch/references/run-lifecycle.md"
 readonly AUTORESEARCH_INTERFACE="${REPO_ROOT}/autoresearch/agents/openai.yaml"
 readonly NOTIFY_WAKE_SKILL="${REPO_ROOT}/notify-wake/SKILL.md"
 readonly NOTIFY_WAKE_SCRIPT="${REPO_ROOT}/notify-wake/scripts/notify_wake.py"
@@ -101,6 +103,10 @@ run_sync() {
 }
 
 test_agent_source_contract() {
+  assert_file_exists "$REPOSITORY_GUIDANCE"
+  assert_contains "$ROOT_GUIDANCE" 'read `REPOSITORY.md` from that checkout'
+  assert_contains "$REPOSITORY_GUIDANCE" '`scripts/ci.sh`'
+  assert_not_contains "$ROOT_GUIDANCE" 'scripts/ci.sh'
   assert_file_exists "$PR_AGENT_SOURCE"
   assert_file_exists "$CITATION_AGENT_SOURCE"
   assert_file_exists "$CITATION_SKILL"
@@ -154,13 +160,16 @@ test_agent_source_contract() {
   assert_not_contains "$PR_AGENT_SOURCE" 'queue rules permit the rerun'
   assert_not_contains "$PR_AGENT_SOURCE" 'resolve or unresolve review threads'
   assert_not_contains "$ROOT_GUIDANCE" 'large-queue CI context'
-  assert_contains "$ROOT_GUIDANCE" 'waves of at most eight reporter instances'
-  assert_contains "$ROOT_GUIDANCE" 'establish fixed lifecycle order before fan-out'
-  assert_contains "$ROOT_GUIDANCE" 'consolidate lifecycle rows by assigned queue position'
-  assert_contains "$ROOT_GUIDANCE" 'For every citation-verification task, the parent agent must invoke `citation_verifier`'
-  assert_contains "$ROOT_GUIDANCE" 'assign exactly one citation occurrence to each instance'
-  assert_contains "$ROOT_GUIDANCE" 'source path, line or unique context, citation key, complete surrounding claim, and bibliography entry'
-  assert_contains "$ROOT_GUIDANCE" 'consolidate citation reports in source order'
+  # Global guidance routes to task-specific contracts, which remain mandatory.
+  assert_contains "$ROOT_GUIDANCE" '`$citation-verifier`'
+  assert_contains "$ROOT_GUIDANCE" '`$manage-pr-lifecycle`'
+  assert_contains "$LIFECYCLE_SKILL" 'waves of at most eight reporter instances'
+  assert_contains "$LIFECYCLE_SKILL" 'establish fixed lifecycle order before fan-out'
+  assert_contains "$LIFECYCLE_SKILL" 'consolidate lifecycle rows by assigned queue position'
+  assert_contains "$CITATION_SKILL" 'the parent agent must invoke `citation_verifier`'
+  assert_contains "$CITATION_SKILL" 'assign exactly one citation occurrence to each instance'
+  assert_contains "$CITATION_SKILL" 'source path, line or unique context, citation key, complete surrounding claim, and bibliography entry'
+  assert_contains "$CITATION_SKILL" 'consolidate citation reports in source order'
   assert_contains "$SYNC_SCRIPT" "--exclude='.venv/'"
   assert_contains "$SYNC_SCRIPT" "--exclude='.pytest_cache/'"
   assert_contains "$SYNC_SCRIPT" "--exclude='.ruff_cache/'"
@@ -171,11 +180,14 @@ test_agent_source_contract() {
   assert_contains "$NOTIFY_WAKE_SKILL" 'https://github.com/TidalPaladin/skills'
   assert_not_contains "$NOTIFY_WAKE_SKILL" '/home/tidal/skills'
   assert_contains "$AUTORESEARCH_SKILL" 'keep the goal active'
-  assert_contains "$AUTORESEARCH_SKILL" 'Delegate wake authority capture, delivery state, reconciliation, retries, root delivery, and owned goal waits to `$notify-wake`.'
-  assert_contains "$AUTORESEARCH_SKILL" 'Treat the research terminal record as canonical source truth.'
-  assert_contains "$AUTORESEARCH_SKILL" 'Assign watchdog event delivery to the repository `$notify-wake` adapter or controller.'
-  assert_contains "$AUTORESEARCH_SKILL" 'Provide an automated conformance check for these requirements.'
-  assert_contains "$AUTORESEARCH_SKILL" 'Keep this skill responsible for research discipline, recoverability, and safety.'
+  assert_contains "$AUTORESEARCH_SKILL" '(references/run-lifecycle.md)'
+  assert_contains "$AUTORESEARCH_SKILL" '(references/study-protocol.md)'
+  assert_file_exists "${REPO_ROOT}/autoresearch/references/study-protocol.md"
+  assert_contains "$AUTORESEARCH_LIFECYCLE" 'Delegate wake authority capture, delivery state, reconciliation, retries, root delivery, and owned goal waits to `$notify-wake`.'
+  assert_contains "$AUTORESEARCH_LIFECYCLE" 'Treat the research terminal record as canonical source truth.'
+  assert_contains "$AUTORESEARCH_LIFECYCLE" 'Assign watchdog event delivery to the repository `$notify-wake` adapter or controller.'
+  assert_contains "$AUTORESEARCH_LIFECYCLE" 'Provide an automated conformance check for these requirements.'
+  assert_contains "$AUTORESEARCH_LIFECYCLE" 'Keep this skill responsible for research discipline, recoverability, and safety.'
   assert_not_contains "$AUTORESEARCH_SKILL" 'Weights & Biases'
   assert_not_contains "$AUTORESEARCH_SKILL" '[skip ci]'
   assert_not_contains "$AUTORESEARCH_SKILL" 'PyTorch'
@@ -191,9 +203,9 @@ test_pull_request_contracts() {
   assert_file_exists "$LIFECYCLE_PLAYBOOK"
 
   assert_contains "$AUDIT_SKILL" 'required closing keyword'
-  assert_contains "$AUDIT_SKILL" '`## Motivation`, `## Solution`, `## Changes`, and `## Test plan`'
+  assert_contains "$AUDIT_SKILL" '(references/remediation-playbook.md)'
+  assert_contains "$AUDIT_PLAYBOOK" '`## Motivation`, `## Solution`, `## Changes`, and `## Test plan`'
   assert_contains "$GIT_WORKFLOW" '## Test suite changes (Required when test coverage changed)'
-  assert_contains "$AUDIT_SKILL" '`## Test suite changes (Required when test coverage changed)`'
   assert_contains "$AUDIT_PLAYBOOK" '`## Test suite changes (Required when test coverage changed)`'
   assert_contains "$AUDIT_PLAYBOOK" 'Fetch the created pull request again and verify its complete body'
   assert_not_contains "$AUDIT_SKILL" 'Adding automatic issue-closing keywords.'
@@ -201,8 +213,8 @@ test_pull_request_contracts() {
 
   assert_contains "$LIFECYCLE_SKILL" 'merged into the repository default branch'
   assert_contains "$LIFECYCLE_SKILL" 'state reason `completed`'
-  assert_contains "$LIFECYCLE_SKILL" '`## Motivation`, `## Solution`, `## Changes`, and `## Test plan`'
-  assert_contains "$LIFECYCLE_SKILL" '`## Test suite changes (Required when test coverage changed)`'
+  assert_contains "$LIFECYCLE_SKILL" '(references/lifecycle-playbook.md)'
+  assert_contains "$LIFECYCLE_PLAYBOOK" '`## Motivation`, `## Solution`, `## Changes`, and `## Test plan`'
   assert_contains "$LIFECYCLE_PLAYBOOK" '`## Test suite changes (Required when test coverage changed)`'
   assert_contains "$LIFECYCLE_PLAYBOOK" '`pull_request` field'
   assert_contains "$LIFECYCLE_PLAYBOOK" 'never send an issue-state update for it'
@@ -212,7 +224,7 @@ test_pull_request_contracts() {
   assert_contains "$PR_AGENT_SOURCE" 'closing-linked issue'
   assert_contains "$PR_AGENT_SOURCE" '`pull_request` field'
   assert_contains "$PR_AGENT_SOURCE" 'Issue closure'
-  assert_contains "$ROOT_GUIDANCE" 'closing-linked issue state'
+  assert_contains "$LIFECYCLE_SKILL" 'closing-linked issue state'
 }
 
 test_goal_mode_contract() {
@@ -401,6 +413,8 @@ EOF
   assert_files_equal "$CITATION_AGENT_SOURCE" "${codex_home}/agents/citation-verifier.toml"
   assert_file_exists "${codex_home}/agents/personal-agent.toml"
   assert_files_equal "${REPO_ROOT}/AGENTS.md" "${codex_home}/AGENTS.md"
+  assert_path_missing "${codex_home}/REPOSITORY.md"
+  assert_path_missing "${codex_home}/skills/REPOSITORY.md"
   assert_file_exists "${codex_home}/skills/manage-pr-lifecycle/SKILL.md"
   assert_files_equal "$CITATION_SKILL" "${codex_home}/skills/citation-verifier/SKILL.md"
   assert_files_equal "$GOAL_SKILL" "${codex_home}/skills/goal-mode/SKILL.md"

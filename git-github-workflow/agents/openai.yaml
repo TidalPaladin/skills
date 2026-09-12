@@ -1,4 +1,4 @@
 interface:
   display_name: "Git & GitHub Workflow"
-  short_description: "Safe Git/GitHub and Actions validation workflow"
-  default_prompt: "Use $git-github-workflow to handle this git/GitHub task safely, including commits, branches, PRs, GitHub Actions validation, and review feedback."
+  short_description: "Perform Git and GitHub operations safely"
+  default_prompt: "Use $git-github-workflow for this Git or GitHub task."
