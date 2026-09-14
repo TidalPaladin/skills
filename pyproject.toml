@@ -7,15 +7,15 @@ dependencies = []
 [dependency-groups]
 ci = [
   "actionlint-py==1.7.12.24",
-  "basedpyright==1.39.9",
+  "basedpyright==1.39.10",
   "pip-audit==2.10.1",
-  "pyarrow==25.0.0",
+  "pyarrow==25.0.1",
   "pytest==9.1.1",
   "pytest-cov==7.1.0",
   "pyyaml==6.0.3",
-  "ruff==0.16.0",
+  "ruff==0.16.6",
   "shellcheck-py==0.11.0.1",
-  "zizmor==1.28.0",
+  "zizmor==1.30.0",
 ]
 
 [tool.uv]
