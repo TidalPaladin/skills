@@ -80,4 +80,17 @@ which authorized operations are needed.
   Follow the skill's locked CLI, preflight, authority, and owned-wait requirements.
   Never change the active root model for a cheaper wake or relay.
 
+## Subagent Selection
+
+When the user or a skill requests delegation, give each agent a bounded task:
+
+- Use `lightweight_reviewer` for simple research or spot checks with no local
+  or external writes. Use `lightweight_editor` for simple tasks that need writes.
+- Use `moderate_worker` for work that needs careful reasoning. Luna primary
+  agents can use it for more demanding work; Sol primary agents can use it to
+  parallelize independent work.
+- Sol and Luna primary agents may ask `consultant` for advice when uncertainty
+  or complexity is significant. Astra primary agents do not use `consultant`.
+  The consultant advises and does not implement changes.
+
 When working in TidalPaladin/skills, read `REPOSITORY.md` from that checkout's root.

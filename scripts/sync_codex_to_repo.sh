@@ -7,7 +7,7 @@ Sync this repository into ${CODEX_HOME:-$HOME/.codex}:
 - AGENTS.md -> AGENTS.md
 - skill directories -> skills/
 - custom agent definitions -> agents/
-- minimum project agent capacity -> config.toml
+- minimum agent capacity and default subagent model/effort -> config.toml
 
 Usage:
   scripts/sync_codex_to_repo.sh [--apply] [--dry-run] [--delete]
@@ -70,6 +70,9 @@ readonly repo_root
 readonly source_dir="${repo_root}/"
 readonly source_agents="${repo_root}/.codex/agents/"
 readonly agent_validator="${repo_root}/scripts/validate_codex_agents.py"
+readonly agent_renderer="${repo_root}/scripts/render_codex_agents.py"
+readonly config_renderer="${repo_root}/scripts/render_codex_config.py"
+readonly agent_catalog="${repo_root}/.codex/agent_catalog.toml"
 readonly agent_validator_python='>=3.11'
 readonly project_config="${repo_root}/.codex/config.toml"
 destination_root="${CODEX_HOME:-${HOME}/.codex}"
@@ -100,136 +103,6 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-
-CONFIG_AGENTS_SECTION_COUNT=0
-CONFIG_MAX_THREADS_COUNT=0
-CONFIG_MAX_THREADS_VALUE=""
-
-analyze_agent_settings() {
-  local config_path="$1"
-  local in_agents=false
-  local line
-  local max_threads_value
-  local -r agents_header_pattern='^[[:space:]]*\[agents\][[:space:]]*(#.*)?$'
-  local -r table_header_pattern='^[[:space:]]*\['
-  local -r max_threads_key_pattern='^[[:space:]]*max_threads[[:space:]]*='
-  local -r max_threads_value_pattern='^[[:space:]]*max_threads[[:space:]]*=[[:space:]]*([0-9]+)([[:space:]]*(#.*)?)$'
-
-  CONFIG_AGENTS_SECTION_COUNT=0
-  CONFIG_MAX_THREADS_COUNT=0
-  CONFIG_MAX_THREADS_VALUE=""
-
-  if [[ ! -f "$config_path" ]]; then
-    return
-  fi
-
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" =~ $agents_header_pattern ]]; then
-      ((CONFIG_AGENTS_SECTION_COUNT += 1))
-      in_agents=true
-      continue
-    fi
-
-    if [[ "$line" =~ $table_header_pattern ]]; then
-      in_agents=false
-      continue
-    fi
-
-    if [[ "$in_agents" == true && "$line" =~ $max_threads_key_pattern ]]; then
-      ((CONFIG_MAX_THREADS_COUNT += 1))
-      if [[ ! "$line" =~ $max_threads_value_pattern ]]; then
-        echo "Error: agents.max_threads in ${config_path} must be a positive decimal integer." >&2
-        return 1
-      fi
-      max_threads_value="${BASH_REMATCH[1]}"
-      if ((10#$max_threads_value < 1)); then
-        echo "Error: agents.max_threads in ${config_path} must be greater than zero." >&2
-        return 1
-      fi
-      CONFIG_MAX_THREADS_VALUE="$((10#$max_threads_value))"
-    fi
-  done <"$config_path"
-
-  if ((CONFIG_AGENTS_SECTION_COUNT > 1)); then
-    echo "Error: ${config_path} contains multiple [agents] sections." >&2
-    return 1
-  fi
-  if ((CONFIG_MAX_THREADS_COUNT > 1)); then
-    echo "Error: ${config_path} contains multiple agents.max_threads values." >&2
-    return 1
-  fi
-}
-
-read_minimum_agent_threads() {
-  analyze_agent_settings "$project_config"
-  if ((CONFIG_AGENTS_SECTION_COUNT != 1 || CONFIG_MAX_THREADS_COUNT != 1)); then
-    echo "Error: ${project_config} must define exactly one agents.max_threads value." >&2
-    return 1
-  fi
-  if ((CONFIG_MAX_THREADS_VALUE < 1)); then
-    echo "Error: agents.max_threads in ${project_config} must be greater than zero." >&2
-    return 1
-  fi
-  printf '%s\n' "$CONFIG_MAX_THREADS_VALUE"
-}
-
-render_global_config() {
-  local config_path="$1"
-  local output_path="$2"
-  local minimum_threads="$3"
-  local agents_section_count
-  local existing_threads
-  local max_threads_count
-  local in_agents=false
-  local line
-  local -r agents_header_pattern='^[[:space:]]*\[agents\][[:space:]]*(#.*)?$'
-  local -r table_header_pattern='^[[:space:]]*\['
-  local -r max_threads_value_pattern='^([[:space:]]*)max_threads[[:space:]]*=[[:space:]]*([0-9]+)([[:space:]]*(#.*)?)$'
-
-  analyze_agent_settings "$config_path"
-  agents_section_count="$CONFIG_AGENTS_SECTION_COUNT"
-  max_threads_count="$CONFIG_MAX_THREADS_COUNT"
-  existing_threads="${CONFIG_MAX_THREADS_VALUE:-0}"
-
-  if ((max_threads_count == 1 && existing_threads >= minimum_threads)); then
-    cp "$config_path" "$output_path"
-    return
-  fi
-
-  : >"$output_path"
-  if [[ -f "$config_path" ]]; then
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      if [[ "$line" =~ $agents_header_pattern ]]; then
-        in_agents=true
-        printf '%s\n' "$line" >>"$output_path"
-        if ((max_threads_count == 0)); then
-          printf 'max_threads = %s\n' "$minimum_threads" >>"$output_path"
-        fi
-        continue
-      fi
-
-      if [[ "$line" =~ $table_header_pattern ]]; then
-        in_agents=false
-      fi
-
-      if [[ "$in_agents" == true ]] && ((max_threads_count == 1)) &&
-        [[ "$line" =~ $max_threads_value_pattern ]]; then
-        printf '%smax_threads = %s%s\n' \
-          "${BASH_REMATCH[1]}" "$minimum_threads" "${BASH_REMATCH[3]}" >>"$output_path"
-        continue
-      fi
-
-      printf '%s\n' "$line" >>"$output_path"
-    done <"$config_path"
-  fi
-
-  if ((agents_section_count == 0)); then
-    if [[ -s "$output_path" ]]; then
-      printf '\n' >>"$output_path"
-    fi
-    printf '[agents]\nmax_threads = %s\n' "$minimum_threads" >>"$output_path"
-  fi
-}
 
 validate_proposed_configuration() {
   local agent_path
@@ -285,7 +158,7 @@ validate_proposed_configuration() {
 
 apply_proposed_config() {
   if [[ -f "$destination_config" ]] && cmp -s "$destination_config" "$proposed_config"; then
-    echo "Agent capacity already satisfies the configured minimum."
+    echo "Agent capacity and defaults already match the source settings."
     return
   fi
 
@@ -296,7 +169,7 @@ apply_proposed_config() {
   cp "$proposed_config" "$config_temp"
   mv -f "$config_temp" "$destination_config"
   config_temp=""
-  echo "Applied minimum agent capacity to ${destination_config}"
+  echo "Applied agent capacity and defaults to ${destination_config}"
 }
 
 if [[ ! -d "$source_agents" ]]; then
@@ -307,15 +180,25 @@ if [[ ! -f "$agent_validator" ]]; then
   echo "Error: custom agent validator is missing: ${agent_validator}" >&2
   exit 1
 fi
+if [[ ! -f "$agent_renderer" || ! -f "$config_renderer" || ! -f "$agent_catalog" ]]; then
+  echo "Error: Codex renderer or agent catalog is missing." >&2
+  exit 1
+fi
 if [[ ! -f "$project_config" ]]; then
   echo "Error: project Codex configuration is missing: ${project_config}" >&2
   exit 1
 fi
 
-minimum_agent_threads="$(read_minimum_agent_threads)"
-readonly minimum_agent_threads
-render_global_config "$destination_config" "$proposed_config" "$minimum_agent_threads"
+UV_NO_PROGRESS=1 uv run --python "$agent_validator_python" \
+  --no-project --no-cache python \
+  "$config_renderer" "$project_config" "$agent_catalog" \
+  "$destination_config" "$proposed_config"
 validate_proposed_configuration
+if ! UV_NO_PROGRESS=1 uv run --python "$agent_validator_python" \
+  --no-project --no-cache python "$agent_renderer"; then
+  echo "Error: generated Codex agents do not match the catalog." >&2
+  exit 1
+fi
 
 rsync_destination_root="$destination_root"
 if [[ "$dry_run" == true && ! -d "$destination_root" ]]; then
@@ -343,6 +226,8 @@ skills_flags=(
   --exclude='/scripts/'
   --exclude='.ruff_cache/'
   --exclude='.pytest_cache/'
+  --exclude='.coverage'
+  --exclude='dist/'
   --exclude='.venv/'
   --exclude='__pycache__/'
   --exclude='node_modules/'
@@ -361,7 +246,7 @@ if [[ "$dry_run" == true ]]; then
   echo "Dry run: previewing AGENTS.md sync to ${destination_root}/AGENTS.md"
   echo "Dry run: previewing skills sync from ${source_dir} to ${destination_skills}"
   echo "Dry run: previewing custom agents sync from ${source_agents} to ${destination_agents}"
-  echo "Dry run: previewing minimum agent capacity in ${destination_config}"
+  echo "Dry run: previewing agent capacity and defaults in ${destination_config}"
 else
   mkdir -p "$destination_root" "$destination_agents" "$destination_skills"
   echo "Applying AGENTS.md sync to ${destination_root}/AGENTS.md"

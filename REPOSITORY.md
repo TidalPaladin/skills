@@ -5,7 +5,15 @@ Paths below are relative to that checkout.
 
 - Keep skill triggers precise. Retain non-obvious constraints and completion
   criteria. Put conditional procedures in references with clear routing.
-- Keep custom agents in `.codex/agents/*.toml` and limits in `.codex/config.toml`.
+- Keep capacity classes, specialist instructions, and model choices in
+  `.codex/agent_catalog.toml`. Regenerate `.codex/agents/*.toml` with
+  `uv run --locked --group ci python scripts/render_codex_agents.py --write`.
+  Check for drift with the same command without `--write`. Sync also rejects
+  stale generated agents. Keep limits in `.codex/config.toml`.
+- Set the personal default subagent profile in the catalog's `[defaults]`
+  table. `scripts/sync_codex_to_repo.sh` copies that class's model and effort
+  into the user-level `[agents]` settings. Its dry run shows the exact config
+  change; it preserves other config fields and existing higher thread limits.
 - Keep `autoresearch/` domain-neutral. Downstream adapters own experiment mechanics.
 - Keep transport, authority capture, delivery, reconciliation, and owned goal
   waits in `notify-wake-runtime`. Adapters own events, controllers, and retry timing.
