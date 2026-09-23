@@ -6,6 +6,22 @@ readonly SYNC_SCRIPT="${REPO_ROOT}/scripts/sync_codex_to_repo.sh"
 readonly AGENT_VALIDATOR="${REPO_ROOT}/scripts/validate_codex_agents.py"
 readonly PR_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/pr-lifecycle-reporter.toml"
 readonly CITATION_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/citation-verifier.toml"
+readonly REVIEWER_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/lightweight-reviewer.toml"
+readonly EDITOR_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/lightweight-editor.toml"
+readonly WORKER_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/moderate-worker.toml"
+readonly CONSULTANT_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/consultant.toml"
+readonly AGENT_CATALOG="${REPO_ROOT}/.codex/agent_catalog.toml"
+readonly AGENT_RENDERER="${REPO_ROOT}/scripts/render_codex_agents.py"
+readonly CONFIG_RENDERER="${REPO_ROOT}/scripts/render_codex_config.py"
+default_settings="$(UV_NO_PROGRESS=1 uv run --no-project --no-cache --python '>=3.11' python -c '
+import sys, tomllib
+with open(sys.argv[1], "rb") as source:
+    catalog = tomllib.load(source)
+profile = catalog["classes"][catalog["defaults"]["subagent_profile"]]
+print(profile["model"], profile["model_reasoning_effort"], sep="\t")
+' "$AGENT_CATALOG")"
+IFS=$'\t' read -r DEFAULT_SUBAGENT_MODEL DEFAULT_SUBAGENT_EFFORT <<<"$default_settings"
+readonly DEFAULT_SUBAGENT_MODEL DEFAULT_SUBAGENT_EFFORT
 readonly PROJECT_CONFIG="${REPO_ROOT}/.codex/config.toml"
 readonly ROOT_GUIDANCE="${REPO_ROOT}/AGENTS.md"
 readonly REPOSITORY_GUIDANCE="${REPO_ROOT}/REPOSITORY.md"
@@ -109,6 +125,13 @@ test_agent_source_contract() {
   assert_not_contains "$ROOT_GUIDANCE" 'scripts/ci.sh'
   assert_file_exists "$PR_AGENT_SOURCE"
   assert_file_exists "$CITATION_AGENT_SOURCE"
+  assert_file_exists "$REVIEWER_AGENT_SOURCE"
+  assert_file_exists "$EDITOR_AGENT_SOURCE"
+  assert_file_exists "$WORKER_AGENT_SOURCE"
+  assert_file_exists "$CONSULTANT_AGENT_SOURCE"
+  assert_file_exists "$AGENT_CATALOG"
+  assert_file_exists "$CONFIG_RENDERER"
+  assert_contains "$AGENT_CATALOG" 'subagent_profile = "lightweight_editor"'
   assert_file_exists "$CITATION_SKILL"
   assert_file_exists "$CITATION_INTERFACE"
   assert_path_missing "${REPO_ROOT}/citation-verifier/scripts"
@@ -122,21 +145,24 @@ test_agent_source_contract() {
   assert_file_exists "$AUTORESEARCH_SKILL"
   assert_file_exists "$AUTORESEARCH_INTERFACE"
   assert_contains "$PR_AGENT_SOURCE" 'name = "pr_lifecycle_reporter"'
-  assert_contains "$PR_AGENT_SOURCE" 'model = "gpt-5.6-luna"'
-  assert_contains "$PR_AGENT_SOURCE" 'model_reasoning_effort = "medium"'
   assert_contains "$PR_AGENT_SOURCE" 'sandbox_mode = "read-only"'
   assert_contains "$PR_AGENT_SOURCE" 'approval_policy = "never"'
   assert_contains "$PR_AGENT_SOURCE" 'developer_instructions = """'
   assert_contains "$CITATION_AGENT_SOURCE" 'name = "citation_verifier"'
-  assert_contains "$CITATION_AGENT_SOURCE" 'model = "gpt-5.6-luna"'
-  assert_contains "$CITATION_AGENT_SOURCE" 'model_reasoning_effort = "medium"'
   assert_contains "$CITATION_AGENT_SOURCE" 'sandbox_mode = "read-only"'
   assert_contains "$CITATION_AGENT_SOURCE" 'approval_policy = "never"'
   assert_contains "$CITATION_AGENT_SOURCE" 'Use $citation-verifier for every assignment'
   assert_contains "$CITATION_AGENT_SOURCE" 'exactly one citation occurrence'
   assert_contains "$CITATION_AGENT_SOURCE" 'Do not modify local files, Git state'
-  assert_contains "$CITATION_AGENT_SOURCE" 'Return exactly one citation verification'
+  assert_contains "$CITATION_AGENT_SOURCE" 'or external services through connectors or APIs.'
+  assert_contains "$CITATION_AGENT_SOURCE" 'exactly one citation verification'
   assert_not_contains "$CITATION_AGENT_SOURCE" 'dissertation'
+  assert_contains "$REVIEWER_AGENT_SOURCE" 'sandbox_mode = "read-only"'
+  assert_contains "$REVIEWER_AGENT_SOURCE" 'external services'
+  assert_contains "$EDITOR_AGENT_SOURCE" 'sandbox_mode = "workspace-write"'
+  assert_contains "$WORKER_AGENT_SOURCE" 'sandbox_mode = "workspace-write"'
+  assert_contains "$CONSULTANT_AGENT_SOURCE" 'sandbox_mode = "read-only"'
+  assert_contains "$CONSULTANT_AGENT_SOURCE" 'If the caller is Astra, decline'
   assert_contains "$CITATION_SKILL" 'name: citation-verifier'
   assert_contains "$CITATION_SKILL" 'Verify one citation occurrence at a time.'
   assert_contains "$CITATION_SKILL" 'Status: VERIFIED | PARTIAL | INACCURATE | UNVERIFIABLE'
@@ -163,6 +189,7 @@ test_agent_source_contract() {
   # Global guidance routes to task-specific contracts, which remain mandatory.
   assert_contains "$ROOT_GUIDANCE" '`$citation-verifier`'
   assert_contains "$ROOT_GUIDANCE" '`$manage-pr-lifecycle`'
+  assert_contains "$ROOT_GUIDANCE" 'Astra primary agents do not use `consultant`.'
   assert_contains "$LIFECYCLE_SKILL" 'waves of at most eight reporter instances'
   assert_contains "$LIFECYCLE_SKILL" 'establish fixed lifecycle order before fan-out'
   assert_contains "$LIFECYCLE_SKILL" 'consolidate lifecycle rows by assigned queue position'
@@ -173,6 +200,8 @@ test_agent_source_contract() {
   assert_contains "$SYNC_SCRIPT" "--exclude='.venv/'"
   assert_contains "$SYNC_SCRIPT" "--exclude='.pytest_cache/'"
   assert_contains "$SYNC_SCRIPT" "--exclude='.ruff_cache/'"
+  assert_contains "$SYNC_SCRIPT" "--exclude='.coverage'"
+  assert_contains "$SYNC_SCRIPT" "--exclude='dist/'"
   assert_contains "$NOTIFY_WAKE_SKILL" 'preflight'
   assert_contains "$NOTIFY_WAKE_SKILL" 'turn/start'
   assert_contains "$NOTIFY_WAKE_SKILL" 'strictly more than 10 minutes'
@@ -354,7 +383,13 @@ test_missing_codex_home_dry_run_succeeds_without_writes() {
   assert_path_missing "$codex_home"
   assert_contains "$output" 'pr-lifecycle-reporter.toml'
   assert_contains "$output" 'citation-verifier.toml'
+  assert_contains "$output" 'lightweight-reviewer.toml'
+  assert_contains "$output" 'lightweight-editor.toml'
+  assert_contains "$output" 'moderate-worker.toml'
+  assert_contains "$output" 'consultant.toml'
   assert_contains "$output" 'max_threads = 8'
+  assert_contains "$output" "default_subagent_model = \"${DEFAULT_SUBAGENT_MODEL}\""
+  assert_contains "$output" "default_subagent_reasoning_effort = \"${DEFAULT_SUBAGENT_EFFORT}\""
 }
 
 test_dry_run_is_non_mutating() {
@@ -411,6 +446,10 @@ EOF
 
   assert_files_equal "$PR_AGENT_SOURCE" "${codex_home}/agents/pr-lifecycle-reporter.toml"
   assert_files_equal "$CITATION_AGENT_SOURCE" "${codex_home}/agents/citation-verifier.toml"
+  assert_files_equal "$REVIEWER_AGENT_SOURCE" "${codex_home}/agents/lightweight-reviewer.toml"
+  assert_files_equal "$EDITOR_AGENT_SOURCE" "${codex_home}/agents/lightweight-editor.toml"
+  assert_files_equal "$WORKER_AGENT_SOURCE" "${codex_home}/agents/moderate-worker.toml"
+  assert_files_equal "$CONSULTANT_AGENT_SOURCE" "${codex_home}/agents/consultant.toml"
   assert_file_exists "${codex_home}/agents/personal-agent.toml"
   assert_files_equal "${REPO_ROOT}/AGENTS.md" "${codex_home}/AGENTS.md"
   assert_path_missing "${codex_home}/REPOSITORY.md"
@@ -442,6 +481,8 @@ EOF
   assert_path_missing "${codex_home}/skills/node_modules"
   assert_contains "${codex_home}/config.toml" 'model = "gpt-5.6-sol"'
   assert_contains "${codex_home}/config.toml" 'max_threads = 8 # preserve this comment'
+  assert_contains "${codex_home}/config.toml" "default_subagent_model = \"${DEFAULT_SUBAGENT_MODEL}\""
+  assert_contains "${codex_home}/config.toml" "default_subagent_reasoning_effort = \"${DEFAULT_SUBAGENT_EFFORT}\""
   assert_contains "${codex_home}/config.toml" 'apps = true'
   assert_count 1 '^max_threads[[:space:]]*=' "${codex_home}/config.toml"
 
@@ -461,11 +502,14 @@ test_apply_excludes_nested_python_artifacts() {
     "${NESTED_ARTIFACT_FIXTURE}/.venv" \
     "${NESTED_ARTIFACT_FIXTURE}/.pytest_cache" \
     "${NESTED_ARTIFACT_FIXTURE}/.ruff_cache" \
+    "${NESTED_ARTIFACT_FIXTURE}/dist" \
     "${NESTED_ARTIFACT_FIXTURE}/runtime/__pycache__"
   printf '%s\n' 'fixture' >"${NESTED_ARTIFACT_FIXTURE}/SKILL.md"
   printf '%s\n' 'artifact' >"${NESTED_ARTIFACT_FIXTURE}/.venv/sentinel"
   printf '%s\n' 'artifact' >"${NESTED_ARTIFACT_FIXTURE}/.pytest_cache/sentinel"
   printf '%s\n' 'artifact' >"${NESTED_ARTIFACT_FIXTURE}/.ruff_cache/sentinel"
+  printf '%s\n' 'artifact' >"${NESTED_ARTIFACT_FIXTURE}/.coverage"
+  printf '%s\n' 'artifact' >"${NESTED_ARTIFACT_FIXTURE}/dist/sentinel"
   printf '%s\n' 'artifact' >"${NESTED_ARTIFACT_FIXTURE}/runtime/__pycache__/sentinel"
 
   run_sync "$codex_home" --apply >/dev/null
@@ -474,6 +518,8 @@ test_apply_excludes_nested_python_artifacts() {
   assert_path_missing "${synced_fixture}/.venv"
   assert_path_missing "${synced_fixture}/.pytest_cache"
   assert_path_missing "${synced_fixture}/.ruff_cache"
+  assert_path_missing "${synced_fixture}/.coverage"
+  assert_path_missing "${synced_fixture}/dist"
   assert_path_missing "${synced_fixture}/runtime/__pycache__"
 }
 
@@ -495,6 +541,8 @@ model = "gpt-5.6-sol"
 
 [agents]
 max_threads = ${limit}
+default_subagent_model = "${DEFAULT_SUBAGENT_MODEL}"
+default_subagent_reasoning_effort = "${DEFAULT_SUBAGENT_EFFORT}"
 EOF
     before_hash="$(file_checksum "${codex_home}/config.toml")"
 
@@ -503,6 +551,64 @@ EOF
     [[ "$(file_checksum "${codex_home}/config.toml")" == "$before_hash" ]] ||
       fail "apply changed an existing max_threads value of $limit"
   done
+}
+
+test_existing_defaults_are_updated_without_other_changes() {
+  local codex_home
+  local config_hash
+  codex_home="$(new_codex_home existing-defaults)"
+
+  cat >"${codex_home}/config.toml" <<'EOF'
+model = "gpt-5.6-sol" # keep the primary model
+
+[agents]
+max_threads = 12 # keep higher capacity
+max_depth = 2 # keep this limit
+default_subagent_model = "gpt-5.6-luna" # keep this comment
+default_subagent_reasoning_effort = "medium" # keep this comment too
+
+[features]
+apps = true
+EOF
+
+  run_sync "$codex_home" --apply >/dev/null
+
+  assert_contains "${codex_home}/config.toml" 'model = "gpt-5.6-sol" # keep the primary model'
+  assert_contains "${codex_home}/config.toml" 'max_threads = 12 # keep higher capacity'
+  assert_contains "${codex_home}/config.toml" 'max_depth = 2 # keep this limit'
+  assert_contains "${codex_home}/config.toml" "default_subagent_model = \"${DEFAULT_SUBAGENT_MODEL}\" # keep this comment"
+  assert_contains "${codex_home}/config.toml" "default_subagent_reasoning_effort = \"${DEFAULT_SUBAGENT_EFFORT}\" # keep this comment too"
+  assert_contains "${codex_home}/config.toml" 'apps = true'
+
+  config_hash="$(file_checksum "${codex_home}/config.toml")"
+  run_sync "$codex_home" --apply >/dev/null
+  [[ "$(file_checksum "${codex_home}/config.toml")" == "$config_hash" ]] ||
+    fail "repeated apply changed the default subagent settings"
+}
+
+test_quoted_agents_header_syncs_without_rewriting_other_fields() {
+  local codex_home
+  codex_home="$(new_codex_home quoted-agents-header)"
+
+  cat >"${codex_home}/config.toml" <<'EOF'
+model = "gpt-5.6-sol" # keep the primary model
+
+["agents"]
+max_threads = 12 # keep higher capacity
+default_subagent_model = "old" # keep this comment
+
+[features]
+apps = true
+EOF
+
+  run_sync "$codex_home" --apply >/dev/null
+
+  assert_contains "${codex_home}/config.toml" '["agents"]'
+  assert_contains "${codex_home}/config.toml" 'model = "gpt-5.6-sol" # keep the primary model'
+  assert_contains "${codex_home}/config.toml" 'max_threads = 12 # keep higher capacity'
+  assert_contains "${codex_home}/config.toml" "default_subagent_model = \"${DEFAULT_SUBAGENT_MODEL}\" # keep this comment"
+  assert_contains "${codex_home}/config.toml" "default_subagent_reasoning_effort = \"${DEFAULT_SUBAGENT_EFFORT}\""
+  assert_contains "${codex_home}/config.toml" 'apps = true'
 }
 
 test_missing_config_and_section_are_created() {
@@ -514,6 +620,8 @@ test_missing_config_and_section_are_created() {
   run_sync "$missing_config_home" --apply >/dev/null
   assert_contains "${missing_config_home}/config.toml" '[agents]'
   assert_contains "${missing_config_home}/config.toml" 'max_threads = 8'
+  assert_contains "${missing_config_home}/config.toml" "default_subagent_model = \"${DEFAULT_SUBAGENT_MODEL}\""
+  assert_contains "${missing_config_home}/config.toml" "default_subagent_reasoning_effort = \"${DEFAULT_SUBAGENT_EFFORT}\""
 
   cat >"${missing_section_home}/config.toml" <<'EOF'
 model = "gpt-5.6-sol"
@@ -526,6 +634,8 @@ EOF
   assert_contains "${missing_section_home}/config.toml" 'apps = true'
   assert_contains "${missing_section_home}/config.toml" '[agents]'
   assert_contains "${missing_section_home}/config.toml" 'max_threads = 8'
+  assert_contains "${missing_section_home}/config.toml" "default_subagent_model = \"${DEFAULT_SUBAGENT_MODEL}\""
+  assert_contains "${missing_section_home}/config.toml" "default_subagent_reasoning_effort = \"${DEFAULT_SUBAGENT_EFFORT}\""
 }
 
 test_missing_limit_is_inserted_in_existing_section() {
@@ -544,6 +654,8 @@ EOF
 
   assert_contains "${codex_home}/config.toml" 'max_depth = 2'
   assert_contains "${codex_home}/config.toml" 'max_threads = 8'
+  assert_contains "${codex_home}/config.toml" "default_subagent_model = \"${DEFAULT_SUBAGENT_MODEL}\""
+  assert_contains "${codex_home}/config.toml" "default_subagent_reasoning_effort = \"${DEFAULT_SUBAGENT_EFFORT}\""
   assert_contains "${codex_home}/config.toml" 'apps = true'
   [[ "$(sed -n '/^\[agents\]$/,/^\[/p' "${codex_home}/config.toml" | rg --count-matches '^max_threads = 8$')" == 1 ]] ||
     fail "max_threads was not inserted into the existing agents section"
@@ -609,7 +721,7 @@ EOF
     fail "strict validation failure changed config.toml"
   assert_path_missing "${codex_home}/agents"
   assert_path_missing "${codex_home}/skills"
-  assert_contains "$output" 'Error: proposed Codex configuration failed strict validation.'
+  assert_contains "$output" 'Error: cannot render personal Codex config:'
 }
 
 test_invalid_source_agents_are_rejected_before_sync() {
@@ -628,6 +740,9 @@ test_invalid_source_agents_are_rejected_before_sync() {
     mkdir -p "${fixture_repo}/scripts" "${fixture_repo}/.codex/agents" "$codex_home"
     cp "$SYNC_SCRIPT" "${fixture_repo}/scripts/sync_codex_to_repo.sh"
     cp "$AGENT_VALIDATOR" "${fixture_repo}/scripts/validate_codex_agents.py"
+    cp "$AGENT_RENDERER" "${fixture_repo}/scripts/render_codex_agents.py"
+    cp "$CONFIG_RENDERER" "${fixture_repo}/scripts/render_codex_config.py"
+    cp "$AGENT_CATALOG" "${fixture_repo}/.codex/agent_catalog.toml"
     printf '%s\n' '# Fixture guidance' >"${fixture_repo}/AGENTS.md"
     printf '%s\n' '[agents]' 'max_threads = 8' >"${fixture_repo}/.codex/config.toml"
     if [[ "$fixture_name" == malformed ]]; then
@@ -661,6 +776,37 @@ test_invalid_source_agents_are_rejected_before_sync() {
   done
 }
 
+test_stale_agent_files_are_rejected_before_sync() {
+  local fixture_root="${TEST_ROOT}/stale-source-agent"
+  local fixture_repo="${fixture_root}/repo"
+  local codex_home="${fixture_root}/codex-home"
+  local output="${fixture_root}/sync.out"
+
+  mkdir -p "${fixture_repo}/scripts" "${fixture_repo}/.codex/agents" "$codex_home"
+  cp "$SYNC_SCRIPT" "${fixture_repo}/scripts/sync_codex_to_repo.sh"
+  cp "$AGENT_VALIDATOR" "${fixture_repo}/scripts/validate_codex_agents.py"
+  cp "$AGENT_RENDERER" "${fixture_repo}/scripts/render_codex_agents.py"
+  cp "$CONFIG_RENDERER" "${fixture_repo}/scripts/render_codex_config.py"
+  cp "${REPO_ROOT}/.codex/agents/"*.toml "${fixture_repo}/.codex/agents/"
+  sed 's/^model = "gpt-6-luna"$/model = "gpt-6-sol"/' \
+    "$AGENT_CATALOG" >"${fixture_repo}/.codex/agent_catalog.toml"
+  cp "$PROJECT_CONFIG" "${fixture_repo}/.codex/config.toml"
+  printf '%s\n' '# Fixture guidance' >"${fixture_repo}/AGENTS.md"
+  git -C "$fixture_repo" init --quiet
+
+  if (
+    cd "$fixture_repo"
+    CODEX_HOME="$codex_home" scripts/sync_codex_to_repo.sh --apply
+  ) >"$output" 2>&1; then
+    fail "expected stale agent files to be rejected"
+  fi
+
+  assert_contains "$output" 'Stale or missing agents:'
+  assert_path_missing "${codex_home}/config.toml"
+  assert_path_missing "${codex_home}/agents"
+  assert_path_missing "${codex_home}/skills"
+}
+
 test_agent_source_contract
 test_pull_request_contracts
 test_goal_mode_contract
@@ -673,10 +819,13 @@ test_dry_run_is_non_mutating
 test_apply_syncs_agents_and_preserves_unrelated_state
 test_apply_excludes_nested_python_artifacts
 test_existing_equal_or_higher_limits_are_unchanged
+test_existing_defaults_are_updated_without_other_changes
+test_quoted_agents_header_syncs_without_rewriting_other_fields
 test_missing_config_and_section_are_created
 test_missing_limit_is_inserted_in_existing_section
 test_malformed_or_conflicting_config_is_rejected_atomically
 test_strict_config_failure_is_rejected_before_sync
 test_invalid_source_agents_are_rejected_before_sync
+test_stale_agent_files_are_rejected_before_sync
 
 echo "All sync integration tests passed."

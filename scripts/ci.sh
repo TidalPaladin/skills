@@ -110,6 +110,8 @@ run_ci_tool ruff check --target-version py311 --select E4,E7,E9,F,I,ISC \
 run_ci_tool env PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1 \
   basedpyright --level error \
   scripts/validate_codex_agents.py \
+  scripts/render_codex_agents.py \
+  scripts/render_codex_config.py \
   inspect-dataset/scripts/inspect_dataset.py \
   review-fix-loop/scripts/run_review.py \
   review-fix-loop/tests/test_run_review.py \
@@ -133,6 +135,8 @@ done
 
 token-file-auth/scripts/tests/test_token_file_auth.sh
 circleci-job-results/scripts/tests/test_fetch_circleci_job_results.sh
+run_ci_tool python scripts/render_codex_agents.py
+run_ci_tool python -m pytest -q scripts/tests
 scripts/test_sync_codex_to_repo.sh
 
 run_ci_tool actionlint
