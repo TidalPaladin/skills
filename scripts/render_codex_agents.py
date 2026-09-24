@@ -88,14 +88,21 @@ def render_agent(name: str, settings: dict[str, Any]) -> str:
     return "".join(lines)
 
 
-def render_catalog(catalog_path: Path) -> dict[str, str]:
-    """Expand class and specialist entries into standalone agent files."""
+def load_catalog(catalog_path: Path) -> dict[str, Any]:
+    """Read the catalog and check its top-level tables."""
     with catalog_path.open("rb") as catalog_file:
         catalog = require_table(tomllib.load(catalog_file), "catalog")
-    if catalog.keys() != {"defaults", "classes", "specialists"}:
+    required = {"defaults", "classes", "specialists"}
+    if not required <= catalog.keys() <= required | {"claude"}:
         raise ValueError(
             "catalog must contain defaults, classes, and specialists tables"
+            " and may contain a claude table"
         )
+    return catalog
+
+
+def expand_catalog(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Expand class and specialist entries into complete agent settings."""
     classes = require_table(catalog["classes"], "classes")
     specialists = require_table(catalog["specialists"], "specialists")
     defaults = require_table(catalog["defaults"], "defaults")
@@ -107,14 +114,14 @@ def render_catalog(catalog_path: Path) -> dict[str, str]:
     if not classes or not specialists:
         raise ValueError("catalog must define classes and specialists")
 
-    agents: dict[str, str] = {}
+    agents: dict[str, dict[str, Any]] = {}
     for name, raw_class in classes.items():
         if NAME_PATTERN.fullmatch(name) is None:
             raise ValueError(f"invalid class name: {name}")
         agent_class = require_table(raw_class, f"classes.{name}")
         require_fields(agent_class, CLASS_FIELDS, f"classes.{name}")
         validate_settings(agent_class, f"classes.{name}")
-        agents[name] = render_agent(name, agent_class)
+        agents[name] = dict(agent_class)
 
     for name, raw_specialist in specialists.items():
         if NAME_PATTERN.fullmatch(name) is None or name in agents:
@@ -138,10 +145,17 @@ def render_catalog(catalog_path: Path) -> dict[str, str]:
         settings.update(
             {key: value for key, value in specialist.items() if key != "profile"}
         )
-        agents[name] = render_agent(name, settings)
+        agents[name] = settings
 
+    return agents
+
+
+def render_catalog(catalog_path: Path) -> dict[str, str]:
+    """Expand class and specialist entries into standalone agent files."""
+    agents = expand_catalog(load_catalog(catalog_path))
     return {
-        name.replace("_", "-") + ".toml": content for name, content in agents.items()
+        name.replace("_", "-") + ".toml": render_agent(name, settings)
+        for name, settings in agents.items()
     }
 
 

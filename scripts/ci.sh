@@ -15,8 +15,8 @@ readonly -a SHELL_FILES=(
   scripts/audit_dependencies.sh
   scripts/ci.sh
   scripts/test_ci.sh
-  scripts/sync_codex_to_repo.sh
-  scripts/test_sync_codex_to_repo.sh
+  scripts/sync.sh
+  scripts/test_sync.sh
   token-file-auth/scripts/token_file_auth.sh
   token-file-auth/scripts/tests/test_token_file_auth.sh
   circleci-job-results/scripts/fetch_circleci_job_results.sh
@@ -104,14 +104,20 @@ done
 
 scripts/test_ci.sh
 
-run_ci_tool ruff format --check scripts inspect-dataset review-fix-loop emend
+run_ci_tool ruff format --check scripts inspect-dataset review-fix-loop emend \
+  .claude/overlays
 run_ci_tool ruff check --target-version py311 --select E4,E7,E9,F,I,ISC \
-  scripts inspect-dataset review-fix-loop emend
+  scripts inspect-dataset review-fix-loop emend .claude/overlays
 run_ci_tool env PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1 \
   basedpyright --level error \
   scripts/validate_codex_agents.py \
   scripts/render_codex_agents.py \
   scripts/render_codex_config.py \
+  scripts/render_claude_agents.py \
+  scripts/render_claude_config.py \
+  scripts/validate_claude_agents.py \
+  scripts/stage_claude_skills.py \
+  .claude/overlays/skills/review-fix-loop/scripts/run_review_claude.py \
   inspect-dataset/scripts/inspect_dataset.py \
   review-fix-loop/scripts/run_review.py \
   review-fix-loop/tests/test_run_review.py \
@@ -119,6 +125,7 @@ run_ci_tool env PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1 \
   emend/tests/test_check_asd_ste100.py
 run_ci_tool shellcheck --severity=error "${SHELL_FILES[@]}"
 run_ci_tool pytest -q review-fix-loop/tests
+run_ci_tool pytest -q .claude/overlays/skills/review-fix-loop/tests
 run_ci_tool pytest --cov=emend/scripts --cov-report=term-missing \
   --cov-fail-under=90 -q emend/tests
 
@@ -136,8 +143,9 @@ done
 token-file-auth/scripts/tests/test_token_file_auth.sh
 circleci-job-results/scripts/tests/test_fetch_circleci_job_results.sh
 run_ci_tool python scripts/render_codex_agents.py
+run_ci_tool python scripts/render_claude_agents.py
 run_ci_tool python -m pytest -q scripts/tests
-scripts/test_sync_codex_to_repo.sh
+scripts/test_sync.sh
 
 run_ci_tool actionlint
 run_ci_tool zizmor --strict-collection --collect=workflows,dependabot .github
