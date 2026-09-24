@@ -1,8 +1,31 @@
-# Source of truth for project and installed Codex subagents.
-# Run scripts/render_codex_agents.py after changing a class or specialist.
+# Source of truth for project and installed Codex and Claude subagents.
+# Run scripts/render_codex_agents.py and scripts/render_claude_agents.py
+# with --write after changing a class, specialist, or Claude mapping.
 
 [defaults]
 subagent_profile = "lightweight_editor"
+
+# Claude Code export settings. Every class model must have a Claude alias.
+[claude]
+# Codex-only skills without a Claude variant in .claude/overlays/skills/.
+exclude_skills = ["goal-mode", "notify-wake"]
+
+[claude.models]
+"gpt-6-luna" = "sonnet"
+"gpt-6-sol" = "opus"
+"gpt-6-astra" = "fable"
+
+# Whole-word replacements in exported guidance and agent text.
+[claude.guidance_terms]
+Luna = "Sonnet"
+Sol = "Opus"
+Astra = "Fable"
+
+# Values merged into the personal Claude settings.json on every sync.
+# Empty attribution strings remove the commit trailer and the PR footer.
+[claude.settings.attribution]
+commit = ""
+pr = ""
 
 [classes.lightweight_reviewer]
 description = "Read-only reviewer for information gathering, spot checks, and simple tasks."

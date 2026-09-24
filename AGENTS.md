@@ -74,11 +74,13 @@ which authorized operations are needed.
   Follow its parent-agent assignment contract.
 - Use `$manage-pr-lifecycle` for requested PR lifecycle work.
   Follow its reporter assignment and review rules.
+<!-- codex-only -->
 - Invoke `$notify-wake` automatically only for operations
   estimated before launch to take strictly more than 10 minutes.
   Explicit invocation bypasses that duration gate. Use ordinary waits for other work.
   Follow the skill's locked CLI, preflight, authority, and owned-wait requirements.
   Never change the active root model for a cheaper wake or relay.
+<!-- /codex-only -->
 
 ## Subagent Selection
 

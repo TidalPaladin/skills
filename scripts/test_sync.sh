@@ -2,7 +2,7 @@
 set -euo pipefail
 
 readonly REPO_ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
-readonly SYNC_SCRIPT="${REPO_ROOT}/scripts/sync_codex_to_repo.sh"
+readonly SYNC_SCRIPT="${REPO_ROOT}/scripts/sync.sh"
 readonly AGENT_VALIDATOR="${REPO_ROOT}/scripts/validate_codex_agents.py"
 readonly PR_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/pr-lifecycle-reporter.toml"
 readonly CITATION_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/citation-verifier.toml"
@@ -115,7 +115,22 @@ run_sync() {
   local codex_home="$1"
   shift
 
-  CODEX_HOME="$codex_home" "$SYNC_SCRIPT" "$@"
+  CODEX_HOME="$codex_home" "$SYNC_SCRIPT" --codex "$@"
+}
+
+new_claude_home() {
+  local name="$1"
+  local claude_home="${TEST_ROOT}/${name}/claude-home"
+
+  mkdir -p "$claude_home"
+  printf '%s\n' "$claude_home"
+}
+
+run_claude_sync() {
+  local claude_home="$1"
+  shift
+
+  CLAUDE_CONFIG_DIR="$claude_home" "$SYNC_SCRIPT" --claude "$@"
 }
 
 test_agent_source_contract() {
@@ -738,7 +753,7 @@ test_invalid_source_agents_are_rejected_before_sync() {
     output="${fixture_root}/sync.out"
 
     mkdir -p "${fixture_repo}/scripts" "${fixture_repo}/.codex/agents" "$codex_home"
-    cp "$SYNC_SCRIPT" "${fixture_repo}/scripts/sync_codex_to_repo.sh"
+    cp "$SYNC_SCRIPT" "${fixture_repo}/scripts/sync.sh"
     cp "$AGENT_VALIDATOR" "${fixture_repo}/scripts/validate_codex_agents.py"
     cp "$AGENT_RENDERER" "${fixture_repo}/scripts/render_codex_agents.py"
     cp "$CONFIG_RENDERER" "${fixture_repo}/scripts/render_codex_config.py"
@@ -765,7 +780,7 @@ test_invalid_source_agents_are_rejected_before_sync() {
 
     if (
       cd "$fixture_repo"
-      CODEX_HOME="$codex_home" scripts/sync_codex_to_repo.sh --apply
+      CODEX_HOME="$codex_home" scripts/sync.sh --codex --apply
     ) >"$output" 2>&1; then
       fail "expected the $fixture_name source agent to fail validation"
     fi
@@ -783,7 +798,7 @@ test_stale_agent_files_are_rejected_before_sync() {
   local output="${fixture_root}/sync.out"
 
   mkdir -p "${fixture_repo}/scripts" "${fixture_repo}/.codex/agents" "$codex_home"
-  cp "$SYNC_SCRIPT" "${fixture_repo}/scripts/sync_codex_to_repo.sh"
+  cp "$SYNC_SCRIPT" "${fixture_repo}/scripts/sync.sh"
   cp "$AGENT_VALIDATOR" "${fixture_repo}/scripts/validate_codex_agents.py"
   cp "$AGENT_RENDERER" "${fixture_repo}/scripts/render_codex_agents.py"
   cp "$CONFIG_RENDERER" "${fixture_repo}/scripts/render_codex_config.py"
@@ -796,7 +811,7 @@ test_stale_agent_files_are_rejected_before_sync() {
 
   if (
     cd "$fixture_repo"
-    CODEX_HOME="$codex_home" scripts/sync_codex_to_repo.sh --apply
+    CODEX_HOME="$codex_home" scripts/sync.sh --codex --apply
   ) >"$output" 2>&1; then
     fail "expected stale agent files to be rejected"
   fi
@@ -805,6 +820,173 @@ test_stale_agent_files_are_rejected_before_sync() {
   assert_path_missing "${codex_home}/config.toml"
   assert_path_missing "${codex_home}/agents"
   assert_path_missing "${codex_home}/skills"
+}
+
+test_claude_dry_run_is_non_mutating() {
+  local claude_home
+  local codex_home
+  local output="${TEST_ROOT}/claude-dry-run.out"
+  claude_home="$(new_claude_home claude-dry-run)"
+  codex_home="$(new_codex_home claude-dry-run)"
+  printf '%s\n' '{"editorMode": "vim"}' >"${claude_home}/settings.json"
+  local before_hash
+  before_hash="$(file_checksum "${claude_home}/settings.json")"
+
+  CODEX_HOME="$codex_home" run_claude_sync "$claude_home" --dry-run >"$output"
+
+  [[ "$(file_checksum "${claude_home}/settings.json")" == "$before_hash" ]] ||
+    fail "Claude dry run changed settings.json"
+  assert_path_missing "${claude_home}/agents"
+  assert_path_missing "${claude_home}/skills"
+  assert_path_missing "${claude_home}/CLAUDE.md"
+  assert_path_missing "${claude_home}/AGENTS.md"
+  assert_path_missing "${codex_home}/skills"
+  assert_contains "$output" 'moderate-worker.md'
+  assert_contains "$output" '"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"'
+  assert_contains "$output" '+@AGENTS.md'
+}
+
+test_claude_sync_does_not_require_codex() {
+  local claude_home
+  local fake_bin="${TEST_ROOT}/no-codex/bin"
+  local output="${TEST_ROOT}/no-codex.out"
+  local command_name
+  claude_home="$(new_claude_home no-codex)"
+  mkdir -p "$fake_bin"
+  for command_name in diff git rsync uv cmp; do
+    ln -s "$(command -v "$command_name")" "${fake_bin}/${command_name}"
+  done
+
+  if ! PATH="${fake_bin}:/usr/bin:/bin" run_claude_sync "$claude_home" --dry-run \
+    >"$output" 2>&1; then
+    sed -n '1,40p' "$output" >&2
+    fail "expected the Claude target to run without codex"
+  fi
+  if PATH="${fake_bin}:/usr/bin:/bin" CODEX_HOME="${TEST_ROOT}/no-codex/codex-home" \
+    "$SYNC_SCRIPT" --dry-run >"$output" 2>&1; then
+    fail "expected the default targets to require codex"
+  fi
+  assert_contains "$output" 'Error: codex is not installed or not in PATH.'
+}
+
+test_claude_apply_exports_adapted_skills_and_agents() {
+  local claude_home
+  local codex_home
+  local agents_hash
+  local skill_hash
+  claude_home="$(new_claude_home claude-apply)"
+  codex_home="$(new_codex_home claude-apply)"
+
+  mkdir -p "${claude_home}/agents" "${claude_home}/skills/personal-skill"
+  printf '%s\n' '---' 'name: personal' 'description: Keep.' '---' 'Keep.' \
+    >"${claude_home}/agents/personal.md"
+  printf '%s\n' 'personal' >"${claude_home}/skills/personal-skill/SKILL.md"
+  printf '%s\n' '# Personal guidance' >"${claude_home}/CLAUDE.md"
+  printf '%s\n' '{"editorMode": "vim", "env": {"KEEP": "1"}}' >"${claude_home}/settings.json"
+
+  CODEX_HOME="$codex_home" run_claude_sync "$claude_home" --apply --delete >/dev/null
+
+  assert_path_missing "${codex_home}/skills"
+  assert_path_missing "${codex_home}/AGENTS.md"
+  assert_file_exists "${claude_home}/agents/personal.md"
+  assert_path_missing "${claude_home}/skills/personal-skill"
+  assert_files_equal "${REPO_ROOT}/.claude/agents/moderate-worker.md" \
+    "${claude_home}/agents/moderate-worker.md"
+  assert_contains "${claude_home}/agents/moderate-worker.md" 'model: opus'
+  assert_contains "${claude_home}/agents/consultant.md" 'model: fable'
+  assert_contains "${claude_home}/agents/lightweight-reviewer.md" 'model: sonnet'
+  assert_contains "${claude_home}/agents/lightweight-reviewer.md" 'disallowedTools: Edit, Write, NotebookEdit'
+  assert_not_contains "${claude_home}/agents/moderate-worker.md" 'disallowedTools'
+  assert_contains "${claude_home}/agents/citation-verifier.md" 'Use /citation-verifier for every assignment'
+
+  assert_path_missing "${claude_home}/skills/goal-mode"
+  assert_path_missing "${claude_home}/skills/notify-wake"
+  assert_path_missing "${claude_home}/skills/.claude"
+  assert_path_missing "${claude_home}/skills/.codex"
+  assert_path_missing "${claude_home}/skills/scripts"
+  assert_files_equal "$CITATION_SKILL" "${claude_home}/skills/citation-verifier/SKILL.md"
+  assert_files_equal "$EMEND_CHECKER" "${claude_home}/skills/emend/scripts/check_asd_ste100.py"
+  [[ -x "${claude_home}/skills/emend/scripts/check_asd_ste100.py" ]] ||
+    fail "Claude skill scripts must stay executable"
+  [[ -z "$(find "${claude_home}/skills" -name openai.yaml)" ]] ||
+    fail "Codex interface files must not be exported to Claude"
+  assert_contains "${claude_home}/skills/autoresearch/SKILL.md" 'disable-model-invocation: true'
+  assert_not_contains "${claude_home}/skills/emend/SKILL.md" 'disable-model-invocation'
+  assert_files_equal "${REPO_ROOT}/.claude/overlays/skills/review-fix-loop/SKILL.md" \
+    "${claude_home}/skills/review-fix-loop/SKILL.md"
+  assert_count 1 '^disable-model-invocation:' "${claude_home}/skills/review-fix-loop/SKILL.md"
+  assert_files_equal "${REPO_ROOT}/review-fix-loop/scripts/run_review.py" \
+    "${claude_home}/skills/review-fix-loop/scripts/run_review.py"
+  assert_file_exists "${claude_home}/skills/review-fix-loop/scripts/run_review_claude.py"
+  assert_path_missing "${claude_home}/skills/review-fix-loop/tests/test_run_review_claude.py"
+
+  assert_contains "${claude_home}/CLAUDE.md" '# Personal guidance'
+  assert_count 1 '^@AGENTS\.md$' "${claude_home}/CLAUDE.md"
+  assert_not_contains "${claude_home}/AGENTS.md" 'codex-only'
+  assert_not_contains "${claude_home}/AGENTS.md" 'notify-wake'
+  assert_not_contains "${claude_home}/AGENTS.md" 'Luna'
+  assert_not_contains "${claude_home}/AGENTS.md" 'Astra'
+  assert_contains "${claude_home}/AGENTS.md" 'Fable primary agents do not use `consultant`.'
+  assert_contains "${claude_home}/AGENTS.md" '`/emend`'
+  assert_contains "${claude_home}/settings.json" '"editorMode": "vim"'
+  assert_contains "${claude_home}/settings.json" '"KEEP": "1"'
+  assert_contains "${claude_home}/settings.json" '"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"'
+  assert_contains "${claude_home}/settings.json" '"commit": ""'
+  assert_contains "${claude_home}/settings.json" '"pr": ""'
+
+  agents_hash="$(file_checksum "${claude_home}/CLAUDE.md")"
+  skill_hash="$(file_checksum "${claude_home}/skills/autoresearch/SKILL.md")"
+  CODEX_HOME="$codex_home" run_claude_sync "$claude_home" --apply >/dev/null
+  [[ "$(file_checksum "${claude_home}/CLAUDE.md")" == "$agents_hash" ]] ||
+    fail "repeated Claude apply changed CLAUDE.md"
+  [[ "$(file_checksum "${claude_home}/skills/autoresearch/SKILL.md")" == "$skill_hash" ]] ||
+    fail "repeated Claude apply changed an adapted skill"
+}
+
+test_claude_invalid_settings_are_rejected_before_sync() {
+  local claude_home
+  local output="${TEST_ROOT}/claude-invalid-settings.out"
+  claude_home="$(new_claude_home claude-invalid-settings)"
+  printf '%s\n' '{"env": [' >"${claude_home}/settings.json"
+
+  if run_claude_sync "$claude_home" --apply >"$output" 2>&1; then
+    fail "expected malformed Claude settings to be rejected"
+  fi
+
+  assert_path_missing "${claude_home}/skills"
+  assert_path_missing "${claude_home}/agents"
+  assert_path_missing "${claude_home}/CLAUDE.md"
+  assert_contains "$output" 'Error: cannot render Claude config:'
+}
+
+test_failed_claude_validation_blocks_codex_writes() {
+  local claude_home
+  local codex_home
+  local output="${TEST_ROOT}/combined-failure.out"
+  claude_home="$(new_claude_home combined-failure)"
+  codex_home="$(new_codex_home combined-failure)"
+  printf '%s\n' 'not json' >"${claude_home}/settings.json"
+
+  if CODEX_HOME="$codex_home" CLAUDE_CONFIG_DIR="$claude_home" \
+    "$SYNC_SCRIPT" --apply >"$output" 2>&1; then
+    fail "expected a Claude validation failure to stop the combined sync"
+  fi
+
+  assert_path_missing "${codex_home}/skills"
+  assert_path_missing "${codex_home}/config.toml"
+  assert_path_missing "${claude_home}/skills"
+}
+
+test_root_alias_claude_home_is_rejected() {
+  local claude_home="${TEST_ROOT}/root-claude-home"
+  local output="${TEST_ROOT}/root-claude-home.out"
+  ln -s / "$claude_home"
+
+  if run_claude_sync "$claude_home" --dry-run >"$output" 2>&1; then
+    fail "expected a CLAUDE_CONFIG_DIR resolving to root to be rejected"
+  fi
+
+  assert_contains "$output" 'Error: CLAUDE_CONFIG_DIR must resolve to a non-root absolute path.'
 }
 
 test_agent_source_contract
@@ -827,5 +1009,11 @@ test_malformed_or_conflicting_config_is_rejected_atomically
 test_strict_config_failure_is_rejected_before_sync
 test_invalid_source_agents_are_rejected_before_sync
 test_stale_agent_files_are_rejected_before_sync
+test_claude_dry_run_is_non_mutating
+test_claude_sync_does_not_require_codex
+test_claude_apply_exports_adapted_skills_and_agents
+test_claude_invalid_settings_are_rejected_before_sync
+test_failed_claude_validation_blocks_codex_writes
+test_root_alias_claude_home_is_rejected
 
 echo "All sync integration tests passed."
