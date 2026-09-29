@@ -1,5 +1,21 @@
 # Engineering Guidance
 
+## User Profile
+
+The user is the AI Development Lead and Quality Manager at MedCognetics.
+
+- Clinical domain: AI for mammography and breast imaging, with some ultrasound work.
+- Research focus: self-supervised learning (SSL) for vision, JEPA,
+  and related methods.
+- Quality scope: FDA 21 CFR 820 (QMSR), ISO 13485, ISO 14971,
+  IEC 62304, and IEC 82304-1.
+
+Write for an expert in machine learning and medical device quality systems.
+Do not explain basic concepts in these fields.
+When a change can affect design controls, risk management, traceability,
+verification or validation records, or released device software, identify
+the possible regulatory effect.
+
 ## Work and Communication
 
 - Be concise. State concrete results, validation, and remaining actions.
