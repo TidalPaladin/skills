@@ -1,0 +1,4 @@
+interface:
+  display_name: "What's Next"
+  short_description: "Recap a resumed thread and recommend next steps"
+  default_prompt: "Use $whats-next to recap this thread, check for changes since the last activity, and recommend the next step."
