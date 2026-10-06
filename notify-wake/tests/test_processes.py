@@ -6,6 +6,7 @@ import signal
 import stat
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import notify_wake.processes as processes
@@ -361,6 +362,68 @@ def test_owned_exit_monitor_uses_prearmed_kqueue_without_waitid(
     monitor.close()
 
     assert fake_kqueue.closed is True
+
+
+@pytest.mark.parametrize(
+    "events",
+    [
+        [],
+        [SimpleNamespace(ident=PID + 1, fflags=8)],
+        [SimpleNamespace(ident=PID, fflags=0)],
+        [SimpleNamespace(ident=PID, fflags=8), SimpleNamespace(ident=PID, fflags=8)],
+    ],
+)
+def test_owned_kqueue_observer_rejects_invalid_exit_events_and_closes_monitor(
+    monkeypatch: pytest.MonkeyPatch,
+    events: list[SimpleNamespace],
+) -> None:
+    monitor = FakeKqueue()
+    monkeypatch.setattr(monitor, "control", lambda *_args: events)
+    owned = OwnedProcess(
+        TargetIdentity(
+            kind="owned",
+            pid=PID,
+            process_group_id=PID,
+            start_ticks=None,
+            identity_method="parent-handle",
+        ),
+        exit_monitor=processes._KqueueExitMonitor(pid=PID, monitor=monitor, note_exit=8),
+    )
+    observer = processes._start_owned_exit_observer(owned)
+    try:
+        with pytest.raises(StateError, match="kqueue monitor returned an invalid event"):
+            observer.wait(timeout_seconds=5)
+    finally:
+        observer.close()
+    assert monitor.closed is True
+
+
+def test_owned_exit_monitor_closes_kqueue_when_registration_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monitor = FakeKqueue()
+
+    def deny_registration(*_args: object) -> list[object]:
+        raise PermissionError("registration denied")
+
+    monkeypatch.delattr(processes.os, "waitid", raising=False)
+    monkeypatch.setattr(processes.sys, "platform", "darwin")
+    monkeypatch.setattr(processes.select, "kqueue", lambda: monitor, raising=False)
+    monkeypatch.setattr(
+        processes.select, "kevent", lambda *_args, **_kwargs: object(), raising=False
+    )
+    for name, value in (
+        ("KQ_FILTER_PROC", 1),
+        ("KQ_EV_ADD", 2),
+        ("KQ_EV_ONESHOT", 4),
+        ("KQ_NOTE_EXIT", 8),
+    ):
+        monkeypatch.setattr(processes.select, name, value, raising=False)
+    monkeypatch.setattr(monitor, "control", deny_registration)
+
+    with pytest.raises(StateError, match="could not arm the owned process exit monitor"):
+        processes._prepare_owned_exit_monitor(PID)
+    assert monitor.closed is True
 
 
 @pytest.mark.skipif(

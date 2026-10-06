@@ -47,6 +47,7 @@ Paths below are relative to that checkout.
   waits in `notify-wake-runtime`. Adapters own events, controllers, and retry timing.
 - Use `scripts/sync.sh` to preview installation changes. `--codex` and
   `--claude` select targets. The default is both. Its default is a dry run.
+  Dry runs use verbose rsync output to show file plans on Linux and macOS.
   Apply only when installed updates are in scope.
 - Run `scripts/test_sync.sh` and strict configuration validation
   after changes to agent definitions or sync behavior.

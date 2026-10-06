@@ -417,6 +417,39 @@ test_missing_codex_home_dry_run_succeeds_without_writes() {
   assert_contains "$output" "default_subagent_reasoning_effort = \"${DEFAULT_SUBAGENT_EFFORT}\""
 }
 
+test_dry_run_lists_files_with_quiet_rsync() {
+  local codex_home="${TEST_ROOT}/quiet-rsync/codex-home"
+  local claude_home="${TEST_ROOT}/quiet-rsync/claude-home"
+  local fake_bin="${TEST_ROOT}/quiet-rsync/bin"
+  local output="${TEST_ROOT}/quiet-rsync.out"
+  mkdir -p "$fake_bin"
+  cat >"${fake_bin}/rsync" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+is_dry_run=false
+is_verbose=false
+for argument in "$@"; do
+  [[ "$argument" != --dry-run ]] || is_dry_run=true
+  [[ "$argument" != --verbose ]] || is_verbose=true
+done
+# Reproduce an rsync implementation that needs verbose dry-run output.
+if "$is_dry_run" && ! "$is_verbose"; then
+  exec "${REAL_RSYNC:?}" "$@" >/dev/null
+fi
+exec "${REAL_RSYNC:?}" "$@"
+EOF
+  chmod +x "${fake_bin}/rsync"
+  REAL_RSYNC="$(command -v rsync)" PATH="${fake_bin}:${PATH}" \
+    run_sync "$codex_home" --dry-run >"$output" 2>&1
+  assert_contains "$output" 'pr-lifecycle-reporter.toml'
+  assert_contains "$output" 'moderate-worker.toml'
+  assert_path_missing "$codex_home"
+  REAL_RSYNC="$(command -v rsync)" PATH="${fake_bin}:${PATH}" \
+    run_claude_sync "$claude_home" --dry-run >"$output" 2>&1
+  assert_contains "$output" 'moderate-worker.md'
+  assert_path_missing "$claude_home"
+}
+
 test_dry_run_is_non_mutating() {
   local codex_home
   local before_hash
@@ -1022,6 +1055,7 @@ test_root_alias_claude_home_is_rejected() {
 }
 
 test_agent_source_contract
+test_dry_run_lists_files_with_quiet_rsync
 test_pull_request_contracts
 test_goal_mode_contract
 test_autoresearch_contract

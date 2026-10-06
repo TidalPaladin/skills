@@ -194,7 +194,8 @@ agents_flags=(
 )
 
 if [[ "$dry_run" == true ]]; then
-  agents_flags+=(--dry-run)
+  # openrsync needs verbose output to list planned transfers during a dry run.
+  agents_flags+=(--dry-run --verbose)
 fi
 
 # Show a proposed file change, or replace the destination atomically.
@@ -345,7 +346,7 @@ apply_codex() {
   fi
 
   if [[ "$dry_run" == true ]]; then
-    flags+=(--dry-run)
+    flags+=(--dry-run --verbose)
     echo "Dry run: previewing AGENTS.md sync to ${codex_root}/AGENTS.md"
     echo "Dry run: previewing skills sync from ${source_dir} to ${codex_root}/skills/"
     echo "Dry run: previewing custom agents sync from ${codex_source_agents} to ${codex_root}/agents/"
@@ -446,7 +447,7 @@ apply_claude() {
   fi
 
   if [[ "$dry_run" == true ]]; then
-    skill_flags+=(--dry-run)
+    skill_flags+=(--dry-run --verbose)
     echo "Dry run: previewing Claude skills sync to ${claude_root}/skills/"
     echo "Dry run: previewing Claude agents sync from ${claude_source_agents} to ${claude_root}/agents/"
     echo "Dry run: previewing Claude guidance and settings in ${claude_root}"
