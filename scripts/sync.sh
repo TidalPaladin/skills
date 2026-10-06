@@ -340,7 +340,11 @@ prepare_codex() {
   if [[ -n "$model_list_file" ]]; then
     resolution_args+=(--model-list "$model_list_file")
   fi
-  CODEX_HOME="$codex_root" run_python "$codex_model_resolver" "${resolution_args[@]}" "${model_pins[@]}"
+  # Bash 3.2 treats an empty array expansion as unset under nounset.
+  if [[ "${#model_pins[@]}" -gt 0 ]]; then
+    resolution_args+=("${model_pins[@]}")
+  fi
+  CODEX_HOME="$codex_root" run_python "$codex_model_resolver" "${resolution_args[@]}"
   run_python "$codex_agent_renderer" --catalog "$agent_catalog" \
     --resolved-models "$codex_resolved_models" --output-dir "$codex_source_agents"
   run_python "$codex_config_renderer" "$codex_project_config" "$agent_catalog" \

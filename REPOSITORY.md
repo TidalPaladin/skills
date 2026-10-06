@@ -49,6 +49,8 @@ Paths below are relative to that checkout.
   `--claude` select targets. The default is both. Its default is a dry run.
   Dry runs list managed agent definitions independently of rsync output.
   Apply only when installed updates are in scope.
+- Keep sync compatible with macOS Bash 3.2. Guard empty array expansions under
+  `set -u`.
 - Run `scripts/test_sync.sh` and strict configuration validation
   after changes to agent definitions or sync behavior.
 - Run `scripts/ci.sh` before handoff. It uses the locked Codex version.

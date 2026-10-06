@@ -439,6 +439,8 @@ EOF
   chmod +x "${fake_bin}/rsync"
   REAL_RSYNC="$(command -v rsync)" PATH="${fake_bin}:${PATH}" \
     run_sync "$codex_home" --dry-run >"$output" 2>&1
+  assert_not_contains "$output" 'unbound variable'
+  assert_contains "$output" 'Rendered 6 Codex agents.'
   if ! rg --fixed-strings --quiet 'pr-lifecycle-reporter.toml' "$output"; then
     sed -n '1,60p' "$output" >&2
     fail "expected a preview of the managed Codex agent definitions"
