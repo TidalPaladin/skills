@@ -194,9 +194,21 @@ agents_flags=(
 )
 
 if [[ "$dry_run" == true ]]; then
-  # openrsync needs verbose output to list planned transfers during a dry run.
-  agents_flags+=(--dry-run --verbose)
+  agents_flags+=(--dry-run)
 fi
+
+# List managed definitions independently of rsync's dry-run output.
+preview_managed_agents() {
+  local directory="$1"
+  local extension="$2"
+  local agent_path
+  echo "Managed agent definitions selected for sync:"
+  for agent_path in "${directory%/}"/*."$extension"; do
+    if [[ -f "$agent_path" ]]; then
+      printf '  %s\n' "${agent_path##*/}"
+    fi
+  done
+}
 
 # Show a proposed file change, or replace the destination atomically.
 apply_or_preview_file() {
@@ -346,11 +358,12 @@ apply_codex() {
   fi
 
   if [[ "$dry_run" == true ]]; then
-    flags+=(--dry-run --verbose)
+    flags+=(--dry-run)
     echo "Dry run: previewing AGENTS.md sync to ${codex_root}/AGENTS.md"
     echo "Dry run: previewing skills sync from ${source_dir} to ${codex_root}/skills/"
     echo "Dry run: previewing custom agents sync from ${codex_source_agents} to ${codex_root}/agents/"
     echo "Dry run: previewing agent capacity and defaults in ${codex_root}/config.toml"
+    preview_managed_agents "$codex_source_agents" toml
   else
     mkdir -p "$codex_root" "${codex_root}/agents" "${codex_root}/skills"
     echo "Applying AGENTS.md sync to ${codex_root}/AGENTS.md"
@@ -447,10 +460,11 @@ apply_claude() {
   fi
 
   if [[ "$dry_run" == true ]]; then
-    skill_flags+=(--dry-run --verbose)
+    skill_flags+=(--dry-run)
     echo "Dry run: previewing Claude skills sync to ${claude_root}/skills/"
     echo "Dry run: previewing Claude agents sync from ${claude_source_agents} to ${claude_root}/agents/"
     echo "Dry run: previewing Claude guidance and settings in ${claude_root}"
+    preview_managed_agents "$claude_source_agents" md
   else
     mkdir -p "$claude_root" "${claude_root}/agents" "${claude_root}/skills"
     echo "Applying Claude skills sync to ${claude_root}/skills/"

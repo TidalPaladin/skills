@@ -427,13 +427,11 @@ test_dry_run_lists_files_with_quiet_rsync() {
 #!/usr/bin/env bash
 set -euo pipefail
 is_dry_run=false
-is_verbose=false
 for argument in "$@"; do
   [[ "$argument" != --dry-run ]] || is_dry_run=true
-  [[ "$argument" != --verbose ]] || is_verbose=true
 done
-# Reproduce an rsync implementation that needs verbose dry-run output.
-if "$is_dry_run" && ! "$is_verbose"; then
+# Reproduce a successful rsync dry run that omits file listings.
+if "$is_dry_run"; then
   exec "${REAL_RSYNC:?}" "$@" >/dev/null
 fi
 exec "${REAL_RSYNC:?}" "$@"
@@ -441,7 +439,10 @@ EOF
   chmod +x "${fake_bin}/rsync"
   REAL_RSYNC="$(command -v rsync)" PATH="${fake_bin}:${PATH}" \
     run_sync "$codex_home" --dry-run >"$output" 2>&1
-  assert_contains "$output" 'pr-lifecycle-reporter.toml'
+  if ! rg --fixed-strings --quiet 'pr-lifecycle-reporter.toml' "$output"; then
+    sed -n '1,60p' "$output" >&2
+    fail "expected a preview of the managed Codex agent definitions"
+  fi
   assert_contains "$output" 'moderate-worker.toml'
   assert_path_missing "$codex_home"
   REAL_RSYNC="$(command -v rsync)" PATH="${fake_bin}:${PATH}" \
