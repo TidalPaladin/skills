@@ -1,19 +1,27 @@
-# Source of truth for project and installed Codex and Claude subagents.
-# Run scripts/render_codex_agents.py and scripts/render_claude_agents.py
-# with --write after changing a class, specialist, or Claude mapping.
+# Source of truth for Codex and Claude subagents. Codex models resolve at sync.
+# Run scripts/render_claude_agents.py --write after changing agent definitions.
 
 [defaults]
 subagent_profile = "lightweight_editor"
 
-# Claude Code export settings. Every class model must have a Claude alias.
+[capabilities.efficient]
+family = "luna"
+
+[capabilities.balanced]
+family = "sol"
+
+[capabilities.frontier]
+family = "astra"
+
+# Claude Code export settings. Every capability must have a Claude alias.
 [claude]
 # Codex-only skills without a Claude variant in .claude/overlays/skills/.
 exclude_skills = ["goal-mode", "notify-wake"]
 
 [claude.models]
-"gpt-6-luna" = "sonnet"
-"gpt-6-sol" = "opus"
-"gpt-6-astra" = "fable"
+efficient = "sonnet"
+balanced = "opus"
+frontier = "fable"
 
 # Whole-word replacements in exported guidance and agent text.
 [claude.guidance_terms]
@@ -29,7 +37,7 @@ pr = ""
 
 [classes.lightweight_reviewer]
 description = "Read-only reviewer for information gathering, spot checks, and simple tasks."
-model = "gpt-6-luna"
+capability = "efficient"
 model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 approval_policy = "never"
@@ -42,7 +50,7 @@ including through connectors or APIs. Do not delegate.
 
 [classes.lightweight_editor]
 description = "Luna editor for bounded, conceptually simple tasks that need writes."
-model = "gpt-6-luna"
+capability = "efficient"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "workspace-write"
 approval_policy = "on-request"
@@ -56,7 +64,7 @@ result. Do not delegate.
 
 [classes.moderate_worker]
 description = "Sol worker for implementation or analysis that needs careful reasoning; useful to Luna primary agents and for Sol parallel work."
-model = "gpt-6-sol"
+capability = "balanced"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "workspace-write"
 approval_policy = "on-request"
@@ -70,7 +78,7 @@ delegate; return advice needs to the primary agent.
 
 [classes.consultant]
 description = "Astra adviser for significant uncertainty or complexity; Sol and Luna primary agents only."
-model = "gpt-6-astra"
+capability = "frontier"
 model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 approval_policy = "never"

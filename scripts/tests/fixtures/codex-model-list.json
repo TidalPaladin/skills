@@ -1,0 +1,81 @@
+{
+  "data": [
+    {
+      "id": "gpt-6-luna",
+      "model": "gpt-6-luna",
+      "hidden": false,
+      "supportedReasoningEfforts": [
+        {
+          "reasoningEffort": "low"
+        },
+        {
+          "reasoningEffort": "medium"
+        },
+        {
+          "reasoningEffort": "high"
+        },
+        {
+          "reasoningEffort": "xhigh"
+        }
+      ]
+    },
+    {
+      "id": "gpt-6-sol",
+      "model": "gpt-6-sol",
+      "hidden": false,
+      "supportedReasoningEfforts": [
+        {
+          "reasoningEffort": "low"
+        },
+        {
+          "reasoningEffort": "medium"
+        },
+        {
+          "reasoningEffort": "high"
+        },
+        {
+          "reasoningEffort": "xhigh"
+        }
+      ]
+    },
+    {
+      "id": "gpt-6.1-sol",
+      "model": "gpt-6.1-sol",
+      "hidden": false,
+      "supportedReasoningEfforts": [
+        {
+          "reasoningEffort": "low"
+        },
+        {
+          "reasoningEffort": "medium"
+        },
+        {
+          "reasoningEffort": "high"
+        },
+        {
+          "reasoningEffort": "xhigh"
+        }
+      ]
+    },
+    {
+      "id": "gpt-6-astra",
+      "model": "gpt-6-astra",
+      "hidden": false,
+      "supportedReasoningEfforts": [
+        {
+          "reasoningEffort": "low"
+        },
+        {
+          "reasoningEffort": "medium"
+        },
+        {
+          "reasoningEffort": "high"
+        },
+        {
+          "reasoningEffort": "xhigh"
+        }
+      ]
+    }
+  ],
+  "nextCursor": null
+}

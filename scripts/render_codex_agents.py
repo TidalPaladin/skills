@@ -13,12 +13,11 @@ from typing import Any, cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_PATH = REPO_ROOT / ".codex" / "agent_catalog.toml"
-AGENTS_DIRECTORY = REPO_ROOT / ".codex" / "agents"
 NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 CLASS_FIELDS = frozenset(
     {
         "description",
-        "model",
+        "capability",
         "model_reasoning_effort",
         "sandbox_mode",
         "approval_policy",
@@ -92,10 +91,10 @@ def load_catalog(catalog_path: Path) -> dict[str, Any]:
     """Read the catalog and check its top-level tables."""
     with catalog_path.open("rb") as catalog_file:
         catalog = require_table(tomllib.load(catalog_file), "catalog")
-    required = {"defaults", "classes", "specialists"}
+    required = {"defaults", "classes", "specialists", "capabilities"}
     if not required <= catalog.keys() <= required | {"claude"}:
         raise ValueError(
-            "catalog must contain defaults, classes, and specialists tables"
+            "catalog must contain defaults, classes, specialists, and capabilities tables"
             " and may contain a claude table"
         )
     return catalog
@@ -104,6 +103,18 @@ def load_catalog(catalog_path: Path) -> dict[str, Any]:
 def expand_catalog(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Expand class and specialist entries into complete agent settings."""
     classes = require_table(catalog["classes"], "classes")
+    capabilities = require_table(catalog["capabilities"], "capabilities")
+    if not capabilities:
+        raise ValueError("catalog must define capabilities")
+    for name, raw_capability in capabilities.items():
+        if NAME_PATTERN.fullmatch(name) is None:
+            raise ValueError("invalid capability name")
+        capability = require_table(raw_capability, f"capabilities.{name}")
+        require_fields(capability, frozenset({"family"}), f"capabilities.{name}")
+        if re.fullmatch(r"[a-z]+", capability["family"]) is None:
+            raise ValueError(
+                f"capabilities.{name}.family must contain lowercase letters"
+            )
     specialists = require_table(catalog["specialists"], "specialists")
     defaults = require_table(catalog["defaults"], "defaults")
     if defaults.keys() != {"subagent_profile"}:
@@ -121,6 +132,8 @@ def expand_catalog(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
         agent_class = require_table(raw_class, f"classes.{name}")
         require_fields(agent_class, CLASS_FIELDS, f"classes.{name}")
         validate_settings(agent_class, f"classes.{name}")
+        if agent_class["capability"] not in capabilities:
+            raise ValueError(f"classes.{name} references unknown capability")
         agents[name] = dict(agent_class)
 
     for name, raw_specialist in specialists.items():
@@ -150,9 +163,28 @@ def expand_catalog(catalog: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return agents
 
 
-def render_catalog(catalog_path: Path) -> dict[str, str]:
+def load_resolved_models(path: Path) -> dict[str, str]:
+    """Read the one resolution used for both agents and personal defaults."""
+    table = require_table(
+        json.loads(path.read_text(encoding="utf-8")), "resolved models"
+    )
+    for value in table.values():
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(r"gpt-[0-9]+(?:\.[0-9]+)*-[a-z]+", value) is None
+        ):
+            raise ValueError("resolved model IDs must be stable family models")
+    return cast(dict[str, str], table)
+
+
+def render_catalog(catalog_path: Path, models: dict[str, str]) -> dict[str, str]:
     """Expand class and specialist entries into standalone agent files."""
     agents = expand_catalog(load_catalog(catalog_path))
+    for settings in agents.values():
+        capability = settings["capability"]
+        if capability not in models:
+            raise ValueError(f"missing resolved model for {capability}")
+        settings["model"] = models[capability]
     return {
         name.replace("_", "-") + ".toml": render_agent(name, settings)
         for name, settings in agents.items()
@@ -160,33 +192,25 @@ def render_catalog(catalog_path: Path) -> dict[str, str]:
 
 
 def main() -> int:
-    """Check generated agents by default, or write them when requested."""
+    """Render installed agents into an explicit staging directory."""
     parser = argparse.ArgumentParser(description=__doc__)
-    _ = parser.add_argument(
-        "--write", action="store_true", help="update generated agents"
-    )
+    _ = parser.add_argument("--catalog", type=Path, default=CATALOG_PATH)
+    _ = parser.add_argument("--resolved-models", type=Path, required=True)
+    _ = parser.add_argument("--output-dir", type=Path, required=True)
     arguments = parser.parse_args()
     try:
-        expected = render_catalog(CATALOG_PATH)
-        actual = {path.name: path for path in AGENTS_DIRECTORY.glob("*.toml")}
-        unexpected = sorted(actual.keys() - expected.keys())
+        expected = render_catalog(
+            arguments.catalog, load_resolved_models(arguments.resolved_models)
+        )
+        arguments.output_dir.mkdir(parents=True, exist_ok=True)
+        unexpected = {
+            path.name for path in arguments.output_dir.glob("*.toml")
+        } - expected.keys()
         if unexpected:
-            raise ValueError(f"unexpected agent files: {', '.join(unexpected)}")
-        stale = [
-            name
-            for name, content in expected.items()
-            if name not in actual or actual[name].read_text(encoding="utf-8") != content
-        ]
-        if arguments.write:
-            AGENTS_DIRECTORY.mkdir(parents=True, exist_ok=True)
-            for name in stale:
-                (AGENTS_DIRECTORY / name).write_text(expected[name], encoding="utf-8")
-            print(f"Updated {len(stale)} agent file(s).")
-            return 0
-        if stale:
-            print(f"Stale or missing agents: {', '.join(stale)}", file=sys.stderr)
-            return 1
-        print(f"All {len(expected)} agent files match the catalog.")
+            raise ValueError("output directory contains unrelated agent files")
+        for name, content in expected.items():
+            (arguments.output_dir / name).write_text(content, encoding="utf-8")
+        print(f"Rendered {len(expected)} Codex agents.")
         return 0
     except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError) as error:
         print(f"Agent catalog error: {error}", file=sys.stderr)

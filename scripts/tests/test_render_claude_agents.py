@@ -36,11 +36,11 @@ def test_generated_agents_match_catalog() -> None:
     for name, agent_class in catalog["classes"].items():
         fields = frontmatter(rendered, name)
         assert fields["name"] == name
-        assert fields["model"] == models[agent_class["model"]]
+        assert fields["model"] == models[agent_class["capability"]]
         assert fields["effort"] == agent_class["model_reasoning_effort"]
     for name, specialist in catalog["specialists"].items():
         agent_class = catalog["classes"][specialist["profile"]]
-        assert frontmatter(rendered, name)["model"] == models[agent_class["model"]]
+        assert frontmatter(rendered, name)["model"] == models[agent_class["capability"]]
 
 
 def test_generated_agents_pass_validation() -> None:
@@ -71,11 +71,11 @@ def test_family_terms_are_replaced_without_touching_codex_reviews() -> None:
 
 
 def test_unmapped_model_is_rejected(tmp_path: Path) -> None:
-    """A Codex model upgrade without a Claude mapping fails the render."""
+    """An unmapped capability fails the Claude render."""
     source = CATALOG_PATH.read_text(encoding="utf-8")
     catalog_path = tmp_path / "agent_catalog.toml"
     catalog_path.write_text(
-        source.replace('model = "gpt-6-sol"', 'model = "gpt-7-sol"', 1),
+        source.replace('balanced = "opus"', 'unused = "opus"', 1),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="no claude.models mapping"):
@@ -87,7 +87,7 @@ def test_invalid_claude_model_is_rejected(tmp_path: Path) -> None:
     source = CATALOG_PATH.read_text(encoding="utf-8")
     catalog_path = tmp_path / "agent_catalog.toml"
     catalog_path.write_text(
-        source.replace('"gpt-6-sol" = "opus"', '"gpt-6-sol" = "gpt-6-sol"', 1),
+        source.replace('balanced = "opus"', 'balanced = "gpt-6-sol"', 1),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="must be one of"):

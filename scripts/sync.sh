@@ -8,7 +8,7 @@ Sync this repository into Codex and Claude Code configuration directories.
 Codex target (${CODEX_HOME:-$HOME/.codex}):
 - AGENTS.md -> AGENTS.md
 - skill directories -> skills/
-- custom agent definitions (.codex/agents) -> agents/
+- capability-resolved custom agents -> agents/
 - minimum agent capacity and default subagent model/effort -> config.toml
 
 Claude target (${CLAUDE_CONFIG_DIR:-$HOME/.claude}):
@@ -19,6 +19,7 @@ Claude target (${CLAUDE_CONFIG_DIR:-$HOME/.claude}):
 
 Usage:
   scripts/sync.sh [--codex] [--claude] [--apply] [--dry-run] [--delete]
+                  [--model-list FILE] [--pin-model CAPABILITY=MODEL_ID]
 
 Options:
   --codex    Sync the Codex target
@@ -26,7 +27,15 @@ Options:
   --apply    Perform the sync (default is dry run)
   --dry-run  Show file and config changes without writing
   --delete   Delete skill destination files not present in source; never delete personal agents
+  --model-list FILE Use a saved complete model list; skip discovery (Codex only)
+  --pin-model CAPABILITY=MODEL_ID
+             Pin a capability for this invocation (repeat for other capabilities)
   -h, --help Show this help message
+
+Codex sync resolves the latest stable Luna, Sol, and Astra versions, including
+major upgrades. Rerun sync to adopt new versions. Discovery or validation failure
+stops before installation. Saved evidence does not verify current availability.
+Claude-only sync does not require Codex model discovery.
 
 Environment:
   CODEX_HOME        Override the Codex directory (default: $HOME/.codex)
@@ -38,8 +47,10 @@ dry_run=true
 delete_extra=false
 target_codex=false
 target_claude=false
-for arg in "$@"; do
-  case "$arg" in
+model_list_file=""
+model_pins=()
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
     --apply)
       dry_run=false
       ;;
@@ -55,22 +66,43 @@ for arg in "$@"; do
     --claude)
       target_claude=true
       ;;
+    --model-list|--pin-model)
+      if [[ "$#" -lt 2 || -z "$2" || "$2" == --* ]]; then
+        echo "Error: $1 requires a value." >&2
+        exit 2
+      fi
+      if [[ "$1" == --model-list ]]; then
+        if [[ -n "$model_list_file" ]]; then
+          echo "Error: --model-list may be supplied only once." >&2
+          exit 2
+        fi
+        model_list_file="$2"
+      else
+        model_pins+=(--pin-model "$2")
+      fi
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
       ;;
     *)
-      echo "Unknown option: $arg" >&2
+      echo "Unknown option: $1" >&2
       usage >&2
       exit 2
       ;;
   esac
+  shift
 done
 if [[ "$target_codex" == false && "$target_claude" == false ]]; then
   target_codex=true
   target_claude=true
 fi
-readonly dry_run delete_extra target_codex target_claude
+if [[ "$target_codex" == false && ( -n "$model_list_file" || "${#model_pins[@]}" -gt 0 ) ]]; then
+  echo "Error: model selection options require the Codex target." >&2
+  exit 2
+fi
+readonly dry_run delete_extra target_codex target_claude model_list_file
 
 required_commands=(diff git rsync uv)
 if [[ "$target_codex" == true ]]; then
@@ -165,6 +197,19 @@ if [[ "$dry_run" == true ]]; then
   agents_flags+=(--dry-run)
 fi
 
+# List managed definitions independently of rsync's dry-run output.
+preview_managed_agents() {
+  local directory="$1"
+  local extension="$2"
+  local agent_path
+  echo "Managed agent definitions selected for sync:"
+  for agent_path in "${directory%/}"/*."$extension"; do
+    if [[ -f "$agent_path" ]]; then
+      printf '  %s\n' "${agent_path##*/}"
+    fi
+  done
+}
+
 # Show a proposed file change, or replace the destination atomically.
 apply_or_preview_file() {
   local proposed="$1"
@@ -213,7 +258,9 @@ rsync_root_for() {
 # ---------------------------------------------------------------------------
 # Codex target
 
-readonly codex_source_agents="${repo_root}/.codex/agents/"
+readonly codex_source_agents="${temporary_root}/codex-agents/"
+readonly codex_model_resolver="${repo_root}/scripts/resolve_codex_models.py"
+readonly codex_resolved_models="${temporary_root}/codex-models.json"
 readonly codex_agent_validator="${repo_root}/scripts/validate_codex_agents.py"
 readonly codex_agent_renderer="${repo_root}/scripts/render_codex_agents.py"
 readonly codex_config_renderer="${repo_root}/scripts/render_codex_config.py"
@@ -276,15 +323,11 @@ validate_codex_configuration() {
 prepare_codex() {
   codex_root="$(resolve_destination CODEX_HOME "${CODEX_HOME:-${HOME}/.codex}")"
 
-  if [[ ! -d "$codex_source_agents" ]]; then
-    echo "Error: custom agent source directory is missing: ${codex_source_agents}" >&2
-    return 1
-  fi
   if [[ ! -f "$codex_agent_validator" ]]; then
     echo "Error: custom agent validator is missing: ${codex_agent_validator}" >&2
     return 1
   fi
-  if [[ ! -f "$codex_agent_renderer" || ! -f "$codex_config_renderer" || ! -f "$agent_catalog" ]]; then
+  if [[ ! -f "$codex_agent_renderer" || ! -f "$codex_config_renderer" || ! -f "$codex_model_resolver" || ! -f "$agent_catalog" ]]; then
     echo "Error: Codex renderer or agent catalog is missing." >&2
     return 1
   fi
@@ -293,13 +336,20 @@ prepare_codex() {
     return 1
   fi
 
-  run_python "$codex_config_renderer" "$codex_project_config" "$agent_catalog" \
-    "${codex_root}/config.toml" "$codex_proposed_config"
-  validate_codex_configuration
-  if ! run_python "$codex_agent_renderer"; then
-    echo "Error: generated Codex agents do not match the catalog." >&2
-    return 1
+  local resolution_args=(--catalog "$agent_catalog" --output "$codex_resolved_models")
+  if [[ -n "$model_list_file" ]]; then
+    resolution_args+=(--model-list "$model_list_file")
   fi
+  # Bash 3.2 treats an empty array expansion as unset under nounset.
+  if [[ "${#model_pins[@]}" -gt 0 ]]; then
+    resolution_args+=("${model_pins[@]}")
+  fi
+  CODEX_HOME="$codex_root" run_python "$codex_model_resolver" "${resolution_args[@]}"
+  run_python "$codex_agent_renderer" --catalog "$agent_catalog" \
+    --resolved-models "$codex_resolved_models" --output-dir "$codex_source_agents"
+  run_python "$codex_config_renderer" "$codex_project_config" "$agent_catalog" \
+    "${codex_root}/config.toml" "$codex_proposed_config" --resolved-models "$codex_resolved_models"
+  validate_codex_configuration
 }
 
 apply_codex() {
@@ -317,6 +367,7 @@ apply_codex() {
     echo "Dry run: previewing skills sync from ${source_dir} to ${codex_root}/skills/"
     echo "Dry run: previewing custom agents sync from ${codex_source_agents} to ${codex_root}/agents/"
     echo "Dry run: previewing agent capacity and defaults in ${codex_root}/config.toml"
+    preview_managed_agents "$codex_source_agents" toml
   else
     mkdir -p "$codex_root" "${codex_root}/agents" "${codex_root}/skills"
     echo "Applying AGENTS.md sync to ${codex_root}/AGENTS.md"
@@ -417,6 +468,7 @@ apply_claude() {
     echo "Dry run: previewing Claude skills sync to ${claude_root}/skills/"
     echo "Dry run: previewing Claude agents sync from ${claude_source_agents} to ${claude_root}/agents/"
     echo "Dry run: previewing Claude guidance and settings in ${claude_root}"
+    preview_managed_agents "$claude_source_agents" md
   else
     mkdir -p "$claude_root" "${claude_root}/agents" "${claude_root}/skills"
     echo "Applying Claude skills sync to ${claude_root}/skills/"

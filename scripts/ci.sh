@@ -112,6 +112,7 @@ run_ci_tool env PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1 \
   basedpyright --level error \
   scripts/validate_codex_agents.py \
   scripts/render_codex_agents.py \
+  scripts/resolve_codex_models.py \
   scripts/render_codex_config.py \
   scripts/render_claude_agents.py \
   scripts/render_claude_config.py \
@@ -142,7 +143,11 @@ done
 
 token-file-auth/scripts/tests/test_token_file_auth.sh
 circleci-job-results/scripts/tests/test_fetch_circleci_job_results.sh
-run_ci_tool python scripts/render_codex_agents.py
+run_ci_tool python scripts/resolve_codex_models.py \
+  --model-list scripts/tests/fixtures/codex-model-list.json --output "$schema_root/models.json"
+run_ci_tool python scripts/render_codex_agents.py \
+  --resolved-models "$schema_root/models.json" --output-dir "$schema_root/agents"
+run_ci_tool python scripts/validate_codex_agents.py "$schema_root/agents"
 run_ci_tool python scripts/render_claude_agents.py
 run_ci_tool python -m pytest -q scripts/tests
 scripts/test_sync.sh

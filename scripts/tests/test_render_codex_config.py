@@ -17,10 +17,10 @@ def test_defaults_follow_the_catalog_profile() -> None:
     profile = catalog["defaults"]["subagent_profile"]
     agent_class = catalog["classes"][profile]
     minimum, model, effort = desired_settings(
-        REPO_ROOT / ".codex" / "config.toml", CATALOG_PATH
+        REPO_ROOT / ".codex" / "config.toml", CATALOG_PATH, {"efficient": "gpt-7-luna"}
     )
     assert minimum == 8
-    assert model == agent_class["model"]
+    assert model == "gpt-7-luna"
     assert effort == agent_class["model_reasoning_effort"]
 
 

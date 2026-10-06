@@ -11,6 +11,10 @@ import tomllib
 from pathlib import Path
 from typing import Any, cast
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.render_codex_agents import load_resolved_models  # noqa: E402
+
 AGENTS_HEADER = re.compile(
     r"""^[ \t]*\[[ \t]*(?:agents|"agents"|'agents')[ \t]*\][ \t]*(?:#.*)?(?:\r?\n)?$"""
 )
@@ -39,7 +43,9 @@ def required_table(value: object, label: str) -> dict[str, Any]:
     return cast(dict[str, Any], value)
 
 
-def desired_settings(project_path: Path, catalog_path: Path) -> tuple[int, str, str]:
+def desired_settings(
+    project_path: Path, catalog_path: Path, models: dict[str, str]
+) -> tuple[int, str, str]:
     """Resolve capacity and the catalog's default capacity class."""
     project = load_toml(project_path)
     project_agents = required_table(project.get("agents"), "project agents")
@@ -54,10 +60,13 @@ def desired_settings(project_path: Path, catalog_path: Path) -> tuple[int, str, 
     if not isinstance(profile, str) or profile not in classes:
         raise ValueError("catalog defaults.subagent_profile must name a class")
     agent_class = required_table(classes[profile], f"catalog classes.{profile}")
-    model = agent_class.get("model")
+    capability = agent_class.get("capability")
+    if not isinstance(capability, str):
+        raise ValueError(f"catalog classes.{profile}.capability must be a string")
+    model = models.get(capability)
     effort = agent_class.get("model_reasoning_effort")
     if not isinstance(model, str) or not model.strip():
-        raise ValueError(f"catalog classes.{profile}.model must be a string")
+        raise ValueError(f"catalog classes.{profile} requires a resolved model")
     if not isinstance(effort, str) or not effort.strip():
         raise ValueError(
             f"catalog classes.{profile}.model_reasoning_effort must be a string"
@@ -209,10 +218,13 @@ def main() -> int:
     _ = parser.add_argument("catalog", type=Path)
     _ = parser.add_argument("personal_config", type=Path)
     _ = parser.add_argument("output", type=Path)
+    _ = parser.add_argument("--resolved-models", type=Path, required=True)
     arguments = parser.parse_args()
     try:
         minimum, model, effort = desired_settings(
-            arguments.project_config, arguments.catalog
+            arguments.project_config,
+            arguments.catalog,
+            load_resolved_models(arguments.resolved_models),
         )
         original = (
             arguments.personal_config.read_bytes().decode("utf-8")
