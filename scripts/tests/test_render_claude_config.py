@@ -141,7 +141,7 @@ def test_default_subagent_model_follows_catalog_profile() -> None:
     with CATALOG_PATH.open("rb") as catalog_file:
         catalog = tomllib.load(catalog_file)
     profile = catalog["defaults"]["subagent_profile"]
-    codex_model = catalog["classes"][profile]["model"]
+    codex_model = catalog["classes"][profile]["capability"]
     expected = catalog["claude"]["models"][codex_model]
     assert default_subagent_model(load_catalog(CATALOG_PATH)) == expected
 

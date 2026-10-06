@@ -4,24 +4,9 @@ set -euo pipefail
 readonly REPO_ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 readonly SYNC_SCRIPT="${REPO_ROOT}/scripts/sync.sh"
 readonly AGENT_VALIDATOR="${REPO_ROOT}/scripts/validate_codex_agents.py"
-readonly PR_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/pr-lifecycle-reporter.toml"
-readonly CITATION_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/citation-verifier.toml"
-readonly REVIEWER_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/lightweight-reviewer.toml"
-readonly EDITOR_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/lightweight-editor.toml"
-readonly WORKER_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/moderate-worker.toml"
-readonly CONSULTANT_AGENT_SOURCE="${REPO_ROOT}/.codex/agents/consultant.toml"
 readonly AGENT_CATALOG="${REPO_ROOT}/.codex/agent_catalog.toml"
 readonly AGENT_RENDERER="${REPO_ROOT}/scripts/render_codex_agents.py"
 readonly CONFIG_RENDERER="${REPO_ROOT}/scripts/render_codex_config.py"
-default_settings="$(UV_NO_PROGRESS=1 uv run --no-project --no-cache --python '>=3.11' python -c '
-import sys, tomllib
-with open(sys.argv[1], "rb") as source:
-    catalog = tomllib.load(source)
-profile = catalog["classes"][catalog["defaults"]["subagent_profile"]]
-print(profile["model"], profile["model_reasoning_effort"], sep="\t")
-' "$AGENT_CATALOG")"
-IFS=$'\t' read -r DEFAULT_SUBAGENT_MODEL DEFAULT_SUBAGENT_EFFORT <<<"$default_settings"
-readonly DEFAULT_SUBAGENT_MODEL DEFAULT_SUBAGENT_EFFORT
 readonly PROJECT_CONFIG="${REPO_ROOT}/.codex/config.toml"
 readonly ROOT_GUIDANCE="${REPO_ROOT}/AGENTS.md"
 readonly REPOSITORY_GUIDANCE="${REPO_ROOT}/REPOSITORY.md"
@@ -55,6 +40,31 @@ cleanup() {
   rm -rf "$TEST_ROOT"
 }
 trap cleanup EXIT
+
+readonly MODEL_RESOLVER="${REPO_ROOT}/scripts/resolve_codex_models.py"
+readonly MODEL_FIXTURE="${REPO_ROOT}/scripts/tests/fixtures/codex-model-list.json"
+UV_NO_PROGRESS=1 uv run --no-project --no-cache --python '>=3.11' python \
+  "$MODEL_RESOLVER" --model-list "$MODEL_FIXTURE" --output "${TEST_ROOT}/models.json"
+UV_NO_PROGRESS=1 uv run --no-project --no-cache --python '>=3.11' python \
+  "$AGENT_RENDERER" --resolved-models "${TEST_ROOT}/models.json" --output-dir "${TEST_ROOT}/expected-agents"
+readonly PR_AGENT_SOURCE="${TEST_ROOT}/expected-agents/pr-lifecycle-reporter.toml"
+readonly CITATION_AGENT_SOURCE="${TEST_ROOT}/expected-agents/citation-verifier.toml"
+readonly REVIEWER_AGENT_SOURCE="${TEST_ROOT}/expected-agents/lightweight-reviewer.toml"
+readonly EDITOR_AGENT_SOURCE="${TEST_ROOT}/expected-agents/lightweight-editor.toml"
+readonly WORKER_AGENT_SOURCE="${TEST_ROOT}/expected-agents/moderate-worker.toml"
+readonly CONSULTANT_AGENT_SOURCE="${TEST_ROOT}/expected-agents/consultant.toml"
+default_settings="$(UV_NO_PROGRESS=1 uv run --no-project --no-cache --python '>=3.11' python -c '
+import sys, tomllib
+with open(sys.argv[1], "rb") as source:
+    catalog = tomllib.load(source)
+profile = catalog["classes"][catalog["defaults"]["subagent_profile"]]
+import json
+with open(sys.argv[2]) as source:
+    models = json.load(source)
+print(models[profile["capability"]], profile["model_reasoning_effort"], sep="\t")
+' "$AGENT_CATALOG" "${TEST_ROOT}/models.json")"
+IFS=$'\t' read -r DEFAULT_SUBAGENT_MODEL DEFAULT_SUBAGENT_EFFORT <<<"$default_settings"
+readonly DEFAULT_SUBAGENT_MODEL DEFAULT_SUBAGENT_EFFORT
 
 fail() {
   echo "FAIL: $*" >&2
@@ -115,7 +125,7 @@ run_sync() {
   local codex_home="$1"
   shift
 
-  CODEX_HOME="$codex_home" "$SYNC_SCRIPT" --codex "$@"
+  CODEX_HOME="$codex_home" "$SYNC_SCRIPT" --codex --model-list "$MODEL_FIXTURE" "$@"
 }
 
 new_claude_home() {
@@ -739,87 +749,101 @@ EOF
   assert_contains "$output" 'Error: cannot render personal Codex config:'
 }
 
-test_invalid_source_agents_are_rejected_before_sync() {
-  local fixture_name
-  local fixture_root
-  local fixture_repo
-  local codex_home
-  local output
-
+test_invalid_personal_agents_are_rejected_before_sync() {
+  local fixture_name codex_home output
   for fixture_name in malformed missing-required invalid-setting; do
-    fixture_root="${TEST_ROOT}/${fixture_name}-source-agent"
-    fixture_repo="${fixture_root}/repo"
-    codex_home="${fixture_root}/codex-home"
-    output="${fixture_root}/sync.out"
-
-    mkdir -p "${fixture_repo}/scripts" "${fixture_repo}/.codex/agents" "$codex_home"
-    cp "$SYNC_SCRIPT" "${fixture_repo}/scripts/sync.sh"
-    cp "$AGENT_VALIDATOR" "${fixture_repo}/scripts/validate_codex_agents.py"
-    cp "$AGENT_RENDERER" "${fixture_repo}/scripts/render_codex_agents.py"
-    cp "$CONFIG_RENDERER" "${fixture_repo}/scripts/render_codex_config.py"
-    cp "$AGENT_CATALOG" "${fixture_repo}/.codex/agent_catalog.toml"
-    printf '%s\n' '# Fixture guidance' >"${fixture_repo}/AGENTS.md"
-    printf '%s\n' '[agents]' 'max_threads = 8' >"${fixture_repo}/.codex/config.toml"
+    codex_home="$(new_codex_home "${fixture_name}-agent")"
+    output="${TEST_ROOT}/${fixture_name}-agent.out"
+    mkdir -p "${codex_home}/agents"
     if [[ "$fixture_name" == malformed ]]; then
-      printf '%s\n' 'name = [' >"${fixture_repo}/.codex/agents/broken.toml"
+      printf '%s\n' 'name = [' >"${codex_home}/agents/personal.toml"
     elif [[ "$fixture_name" == missing-required ]]; then
-      printf '%s\n' \
-        'name = "broken"' \
-        'description = ""' \
-        'developer_instructions = "Instructions."' \
-        >"${fixture_repo}/.codex/agents/broken.toml"
+      printf '%s\n' 'name = "personal"' 'description = ""' \
+        'developer_instructions = "Instructions."' >"${codex_home}/agents/personal.toml"
     else
-      printf '%s\n' \
-        'name = "broken"' \
-        'description = "Broken setting."' \
-        'developer_instructions = "Instructions."' \
-        'sandbox_mode = "invalid"' \
-        >"${fixture_repo}/.codex/agents/broken.toml"
+      printf '%s\n' 'name = "personal"' 'description = "Personal agent."' \
+        'developer_instructions = "Instructions."' 'sandbox_mode = "invalid"' \
+        >"${codex_home}/agents/personal.toml"
     fi
-    git -C "$fixture_repo" init --quiet
-
-    if (
-      cd "$fixture_repo"
-      CODEX_HOME="$codex_home" scripts/sync.sh --codex --apply
-    ) >"$output" 2>&1; then
-      fail "expected the $fixture_name source agent to fail validation"
+    if run_sync "$codex_home" --apply >"$output" 2>&1; then
+      fail "expected the $fixture_name personal agent to fail validation"
     fi
-
-    assert_path_missing "${codex_home}/agents"
     assert_path_missing "${codex_home}/skills"
+    assert_path_missing "${codex_home}/config.toml"
     assert_contains "$output" 'Error: standalone Codex agent validation failed.'
   done
 }
 
-test_stale_agent_files_are_rejected_before_sync() {
-  local fixture_root="${TEST_ROOT}/stale-source-agent"
-  local fixture_repo="${fixture_root}/repo"
-  local codex_home="${fixture_root}/codex-home"
-  local output="${fixture_root}/sync.out"
-
-  mkdir -p "${fixture_repo}/scripts" "${fixture_repo}/.codex/agents" "$codex_home"
-  cp "$SYNC_SCRIPT" "${fixture_repo}/scripts/sync.sh"
-  cp "$AGENT_VALIDATOR" "${fixture_repo}/scripts/validate_codex_agents.py"
-  cp "$AGENT_RENDERER" "${fixture_repo}/scripts/render_codex_agents.py"
-  cp "$CONFIG_RENDERER" "${fixture_repo}/scripts/render_codex_config.py"
-  cp "${REPO_ROOT}/.codex/agents/"*.toml "${fixture_repo}/.codex/agents/"
-  sed 's/^model = "gpt-6-luna"$/model = "gpt-6-sol"/' \
-    "$AGENT_CATALOG" >"${fixture_repo}/.codex/agent_catalog.toml"
-  cp "$PROJECT_CONFIG" "${fixture_repo}/.codex/config.toml"
-  printf '%s\n' '# Fixture guidance' >"${fixture_repo}/AGENTS.md"
-  git -C "$fixture_repo" init --quiet
-
-  if (
-    cd "$fixture_repo"
-    CODEX_HOME="$codex_home" scripts/sync.sh --codex --apply
-  ) >"$output" 2>&1; then
-    fail "expected stale agent files to be rejected"
+test_model_failure_blocks_both_targets() {
+  local codex_home claude_home output
+  codex_home="$(new_codex_home model-failure)"
+  claude_home="$(new_claude_home model-failure)"
+  output="${TEST_ROOT}/model-failure.out"
+  printf '%s\n' '{"data":[],"nextCursor":null}' >"${TEST_ROOT}/empty-models.json"
+  if CODEX_HOME="$codex_home" CLAUDE_CONFIG_DIR="$claude_home" \
+    "$SYNC_SCRIPT" --model-list "${TEST_ROOT}/empty-models.json" --apply >"$output" 2>&1; then
+    fail "expected missing models to stop both targets"
   fi
-
-  assert_contains "$output" 'Stale or missing agents:'
+  assert_contains "$output" 'Error: cannot resolve Codex models:'
   assert_path_missing "${codex_home}/config.toml"
   assert_path_missing "${codex_home}/agents"
+  assert_path_missing "${claude_home}/settings.json"
+  assert_path_missing "${claude_home}/agents"
+}
+
+test_saved_evidence_skips_discovery_and_pin_is_temporary() {
+  local codex_home fake_bin output
+  codex_home="$(new_codex_home saved-models)"
+  fake_bin="${TEST_ROOT}/saved-models-bin"
+  output="${TEST_ROOT}/saved-models.out"
+  mkdir -p "$fake_bin"
+  cat >"${fake_bin}/codex" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == app-server && "${2:-}" != --strict-config ]]; then
+  echo 'Unexpected model discovery' >&2
+  exit 1
+fi
+exec "${REAL_CODEX:?}" "$@"
+EOF
+  chmod +x "${fake_bin}/codex"
+  REAL_CODEX="$(command -v codex)" PATH="${fake_bin}:${PATH}" \
+    run_sync "$codex_home" --apply --pin-model balanced=gpt-6-sol >"$output" 2>&1
+  assert_contains "$output" 'availability not verified'
+  assert_contains "$output" 'pinned for this invocation'
+  assert_contains "${codex_home}/agents/moderate-worker.toml" 'model = "gpt-6-sol"'
+  REAL_CODEX="$(command -v codex)" PATH="${fake_bin}:${PATH}" \
+    run_sync "$codex_home" --apply >"$output" 2>&1
+  assert_contains "${codex_home}/agents/moderate-worker.toml" 'model = "gpt-6.1-sol"'
+  assert_files_equal "$EDITOR_AGENT_SOURCE" "${codex_home}/agents/lightweight-editor.toml"
+}
+
+test_discovery_failure_preserves_existing_targets() {
+  local codex_home claude_home fake_bin output codex_hash claude_hash
+  codex_home="$(new_codex_home discovery-failure)"
+  claude_home="$(new_claude_home discovery-failure)"
+  fake_bin="${TEST_ROOT}/discovery-failure-bin"
+  output="${TEST_ROOT}/discovery-failure.out"
+  mkdir -p "$fake_bin"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 1' >"${fake_bin}/codex"
+  chmod +x "${fake_bin}/codex"
+  printf '%s\n' 'model = "gpt-6-sol"' >"${codex_home}/config.toml"
+  printf '%s\n' '{"editorMode":"vim"}' >"${claude_home}/settings.json"
+  codex_hash="$(file_checksum "${codex_home}/config.toml")"
+  claude_hash="$(file_checksum "${claude_home}/settings.json")"
+  if PATH="${fake_bin}:${PATH}" CODEX_HOME="$codex_home" CLAUDE_CONFIG_DIR="$claude_home" \
+    "$SYNC_SCRIPT" --apply >"$output" 2>&1; then
+    fail "expected discovery failure to stop both targets"
+  fi
+  assert_contains "$output" 'Error: cannot resolve Codex models:'
+  [[ "$(file_checksum "${codex_home}/config.toml")" == "$codex_hash" ]] ||
+    fail "discovery failure changed Codex config"
+  [[ "$(file_checksum "${claude_home}/settings.json")" == "$claude_hash" ]] ||
+    fail "discovery failure changed Claude settings"
+  assert_path_missing "${codex_home}/agents"
   assert_path_missing "${codex_home}/skills"
+  assert_path_missing "${claude_home}/agents"
+  assert_path_missing "${claude_home}/skills"
 }
 
 test_claude_dry_run_is_non_mutating() {
@@ -846,7 +870,7 @@ test_claude_dry_run_is_non_mutating() {
   assert_contains "$output" '+@AGENTS.md'
 }
 
-test_claude_sync_does_not_require_codex() {
+test_claude_sync_does_not_invoke_codex() {
   local claude_home
   local fake_bin="${TEST_ROOT}/no-codex/bin"
   local output="${TEST_ROOT}/no-codex.out"
@@ -857,16 +881,24 @@ test_claude_sync_does_not_require_codex() {
     ln -s "$(command -v "$command_name")" "${fake_bin}/${command_name}"
   done
 
-  if ! PATH="${fake_bin}:/usr/bin:/bin" run_claude_sync "$claude_home" --dry-run \
+  cat >"${fake_bin}/codex" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'called' >>"${CODEX_PROBE_LOG:?}"
+exit 1
+EOF
+  chmod +x "${fake_bin}/codex"
+  if ! CODEX_PROBE_LOG="${TEST_ROOT}/codex-probe.log" PATH="${fake_bin}:/usr/bin:/bin" run_claude_sync "$claude_home" --dry-run \
     >"$output" 2>&1; then
     sed -n '1,40p' "$output" >&2
     fail "expected the Claude target to run without codex"
   fi
-  if PATH="${fake_bin}:/usr/bin:/bin" CODEX_HOME="${TEST_ROOT}/no-codex/codex-home" \
+  assert_path_missing "${TEST_ROOT}/codex-probe.log"
+  if CODEX_PROBE_LOG="${TEST_ROOT}/codex-probe.log" PATH="${fake_bin}:/usr/bin:/bin" CODEX_HOME="${TEST_ROOT}/no-codex/codex-home" \
     "$SYNC_SCRIPT" --dry-run >"$output" 2>&1; then
     fail "expected the default targets to require codex"
   fi
-  assert_contains "$output" 'Error: codex is not installed or not in PATH.'
+  assert_file_exists "${TEST_ROOT}/codex-probe.log"
+  assert_contains "$output" 'Error: cannot resolve Codex models:'
 }
 
 test_claude_apply_exports_adapted_skills_and_agents() {
@@ -968,7 +1000,7 @@ test_failed_claude_validation_blocks_codex_writes() {
   printf '%s\n' 'not json' >"${claude_home}/settings.json"
 
   if CODEX_HOME="$codex_home" CLAUDE_CONFIG_DIR="$claude_home" \
-    "$SYNC_SCRIPT" --apply >"$output" 2>&1; then
+    "$SYNC_SCRIPT" --model-list "$MODEL_FIXTURE" --apply >"$output" 2>&1; then
     fail "expected a Claude validation failure to stop the combined sync"
   fi
 
@@ -1007,10 +1039,12 @@ test_missing_config_and_section_are_created
 test_missing_limit_is_inserted_in_existing_section
 test_malformed_or_conflicting_config_is_rejected_atomically
 test_strict_config_failure_is_rejected_before_sync
-test_invalid_source_agents_are_rejected_before_sync
-test_stale_agent_files_are_rejected_before_sync
+test_invalid_personal_agents_are_rejected_before_sync
+test_model_failure_blocks_both_targets
+test_discovery_failure_preserves_existing_targets
+test_saved_evidence_skips_discovery_and_pin_is_temporary
 test_claude_dry_run_is_non_mutating
-test_claude_sync_does_not_require_codex
+test_claude_sync_does_not_invoke_codex
 test_claude_apply_exports_adapted_skills_and_agents
 test_claude_invalid_settings_are_rejected_before_sync
 test_failed_claude_validation_blocks_codex_writes

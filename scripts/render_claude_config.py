@@ -108,10 +108,10 @@ def default_subagent_model(catalog: dict[str, Any]) -> str:
     profile = defaults.get("subagent_profile")
     if not isinstance(profile, str) or profile not in classes:
         raise ValueError("catalog defaults.subagent_profile must name a class")
-    codex_model = require_table(classes[profile], f"classes.{profile}").get("model")
-    if not isinstance(codex_model, str) or codex_model not in settings.models:
-        raise ValueError(f"classes.{profile}.model has no claude.models mapping")
-    return settings.models[codex_model]
+    capability = require_table(classes[profile], f"classes.{profile}").get("capability")
+    if not isinstance(capability, str) or capability not in settings.models:
+        raise ValueError(f"classes.{profile}.capability has no claude.models mapping")
+    return settings.models[capability]
 
 
 def read_text(path: Path) -> str:
