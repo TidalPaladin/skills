@@ -14,6 +14,7 @@ from typing import Any, cast
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.render_claude_agents import (  # noqa: E402
+    SUBAGENT_MODEL_KEY,
     claude_settings,
     exported_skills,
     transform_text,
@@ -27,7 +28,6 @@ from scripts.render_codex_agents import (  # noqa: E402
 CODEX_ONLY_START = "<!-- codex-only -->"
 CODEX_ONLY_END = "<!-- /codex-only -->"
 IMPORT_LINE = "@AGENTS.md"
-SUBAGENT_MODEL_KEY = "CLAUDE_CODE_SUBAGENT_MODEL"
 MARKER_LINE = re.compile(r"^[ \t]*(<!-- /?codex-only -->)[ \t]*$")
 
 
@@ -93,7 +93,7 @@ def render_settings(
     settings = require_table(parsed, "personal settings")
     require_table(settings.get("env", {}), "personal settings env")
     updated = merge_managed(
-        settings, {**(managed or {}), "env": {SUBAGENT_MODEL_KEY: model}}
+        merge_managed(settings, managed or {}), {"env": {SUBAGENT_MODEL_KEY: model}}
     )
     if updated == settings and original.strip():
         return original

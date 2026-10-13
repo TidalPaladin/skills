@@ -31,7 +31,9 @@ Paths below are relative to that checkout.
   capability in `claude.models`. `claude.guidance_terms` renames model families
   in exported guidance and agents. `claude.exclude_skills` lists Codex-only skills.
   `claude.settings` values are merged into the personal Claude `settings.json`
-  on every sync. They disable commit and pull request attribution.
+  on every sync. They disable commit and pull request attribution and set
+  `CLAUDE_CODE_PLUGIN_DIR_WATCH`, which reloads edited mods without a restart.
+  `claude.settings.env` must not set `CLAUDE_CODE_SUBAGENT_MODEL`.
 - Put a Claude variant of a Codex-only skill in `.claude/overlays/skills/<name>/`.
   The Claude export copies the base skill, then the overlay files over it.
   Keep skill directories target-neutral.

@@ -999,6 +999,7 @@ test_claude_apply_exports_adapted_skills_and_agents() {
   assert_contains "${claude_home}/settings.json" '"editorMode": "vim"'
   assert_contains "${claude_home}/settings.json" '"KEEP": "1"'
   assert_contains "${claude_home}/settings.json" '"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"'
+  assert_contains "${claude_home}/settings.json" '"CLAUDE_CODE_PLUGIN_DIR_WATCH": "1"'
   assert_contains "${claude_home}/settings.json" '"commit": ""'
   assert_contains "${claude_home}/settings.json" '"pr": ""'
 
