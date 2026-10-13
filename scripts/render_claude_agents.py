@@ -24,6 +24,7 @@ from scripts.render_codex_agents import (  # noqa: E402
 
 AGENTS_DIRECTORY = REPO_ROOT / ".claude" / "agents"
 OVERLAY_SKILLS_DIRECTORY = REPO_ROOT / ".claude" / "overlays" / "skills"
+SUBAGENT_MODEL_KEY = "CLAUDE_CODE_SUBAGENT_MODEL"
 CLAUDE_MODELS = frozenset({"sonnet", "opus", "haiku", "fable", "inherit"})
 EFFORTS = {
     "minimal": "low",
@@ -67,7 +68,12 @@ def claude_settings(catalog: dict[str, Any]) -> ClaudeSettings:
         )
     managed = require_table(table.get("settings", {}), "claude.settings")
     if "env" in managed:
-        raise ValueError("claude.settings must not set env; the sync manages it")
+        env = string_table(managed["env"], "claude.settings.env")
+        if SUBAGENT_MODEL_KEY in env:
+            raise ValueError(
+                f"claude.settings.env must not set {SUBAGENT_MODEL_KEY}; "
+                "set defaults.subagent_profile"
+            )
     raw_excludes = table["exclude_skills"]
     if not isinstance(raw_excludes, list) or not all(
         isinstance(name, str) and name for name in cast(list[object], raw_excludes)

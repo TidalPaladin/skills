@@ -107,18 +107,46 @@ def test_catalog_disables_attribution() -> None:
     assert rendered["attribution"] == {"commit": "", "pr": ""}
 
 
-def test_catalog_settings_cannot_manage_env(tmp_path: Path) -> None:
-    """The env table stays under sync control."""
+def test_managed_env_merges_with_subagent_model() -> None:
+    """Catalog env values and the subagent model both reach settings env."""
+    original = json.dumps({"env": {"KEEP": "1"}})
+    managed = {"env": {"WATCH": "1"}}
+    rendered = render_settings(original, "sonnet", managed)
+    assert json.loads(rendered)["env"] == {
+        "KEEP": "1",
+        "WATCH": "1",
+        "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
+    }
+    assert render_settings(rendered, "sonnet", managed) == rendered
+
+
+def test_catalog_enables_plugin_dir_watch() -> None:
+    """Desktop sessions reload mod edits without a restart."""
+    settings = claude_settings(load_catalog(CATALOG_PATH))
+    rendered = json.loads(render_settings("", "sonnet", settings.settings))
+    assert rendered["env"]["CLAUDE_CODE_PLUGIN_DIR_WATCH"] == "1"
+
+
+@pytest.mark.parametrize(
+    ("env_table", "message"),
+    [
+        ('CLAUDE_CODE_SUBAGENT_MODEL = "opus"', "defaults.subagent_profile"),
+        ("X = 1", "non-empty string"),
+    ],
+)
+def test_catalog_env_rejects_invalid_values(
+    tmp_path: Path, env_table: str, message: str
+) -> None:
+    """The sync owns the subagent model, and env values are strings."""
     source = CATALOG_PATH.read_text(encoding="utf-8")
     catalog_path = tmp_path / "agent_catalog.toml"
     catalog_path.write_text(
         source.replace(
-            "[claude.settings.attribution]",
-            '[claude.settings.env]\nX = "1"\n\n[claude.settings.attribution]',
+            "[claude.settings.env]\n", f"[claude.settings.env]\n{env_table}\n"
         ),
         encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="must not set env"):
+    with pytest.raises(ValueError, match=message):
         claude_settings(load_catalog(catalog_path))
 
 
