@@ -16,6 +16,7 @@ Claude target (${CLAUDE_CONFIG_DIR:-$HOME/.claude}):
 - skill directories without Codex-only skills, plus .claude/overlays -> skills/
 - subagent definitions (.claude/agents) -> agents/
 - default subagent model -> settings.json env.CLAUDE_CODE_SUBAGENT_MODEL
+- catalog claude.settings, then the private settings overlay -> settings.json
 
 Usage:
   scripts/sync.sh [--codex] [--claude] [--apply] [--dry-run] [--delete]
@@ -40,6 +41,9 @@ Claude-only sync does not require Codex model discovery.
 Environment:
   CODEX_HOME        Override the Codex directory (default: $HOME/.codex)
   CLAUDE_CONFIG_DIR Override the Claude directory (default: $HOME/.claude)
+  SKILLS_CLAUDE_PRIVATE_SETTINGS
+                    Override the private Claude settings overlay
+                    (default: $HOME/.config/skills/claude-settings.private.json)
 EOF
 }
 
@@ -242,6 +246,31 @@ apply_or_preview_file() {
   echo "Applied ${label} to ${destination}"
 }
 
+# Preview Claude settings without private overlay values, or apply them.
+apply_or_preview_claude_settings() {
+  local destination="${claude_root}/settings.json"
+  local summary="${claude_proposed}/settings.overlay-summary.txt"
+
+  if [[ "$dry_run" == false || ! -f "$summary" ]]; then
+    if [[ "$dry_run" == true ]]; then
+      echo "No private Claude settings overlay at ${claude_private_settings}"
+    fi
+    apply_or_preview_file "${claude_proposed}/settings.json" "$destination" \
+      "Claude settings"
+    return
+  fi
+
+  echo "Private Claude settings overlay: ${claude_private_settings}"
+  echo "Overlay keys (values hidden):"
+  cat "$summary"
+  echo "Settings diff with overlay keys redacted:"
+  if diff -u -L "$destination" -L "${destination} (proposed)" \
+    "${claude_proposed}/settings.redacted-current.json" \
+    "${claude_proposed}/settings.redacted-proposed.json"; then
+    echo "  No changes outside the overlay keys."
+  fi
+}
+
 # Use an empty stand-in root for a dry run against a missing destination.
 rsync_root_for() {
   local destination_root="$1"
@@ -393,6 +422,7 @@ readonly claude_config_renderer="${repo_root}/scripts/render_claude_config.py"
 readonly claude_skill_stager="${repo_root}/scripts/stage_claude_skills.py"
 readonly claude_staged_skills="${temporary_root}/claude-skills/"
 readonly claude_proposed="${temporary_root}/claude-config"
+readonly claude_private_settings="${SKILLS_CLAUDE_PRIVATE_SETTINGS:-${HOME}/.config/skills/claude-settings.private.json}"
 claude_root=""
 
 prepare_claude() {
@@ -423,7 +453,7 @@ prepare_claude() {
     return 1
   fi
   run_python "$claude_config_renderer" "$agent_catalog" "$root_guidance" \
-    "$claude_root" "$claude_proposed"
+    "$claude_root" "$claude_proposed" --private-settings "$claude_private_settings"
 
   excluded_skills="$(run_python -c '
 import sys, tomllib
@@ -481,8 +511,7 @@ apply_claude() {
     "Claude guidance"
   apply_or_preview_file "${claude_proposed}/CLAUDE.md" "${claude_root}/CLAUDE.md" \
     "Claude guidance import"
-  apply_or_preview_file "${claude_proposed}/settings.json" "${claude_root}/settings.json" \
-    "Claude settings"
+  apply_or_preview_claude_settings
 }
 
 # Validate every selected target before writing to any destination.

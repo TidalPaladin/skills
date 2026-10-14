@@ -41,6 +41,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Keep the developer's real private overlay out of every test.
+export SKILLS_CLAUDE_PRIVATE_SETTINGS="${TEST_ROOT}/no-private-settings.json"
+
 readonly MODEL_RESOLVER="${REPO_ROOT}/scripts/resolve_codex_models.py"
 readonly MODEL_FIXTURE="${REPO_ROOT}/scripts/tests/fixtures/codex-model-list.json"
 UV_NO_PROGRESS=1 uv run --no-project --no-cache --python '>=3.11' python \
@@ -904,6 +907,7 @@ test_claude_dry_run_is_non_mutating() {
   assert_contains "$output" 'moderate-worker.md'
   assert_contains "$output" '"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"'
   assert_contains "$output" '+@AGENTS.md'
+  assert_contains "$output" "No private Claude settings overlay at ${SKILLS_CLAUDE_PRIVATE_SETTINGS}"
 }
 
 test_claude_sync_does_not_invoke_codex() {
@@ -1028,6 +1032,104 @@ test_claude_invalid_settings_are_rejected_before_sync() {
   assert_contains "$output" 'Error: cannot render Claude config:'
 }
 
+write_private_settings() {
+  local path="$1"
+  local mode="$2"
+
+  printf '%s\n' '{"autoMode": {' \
+    '  "environment": ["$defaults", "PRIVATE-ENV-SECRET"],' \
+    '  "allow": ["$defaults", "PRIVATE-ALLOW-SECRET"]' \
+    '}}' >"$path"
+  chmod "$mode" "$path"
+}
+
+test_claude_private_settings_dry_run_hides_values() {
+  local claude_home
+  local private_settings
+  local output="${TEST_ROOT}/claude-private-dry-run.out"
+  local before_hash
+  claude_home="$(new_claude_home claude-private-dry-run)"
+  private_settings="${TEST_ROOT}/claude-private-dry-run/private.json"
+  write_private_settings "$private_settings" 600
+  printf '%s\n' '{"editorMode": "vim", "autoMode": {"allow": ["LOCAL-ALLOW-SECRET"]}}' \
+    >"${claude_home}/settings.json"
+  before_hash="$(file_checksum "${claude_home}/settings.json")"
+
+  SKILLS_CLAUDE_PRIVATE_SETTINGS="$private_settings" \
+    run_claude_sync "$claude_home" --dry-run >"$output" 2>&1
+
+  [[ "$(file_checksum "${claude_home}/settings.json")" == "$before_hash" ]] ||
+    fail "Claude dry run with an overlay changed settings.json"
+  assert_contains "$output" "Private Claude settings overlay: ${private_settings}"
+  assert_contains "$output" '  autoMode.environment: 2 entries to add'
+  assert_contains "$output" '  autoMode.allow: 2 entries to add'
+  assert_contains "$output" '"autoMode": "<private overlay>"'
+  assert_contains "$output" '"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"'
+  assert_not_contains "$output" 'SECRET'
+}
+
+test_claude_private_settings_apply_merges_and_is_idempotent() {
+  local claude_home
+  local private_settings
+  local output="${TEST_ROOT}/claude-private-apply.out"
+  local settings_hash
+  claude_home="$(new_claude_home claude-private-apply)"
+  private_settings="${TEST_ROOT}/claude-private-apply/private.json"
+  write_private_settings "$private_settings" 600
+  printf '%s\n' '{"editorMode": "vim", "hooks": {"Stop": []},' \
+    '"autoMode": {"allow": ["LOCAL-ALLOW", "PRIVATE-ALLOW-SECRET"], "soft_deny": ["LOCAL-DENY"]}}' \
+    >"${claude_home}/settings.json"
+
+  SKILLS_CLAUDE_PRIVATE_SETTINGS="$private_settings" \
+    run_claude_sync "$claude_home" --apply >"$output" 2>&1
+  assert_not_contains "$output" 'SECRET'
+
+  UV_NO_PROGRESS=1 uv run --no-project --no-cache --python '>=3.11' python -c '
+import json, sys
+settings = json.load(open(sys.argv[1]))
+assert settings["editorMode"] == "vim", settings
+assert settings["hooks"] == {"Stop": []}, settings
+assert settings["autoMode"] == {
+    "allow": ["LOCAL-ALLOW", "PRIVATE-ALLOW-SECRET", "$defaults"],
+    "soft_deny": ["LOCAL-DENY"],
+    "environment": ["$defaults", "PRIVATE-ENV-SECRET"],
+}, settings["autoMode"]
+' "${claude_home}/settings.json" || fail "private overlay merge produced wrong settings"
+
+  settings_hash="$(file_checksum "${claude_home}/settings.json")"
+  SKILLS_CLAUDE_PRIVATE_SETTINGS="$private_settings" \
+    run_claude_sync "$claude_home" --apply >"$output" 2>&1
+  [[ "$(file_checksum "${claude_home}/settings.json")" == "$settings_hash" ]] ||
+    fail "repeated Claude apply with an overlay changed settings.json"
+  assert_contains "$output" 'Claude settings already matches the source settings.'
+}
+
+test_claude_unsafe_private_settings_are_rejected_before_sync() {
+  local claude_home
+  local private_dir="${TEST_ROOT}/claude-private-unsafe"
+  local output="${TEST_ROOT}/claude-private-unsafe.out"
+  local overlay
+  claude_home="$(new_claude_home claude-private-unsafe)"
+  write_private_settings "${private_dir}/open.json" 644
+  write_private_settings "${private_dir}/target.json" 600
+  ln -s "${private_dir}/target.json" "${private_dir}/link.json"
+  printf '%s\n' '["PRIVATE-LIST-SECRET"]' >"${private_dir}/list.json"
+  chmod 600 "${private_dir}/list.json"
+  printf '%s\n' '{"editorMode": "vim"}' >"${claude_home}/settings.json"
+
+  for overlay in open link list; do
+    if SKILLS_CLAUDE_PRIVATE_SETTINGS="${private_dir}/${overlay}.json" \
+      run_claude_sync "$claude_home" --apply >"$output" 2>&1; then
+      fail "expected the ${overlay} private overlay to be rejected"
+    fi
+    assert_contains "$output" 'Error: cannot render Claude config: private settings overlay'
+    assert_not_contains "$output" 'SECRET'
+    assert_contains "${claude_home}/settings.json" '{"editorMode": "vim"}'
+    assert_path_missing "${claude_home}/skills"
+    assert_path_missing "${claude_home}/agents"
+  done
+}
+
 test_failed_claude_validation_blocks_codex_writes() {
   local claude_home
   local codex_home
@@ -1085,6 +1187,9 @@ test_claude_dry_run_is_non_mutating
 test_claude_sync_does_not_invoke_codex
 test_claude_apply_exports_adapted_skills_and_agents
 test_claude_invalid_settings_are_rejected_before_sync
+test_claude_private_settings_dry_run_hides_values
+test_claude_private_settings_apply_merges_and_is_idempotent
+test_claude_unsafe_private_settings_are_rejected_before_sync
 test_failed_claude_validation_blocks_codex_writes
 test_root_alias_claude_home_is_rejected
 
