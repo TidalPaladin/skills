@@ -34,6 +34,26 @@ Paths below are relative to that checkout.
   on every sync. They disable commit and pull request attribution and set
   `CLAUDE_CODE_PLUGIN_DIR_WATCH`, which reloads edited mods without a restart.
   `claude.settings.env` must not set `CLAUDE_CODE_SUBAGENT_MODEL`.
+- This repository is public. Put private organization details, such as
+  organization-specific `autoMode` rules, only in the private Claude settings
+  overlay. Do not put them in the catalog, tests, or other files in the checkout.
+  Put an `autoMode` rule in `claude.settings` only when it is generic and
+  useful to every user of this repository.
+- The Claude sync reads the private overlay from
+  `~/.config/skills/claude-settings.private.json`, or from
+  `SKILLS_CLAUDE_PRIVATE_SETTINGS`. It merges the overlay after
+  `claude.settings`. A missing overlay is not an error. The overlay must be a
+  regular file, not a symlink, with mode 600. It must be a JSON object with
+  only the top-level key `autoMode`.
+- Settings merges combine objects key by key and replace lists, with one
+  exception. `autoMode.environment`, `autoMode.allow`, `autoMode.soft_deny`,
+  and `autoMode.hard_deny` become an order-preserving union with exact-string
+  deduplication: local entries first, then new entries. A `"$defaults"` entry
+  stays where it is and never occurs twice. These lists must contain only strings.
+- When an overlay exists, the dry run shows each overlay key path with the count
+  of entries to add. It replaces each overlay top-level key with
+  `"<private overlay>"` in the settings diff. It never shows overlay values.
+  When the merge changes nothing, the sync keeps `settings.json` byte-identical.
 - Put a Claude variant of a Codex-only skill in `.claude/overlays/skills/<name>/`.
   The Claude export copies the base skill, then the overlay files over it.
   Keep skill directories target-neutral.

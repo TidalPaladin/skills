@@ -3,19 +3,26 @@
 from __future__ import annotations
 
 import json
+import os
 import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from scripts.render_claude_agents import claude_settings
 from scripts.render_claude_config import (
     IMPORT_LINE,
+    REDACTED,
     default_subagent_model,
+    load_private_settings,
+    overlay_summary,
+    redact,
     render_claude_md,
     render_guidance,
     render_settings,
     strip_codex_only,
+    update_settings,
 )
 from scripts.render_codex_agents import CATALOG_PATH, REPO_ROOT, load_catalog
 from scripts.stage_claude_skills import add_disable_field, stage_skill
@@ -172,6 +179,206 @@ def test_default_subagent_model_follows_catalog_profile() -> None:
     codex_model = catalog["classes"][profile]["capability"]
     expected = catalog["claude"]["models"][codex_model]
     assert default_subagent_model(load_catalog(CATALOG_PATH)) == expected
+
+
+PRIVATE_VALUE = "**Organization**: Example private detail"
+
+
+def write_overlay(path: Path, overlay: object, mode: int = 0o600) -> Path:
+    path.write_text(json.dumps(overlay), encoding="utf-8")
+    path.chmod(mode)
+    return path
+
+
+@pytest.mark.parametrize("key", ["environment", "allow", "soft_deny", "hard_deny"])
+def test_auto_mode_lists_union_with_local_entries(key: str) -> None:
+    """Local entries stay first and in order; new entries follow once each."""
+    original = json.dumps({"autoMode": {key: ["local", "$defaults", "local", "b"]}})
+    private = {"autoMode": {key: ["$defaults", "new", "b", "new"]}}
+    rendered = render_settings(original, "sonnet", {}, private)
+    assert json.loads(rendered)["autoMode"][key] == ["local", "$defaults", "b", "new"]
+    assert render_settings(rendered, "sonnet", {}, private) == rendered
+
+
+def test_auto_mode_union_adds_one_defaults_entry_where_it_appears() -> None:
+    """A new $defaults keeps its overlay position after the local entries."""
+    original = json.dumps({"autoMode": {"environment": ["local"]}})
+    private = {"autoMode": {"environment": ["$defaults", "org"]}}
+    rendered = json.loads(render_settings(original, "sonnet", {}, private))
+    assert rendered["autoMode"]["environment"] == ["local", "$defaults", "org"]
+
+
+def test_catalog_auto_mode_lists_also_union() -> None:
+    """Catalog autoMode rules do not wipe local rules."""
+    original = json.dumps({"autoMode": {"allow": ["local"]}})
+    managed = {"autoMode": {"allow": ["catalog"]}}
+    private = {"autoMode": {"allow": ["private"]}}
+    rendered = json.loads(render_settings(original, "sonnet", managed, private))
+    assert rendered["autoMode"]["allow"] == ["local", "catalog", "private"]
+
+
+def test_other_lists_are_replaced() -> None:
+    """Lists outside autoMode keep replace semantics."""
+    original = json.dumps({"permissions": {"allow": ["local"]}})
+    managed = {"permissions": {"allow": ["catalog"]}}
+    rendered = json.loads(render_settings(original, "sonnet", managed))
+    assert rendered["permissions"]["allow"] == ["catalog"]
+
+
+@pytest.mark.parametrize(
+    "auto_mode", [{"allow": "local"}, {"allow": ["local", 1]}, {"allow": {}}]
+)
+def test_invalid_local_auto_mode_lists_are_rejected(auto_mode: dict[str, Any]) -> None:
+    """A union never replaces a malformed local list."""
+    original = json.dumps({"autoMode": auto_mode})
+    with pytest.raises(ValueError, match="autoMode.allow must be a list of strings"):
+        _ = render_settings(original, "sonnet", {}, {"autoMode": {"allow": ["new"]}})
+
+
+def test_overlay_merge_preserves_unrelated_settings() -> None:
+    """The overlay changes only its own entries."""
+    original = json.dumps(
+        {
+            "editorMode": "vim",
+            "env": {"KEEP": "1"},
+            "hooks": {"Stop": []},
+            "permissions": {"allow": ["Bash(ls)"]},
+            "autoMode": {"allow": ["local"], "other": True},
+        }
+    )
+    private = {"autoMode": {"allow": ["private"]}}
+    rendered = json.loads(render_settings(original, "sonnet", {}, private))
+    assert rendered == {
+        "editorMode": "vim",
+        "env": {"KEEP": "1", "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"},
+        "hooks": {"Stop": []},
+        "permissions": {"allow": ["Bash(ls)"]},
+        "autoMode": {"allow": ["local", "private"], "other": True},
+    }
+
+
+def test_overlay_without_changes_keeps_original_bytes() -> None:
+    """A no-op sync returns the file byte for byte, including its layout."""
+    original = (
+        '{"env":{"CLAUDE_CODE_SUBAGENT_MODEL":"sonnet"},'
+        '"autoMode":{"allow":["$defaults","x"]}}'
+    )
+    private = {"autoMode": {"allow": ["x", "$defaults"]}}
+    assert render_settings(original, "sonnet", {}, private) == original
+
+
+def test_missing_overlay_is_a_no_op(tmp_path: Path) -> None:
+    """An absent overlay loads as None and leaves settings unchanged."""
+    assert load_private_settings(tmp_path / "missing.json") is None
+    original = json.dumps({"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"}})
+    assert render_settings(original, "sonnet", {}, None) == original
+
+
+def test_valid_overlay_loads(tmp_path: Path) -> None:
+    overlay = {"autoMode": {"allow": ["$defaults", PRIVATE_VALUE]}}
+    path = write_overlay(tmp_path / "private.json", overlay)
+    assert load_private_settings(path) == overlay
+
+
+@pytest.mark.parametrize("mode", [0o644, 0o640, 0o400, 0o700])
+def test_overlay_with_wrong_mode_is_rejected(tmp_path: Path, mode: int) -> None:
+    path = write_overlay(tmp_path / "private.json", {"autoMode": {}}, mode)
+    with pytest.raises(ValueError, match="must have mode 600"):
+        _ = load_private_settings(path)
+
+
+@pytest.mark.parametrize("dangling", [False, True])
+def test_overlay_symlink_is_rejected(tmp_path: Path, dangling: bool) -> None:
+    target = tmp_path / "target.json"
+    if not dangling:
+        _ = write_overlay(target, {"autoMode": {}})
+    link = tmp_path / "private.json"
+    link.symlink_to(target)
+    with pytest.raises(ValueError, match="must not be a symlink"):
+        _ = load_private_settings(link)
+
+
+def test_overlay_directory_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "private.json"
+    path.mkdir(mode=0o700)
+    with pytest.raises(ValueError, match="must be a regular file"):
+        _ = load_private_settings(path)
+
+
+@pytest.mark.parametrize(
+    ("overlay", "message"),
+    [
+        ([PRIVATE_VALUE], "must be a JSON object"),
+        (PRIVATE_VALUE, "must be a JSON object"),
+        ({"permissions": {"allow": [PRIVATE_VALUE]}}, "found permissions"),
+        ({"autoMode": [PRIVATE_VALUE]}, "autoMode must be"),
+        ({"autoMode": {"allow": PRIVATE_VALUE}}, "list of strings"),
+        ({"autoMode": {"allow": [PRIVATE_VALUE, 1]}}, "list of strings"),
+    ],
+)
+def test_invalid_overlay_is_rejected_without_values(
+    tmp_path: Path, overlay: object, message: str
+) -> None:
+    """Rejections name the problem and never echo overlay content."""
+    path = write_overlay(tmp_path / "private.json", overlay)
+    with pytest.raises((TypeError, ValueError), match=message) as error:
+        _ = load_private_settings(path)
+    assert PRIVATE_VALUE not in str(error.value)
+
+
+def test_malformed_overlay_json_is_rejected_without_values(tmp_path: Path) -> None:
+    path = tmp_path / "private.json"
+    path.write_text(f'{{"autoMode": "{PRIVATE_VALUE}', encoding="utf-8")
+    path.chmod(0o600)
+    with pytest.raises(ValueError, match="not valid UTF-8 JSON") as error:
+        _ = load_private_settings(path)
+    assert PRIVATE_VALUE not in str(error.value)
+
+
+def test_relative_overlay_path_is_rejected() -> None:
+    with pytest.raises(ValueError, match="must be absolute"):
+        _ = load_private_settings(Path("private.json"))
+
+
+def test_overlay_preview_hides_private_values() -> None:
+    """The redacted settings and the summary show keys and counts only."""
+    current = {"editorMode": "vim", "autoMode": {"allow": [PRIVATE_VALUE, "local"]}}
+    private = {
+        "autoMode": {
+            "allow": ["$defaults", PRIVATE_VALUE],
+            "environment": [f"{PRIVATE_VALUE} 2"],
+        }
+    }
+    updated = update_settings(current, "sonnet", {}, private)
+    for table in (current, updated):
+        preview = json.dumps(redact(table, private))
+        assert PRIVATE_VALUE not in preview
+        assert REDACTED in preview
+    summary = overlay_summary(current, updated, private)
+    assert summary == [
+        "  autoMode.allow: 1 entry to add",
+        "  autoMode.environment: 1 entry to add",
+    ]
+    assert PRIVATE_VALUE not in "".join(summary)
+
+
+def test_overlay_summary_counts_removed_duplicates() -> None:
+    current = {"autoMode": {"allow": ["a", "a"]}}
+    private = {"autoMode": {"allow": ["b"]}}
+    updated = update_settings(current, "sonnet", {}, private)
+    assert overlay_summary(current, updated, private) == [
+        "  autoMode.allow: 1 entry to add, 1 to remove"
+    ]
+
+
+def test_overlay_file_mode_check_ignores_umask(tmp_path: Path) -> None:
+    """The check reads the file's own mode, not the creation default."""
+    previous = os.umask(0o077)
+    try:
+        path = write_overlay(tmp_path / "private.json", {"autoMode": {}})
+    finally:
+        _ = os.umask(previous)
+    assert load_private_settings(path) == {"autoMode": {}}
 
 
 def write_skill(root: Path, interface: str | None) -> Path:
