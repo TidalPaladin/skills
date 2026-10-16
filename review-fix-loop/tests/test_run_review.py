@@ -1045,6 +1045,98 @@ def test_run_process_preserves_stdout(runner: ModuleType, tmp_path: Path) -> Non
     assert event_log.read_text(encoding="utf-8") == "{}\n"
 
 
+def test_run_process_does_not_inherit_stdin(
+    runner: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed: dict[str, Any] = {}
+
+    def fake_run(command: list[str], **kwargs: Any) -> Any:
+        observed.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    runner.run_process(["codex"], cwd=tmp_path, event_log=tmp_path / "events.log")
+
+    # `codex exec` reads piped stdin, so an inherited open pipe can block it.
+    assert observed["stdin"] is subprocess.DEVNULL
+
+
+def codex_events(*events: dict[str, Any]) -> str:
+    return "".join(json.dumps(event) + "\n" for event in events)
+
+
+def codex_turn_failure(status: int, message: str) -> dict[str, Any]:
+    inner = {"type": "error", "status": status, "error": {"message": message}}
+    return {"type": "turn.failed", "error": {"message": json.dumps(inner)}}
+
+
+def test_codex_review_reports_turn_failure_from_events(
+    runner: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stdout = codex_events(
+        {"type": "turn.started"},
+        codex_turn_failure(400, "The 'missing' model is not supported."),
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_process",
+        lambda *_a, **_k: completed_process(
+            1, stdout, "Reading additional input from stdin...\n"
+        ),
+    )
+
+    with pytest.raises(runner.ReviewLoopError) as error:
+        run_review(runner, tmp_path, "codex")
+
+    assert str(error.value) == (
+        "codex uncommitted review failed: "
+        "status 400: The 'missing' model is not supported."
+    )
+
+
+def test_codex_review_retries_transient_turn_failure(
+    runner: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts = 0
+
+    def fake_process(command: list[str], *, cwd: Path, event_log: Path) -> Any:
+        nonlocal attempts
+        del cwd, event_log
+        attempts += 1
+        if attempts == 1:
+            return completed_process(
+                1,
+                codex_events(codex_turn_failure(503, "Service unavailable")),
+                "Reading additional input from stdin...\n",
+            )
+        output_path = Path(command[command.index("--output-last-message") + 1])
+        output_path.write_text(json.dumps(review_payload()), encoding="utf-8")
+        return completed_process(0)
+
+    monkeypatch.setattr(runner, "run_process", fake_process)
+
+    assert run_review(runner, tmp_path, "codex") == review_payload()
+    assert attempts == 2
+
+
+def test_codex_review_ignores_stdin_banner_in_stderr(
+    runner: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "run_process",
+        lambda *_a, **_k: completed_process(
+            1, "", "Reading additional input from stdin...\nfatal: bad config\n"
+        ),
+    )
+
+    with pytest.raises(runner.ReviewLoopError) as error:
+        run_review(runner, tmp_path, "codex")
+
+    assert str(error.value) == "codex uncommitted review failed: fatal: bad config"
+
+
 @pytest.mark.parametrize("version", [1, 3])
 def test_execute_round_rejects_unsupported_state(
     runner: ModuleType, tmp_path: Path, version: int

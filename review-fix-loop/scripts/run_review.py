@@ -24,6 +24,7 @@ STATE_VERSION: Final = 2
 BASE_CANDIDATES: Final = ("origin/main", "origin/master", "main", "master")
 REVIEWERS: Final = ("codex", "claude")
 CODEX_REASONING_EFFORT: Final = "high"
+CODEX_STDIN_NOTICE: Final = "Reading additional input from stdin..."
 CLAUDE_DEFAULT_MODEL: Final = "opus"
 CLAUDE_EFFORT: Final = "high"
 CLAUDE_AVAILABLE_TOOLS: Final = "Read,Grep,Glob,Bash"
@@ -534,6 +535,7 @@ def run_process(
         command,
         cwd=cwd,
         check=False,
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
     )
@@ -590,15 +592,65 @@ def _read_codex_payload(output_path: Path, label: str) -> Any:
         ) from error
 
 
-def _claude_failure_detail(reviewer: str, stdout: str) -> str | None:
-    """Return the result message from a failed Claude JSON envelope, if any."""
-    if reviewer != "claude":
-        return None
+def _codex_event_detail(stdout: str) -> str | None:
+    """Return the last error message from a Codex JSONL event stream, if any."""
+    for line in reversed(stdout.splitlines()):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        event = cast(JsonObject, event)
+        if event.get("type") == "turn.failed":
+            error = event.get("error")
+            message = (
+                cast(JsonObject, error).get("message")
+                if isinstance(error, dict)
+                else None
+            )
+        elif event.get("type") == "error":
+            message = event.get("message")
+        else:
+            continue
+        if isinstance(message, str) and message.strip():
+            return _api_error_detail(message.strip())
+    return None
+
+
+def _api_error_detail(message: str) -> str:
+    """Reduce a JSON API error message to its status and text."""
     try:
-        _, detail = extract_claude_payload(stdout, reviewer)
-    except ReviewLoopError:
-        return None
-    return detail
+        payload = json.loads(message)
+    except json.JSONDecodeError:
+        return message
+    if not isinstance(payload, dict):
+        return message
+    payload = cast(JsonObject, payload)
+    error = payload.get("error")
+    text = cast(JsonObject, error).get("message") if isinstance(error, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        return message
+    status = payload.get("status")
+    return f"status {status}: {text.strip()}" if status is not None else text.strip()
+
+
+def _failure_detail(reviewer: str, completed: subprocess.CompletedProcess[str]) -> str:
+    """Return the most specific failure message from a reviewer process."""
+    structured: str | None
+    if reviewer == "codex":
+        structured = _codex_event_detail(completed.stdout)
+    else:
+        try:
+            _, structured = extract_claude_payload(completed.stdout, reviewer)
+        except ReviewLoopError:
+            structured = None
+    stderr = "\n".join(
+        line
+        for line in completed.stderr.strip().splitlines()
+        if line.strip() != CODEX_STDIN_NOTICE
+    ).strip()
+    return structured or stderr or completed.stdout.strip() or "unknown failure"
 
 
 def run_structured_review(
@@ -645,12 +697,7 @@ def run_structured_review(
             if detail is None:
                 return validate_review_payload(payload)
         else:
-            detail = (
-                completed.stderr.strip()
-                or _claude_failure_detail(reviewer, completed.stdout)
-                or completed.stdout.strip()
-                or "unknown failure"
-            )
+            detail = _failure_detail(reviewer, completed)
         if attempt == 0 and _is_transient_failure(detail):
             continue
         qualifier = " after one retry" if attempt else ""
