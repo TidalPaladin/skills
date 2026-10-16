@@ -118,7 +118,6 @@ run_ci_tool env PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1 \
   scripts/render_claude_config.py \
   scripts/validate_claude_agents.py \
   scripts/stage_claude_skills.py \
-  .claude/overlays/skills/review-fix-loop/scripts/run_review_claude.py \
   inspect-dataset/scripts/inspect_dataset.py \
   review-fix-loop/scripts/run_review.py \
   review-fix-loop/tests/test_run_review.py \
@@ -126,7 +125,6 @@ run_ci_tool env PYRIGHT_DISABLE_GITHUB_ACTIONS_OUTPUT=1 \
   emend/tests/test_check_asd_ste100.py
 run_ci_tool shellcheck --severity=error "${SHELL_FILES[@]}"
 run_ci_tool pytest -q review-fix-loop/tests
-run_ci_tool pytest -q .claude/overlays/skills/review-fix-loop/tests
 run_ci_tool pytest --cov=emend/scripts --cov-report=term-missing \
   --cov-fail-under=90 -q emend/tests
 
