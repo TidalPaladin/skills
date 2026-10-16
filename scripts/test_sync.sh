@@ -306,6 +306,7 @@ test_goal_mode_contract() {
   assert_contains "$REVIEW_SKILL" 'call `create_goal` before initializing the loop'
   assert_contains "$REVIEW_SKILL" 'Do not replace an existing goal.'
   assert_contains "$REVIEW_INTERFACE" 'starts Goal Mode automatically when needed'
+  assert_contains "$REVIEW_INTERFACE" 'allow_implicit_invocation: true'
   assert_not_contains "$REVIEW_SKILL" 'Start this workflow only when the current task is in Goal Mode.'
   assert_not_contains "$REVIEW_SKILL" '/goal Use $review-fix-loop'
 }
@@ -986,11 +987,10 @@ test_claude_apply_exports_adapted_skills_and_agents() {
   assert_not_contains "${claude_home}/skills/emend/SKILL.md" 'disable-model-invocation'
   assert_files_equal "${REPO_ROOT}/.claude/overlays/skills/review-fix-loop/SKILL.md" \
     "${claude_home}/skills/review-fix-loop/SKILL.md"
-  assert_count 1 '^disable-model-invocation:' "${claude_home}/skills/review-fix-loop/SKILL.md"
+  assert_not_contains "${claude_home}/skills/review-fix-loop/SKILL.md" 'disable-model-invocation'
   assert_files_equal "${REPO_ROOT}/review-fix-loop/scripts/run_review.py" \
     "${claude_home}/skills/review-fix-loop/scripts/run_review.py"
-  assert_file_exists "${claude_home}/skills/review-fix-loop/scripts/run_review_claude.py"
-  assert_path_missing "${claude_home}/skills/review-fix-loop/tests/test_run_review_claude.py"
+  assert_path_missing "${claude_home}/skills/review-fix-loop/scripts/run_review_claude.py"
 
   assert_contains "${claude_home}/CLAUDE.md" '# Personal guidance'
   assert_count 1 '^@AGENTS\.md$' "${claude_home}/CLAUDE.md"

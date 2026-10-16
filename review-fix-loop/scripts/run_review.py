@@ -1,25 +1,43 @@
 #!/usr/bin/env python3
-"""Run one structured Codex review round for the review-fix-loop skill."""
+"""Run one structured Codex and Claude review round for the review-fix-loop skill."""
 
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 import posixpath
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Final, Literal, TypeAlias, cast
 
 SKILL_ROOT: Final = Path(__file__).resolve().parents[1]
 REVIEW_SCHEMA_PATH: Final = SKILL_ROOT / "references" / "review-result.schema.json"
-DEFAULT_MAX_ITERATIONS: Final = 10
+DEFAULT_MAX_ITERATIONS: Final = 5
+STATE_VERSION: Final = 2
 BASE_CANDIDATES: Final = ("origin/main", "origin/master", "main", "master")
-MODEL: Final = "gpt-5.6-luna"
-REASONING_EFFORT: Final = "medium"
+REVIEWERS: Final = ("codex", "claude")
+CODEX_REASONING_EFFORT: Final = "high"
+CLAUDE_DEFAULT_MODEL: Final = "opus"
+CLAUDE_EFFORT: Final = "high"
+CLAUDE_AVAILABLE_TOOLS: Final = "Read,Grep,Glob,Bash"
+CLAUDE_ALLOWED_TOOLS: Final = (
+    "Read",
+    "Grep",
+    "Glob",
+    "Bash(git diff:*)",
+    "Bash(git ls-files:*)",
+    "Bash(git status:*)",
+    "Bash(git show:*)",
+    "Bash(git log:*)",
+)
+CLAUDE_DISALLOWED_TOOLS: Final = ("Edit", "Write", "NotebookEdit")
 TRANSIENT_ERROR_MARKERS: Final = (
     "connection timed out",
     "timed out",
@@ -35,6 +53,8 @@ TRANSIENT_ERROR_MARKERS: Final = (
     "status 503",
     "status 504",
     "dns error",
+    "overloaded",
+    "status 529",
 )
 PRIORITY_ORDER: Final = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 PRIORITY_PREFIX: Final = re.compile(r"^\[p[0-3]\]\s*", re.IGNORECASE)
@@ -42,6 +62,7 @@ PRIORITY_PREFIX: Final = re.compile(r"^\[p[0-3]\]\s*", re.IGNORECASE)
 Scope: TypeAlias = Literal["auto", "uncommitted", "session"]
 SelectedScope: TypeAlias = Literal["uncommitted", "session"]
 ReviewTarget: TypeAlias = Literal["base", "uncommitted"]
+Reviewer: TypeAlias = Literal["codex", "claude"]
 JsonObject: TypeAlias = dict[str, Any]
 
 
@@ -129,18 +150,15 @@ def resolve_base(repo: Path, explicit_base: str | None) -> tuple[str, str]:
     return base_ref, completed.stdout.strip()
 
 
-def build_review_command(
-    *,
-    target: ReviewTarget,
-    schema_path: Path,
-    output_path: Path,
-    base_ref: str | None,
-    merge_base: str | None,
-) -> list[str]:
-    """Build a structured, read-only review subprocess command."""
-    # `codex exec review` starts a Review request that does not forward
-    # `--output-schema`. A regular exec turn preserves the schema and still
-    # provides an isolated reviewer when paired with this read-only prompt.
+def cli_available(reviewer: str) -> bool:
+    """Return whether the reviewer's command-line client is on PATH."""
+    return shutil.which(reviewer) is not None
+
+
+def build_review_prompt(
+    *, target: str, base_ref: str | None, merge_base: str | None
+) -> str:
+    """Build the reviewer prompt shared by every model family."""
     output_contract = """
 Report only discrete, actionable issues introduced by this review scope. Focus on
 correctness, security, performance, reliability, and maintainability. Ignore
@@ -152,46 +170,94 @@ there are no findings. Otherwise return status "findings" and every finding.
 Return only the JSON object required by the output schema. Do not modify files.
 """.strip()
     if target == "uncommitted":
-        review_prompt = f"""Review only staged, unstaged, and untracked changes in this repository.
+        return f"""Review only staged, unstaged, and untracked changes in this repository.
 Inspect git diff, git diff --cached, and every path reported by git ls-files
 --others --exclude-standard. Do not review committed branch changes.
 
 {output_contract}"""
-    elif target == "base":
+    if target == "base":
         if not base_ref or not merge_base:
             raise ReviewLoopError(
                 "A base review requires a pinned base ref and merge-base SHA."
             )
-        review_prompt = f"""Review all current repository changes from merge base {merge_base} through the working tree.
+        return f"""Review all current repository changes from merge base {merge_base} through the working tree.
 The selected base ref is {base_ref}. Inspect git diff {merge_base} for the net
 tracked changes, and inspect every path reported by git ls-files --others
 --exclude-standard. Include committed, staged, unstaged, and untracked changes
 in this session pass.
 
 {output_contract}"""
-    else:
-        raise ReviewLoopError(f"Unsupported review target: {target!r}")
+    raise ReviewLoopError(f"Unsupported review target: {target!r}")
 
-    command = [
-        "codex",
-        "exec",
-        "--json",
-        "--ephemeral",
+
+def build_review_command(
+    *,
+    reviewer: str,
+    target: str,
+    schema_path: Path,
+    output_path: Path,
+    base_ref: str | None,
+    merge_base: str | None,
+    model: str | None = None,
+) -> list[str]:
+    """Build a structured, read-only review subprocess command."""
+    if reviewer not in REVIEWERS:
+        raise ReviewLoopError(f"Unsupported reviewer: {reviewer!r}")
+    review_prompt = build_review_prompt(
+        target=target, base_ref=base_ref, merge_base=merge_base
+    )
+    if reviewer == "codex":
+        # `codex exec review` starts a Review request that does not forward
+        # `--output-schema`. A regular exec turn preserves the schema and still
+        # provides an isolated reviewer when paired with this read-only prompt.
+        # Without an override, Codex uses the model from the user's config.
+        model_arguments = ["--model", model] if model else []
+        return [
+            "codex",
+            "exec",
+            "--json",
+            "--ephemeral",
+            *model_arguments,
+            "-c",
+            f'model_reasoning_effort="{CODEX_REASONING_EFFORT}"',
+            "-c",
+            'sandbox_mode="read-only"',
+            "-c",
+            'approval_policy="never"',
+            "--output-schema",
+            str(schema_path),
+            "--output-last-message",
+            str(output_path),
+            review_prompt,
+        ]
+
+    # The Claude CLI rejects the draft 2020-12 `$schema` meta-schema reference.
+    schema_object = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema_object.pop("$schema", None)
+    schema = json.dumps(schema_object, separators=(",", ":"))
+    return [
+        "claude",
+        "-p",
         "--model",
-        MODEL,
-        "-c",
-        f'model_reasoning_effort="{REASONING_EFFORT}"',
-        "-c",
-        'sandbox_mode="read-only"',
-        "-c",
-        'approval_policy="never"',
-        "--output-schema",
-        str(schema_path),
-        "--output-last-message",
-        str(output_path),
+        model or CLAUDE_DEFAULT_MODEL,
+        "--effort",
+        CLAUDE_EFFORT,
+        "--output-format",
+        "json",
+        "--no-session-persistence",
+        "--permission-mode",
+        "dontAsk",
+        "--tools",
+        CLAUDE_AVAILABLE_TOOLS,
+        "--allowedTools",
+        *CLAUDE_ALLOWED_TOOLS,
+        "--disallowedTools",
+        *CLAUDE_DISALLOWED_TOOLS,
+        "--json-schema",
+        schema,
+        "--",
         review_prompt,
     ]
-    return command
 
 
 def _nonempty_string(value: Any, field: str) -> str:
@@ -266,8 +332,30 @@ def _title_with_priority(title: str, priority: str) -> str:
     return f"[{priority}] {without_priority}"
 
 
+def _source_families(finding: JsonObject) -> set[str]:
+    return {source.split(":", 1)[0] for source in cast(list[str], finding["sources"])}
+
+
+def _reviewer_order(family: str) -> tuple[int, str]:
+    rank = REVIEWERS.index(family) if family in REVIEWERS else len(REVIEWERS)
+    return rank, family
+
+
+def _overlaps(first: JsonObject, second: JsonObject) -> bool:
+    return (
+        _normalized_path(cast(str, first["file"]))
+        == _normalized_path(cast(str, second["file"]))
+        and cast(int, first["line_start"]) <= cast(int, second["line_end"])
+        and cast(int, second["line_start"]) <= cast(int, first["line_end"])
+    )
+
+
 def merge_results(results: list[tuple[str, JsonObject]]) -> JsonObject:
-    """Merge reviewer passes, deduplicating the same source location and title."""
+    """Merge reviewer passes and mark overlapping findings from other families.
+
+    Sources have the form ``<reviewer>:<target>``. Each finding's ``reviewers``
+    lists every family that reported it or an overlapping range in the same file.
+    """
     merged: dict[tuple[str, int, int, str], JsonObject] = {}
     for source, payload in results:
         validated = validate_review_payload(payload)
@@ -317,6 +405,12 @@ def merge_results(results: list[tuple[str, JsonObject]]) -> JsonObject:
                 )
 
     findings = list(merged.values())
+    for finding in findings:
+        families = _source_families(finding)
+        for other in findings:
+            if other is not finding and _overlaps(finding, other):
+                families |= _source_families(other)
+        finding["reviewers"] = sorted(families, key=_reviewer_order)
     findings.sort(
         key=lambda item: (
             PRIORITY_ORDER[cast(str, item["priority"])],
@@ -338,17 +432,63 @@ def _write_json(path: Path, payload: JsonObject) -> None:
     temporary.replace(path)
 
 
+def _validate_reviewers(
+    host: str, reviewers: Sequence[str], models: dict[str, str]
+) -> list[str]:
+    """Validate the reviewer selection and return it with the host first."""
+    if host not in REVIEWERS:
+        raise ReviewLoopError(
+            f"Invalid host {host!r}; expected {' or '.join(REVIEWERS)}."
+        )
+    for reviewer in (*reviewers, *models):
+        if reviewer not in REVIEWERS:
+            raise ReviewLoopError(f"Unsupported reviewer: {reviewer!r}")
+    if host not in reviewers:
+        raise ReviewLoopError(f"Reviewers must include the host family {host!r}.")
+    for reviewer, model in models.items():
+        if not isinstance(model, str) or not model.strip():
+            raise ReviewLoopError(
+                f"The {reviewer} model override must be a non-empty string."
+            )
+    return [host, *(item for item in REVIEWERS if item in reviewers and item != host)]
+
+
 def initialize_state(
     *,
     repo: Path,
     requested_scope: str,
     explicit_base: str | None,
     max_iterations: int,
+    host: str,
+    reviewers: Sequence[str] = REVIEWERS,
+    models: dict[str, str] | None = None,
     state_root: Path | None = None,
 ) -> JsonObject:
-    """Pin loop scope and session-base metadata, then persist loop state."""
+    """Pin loop scope, base metadata, and reviewers, then persist loop state.
+
+    A missing host CLI is an error. A missing CLI for another family removes
+    that reviewer and records the reason in ``fallback``.
+    """
     if isinstance(max_iterations, bool) or max_iterations < 1:
         raise ReviewLoopError("max-iterations must be a positive integer.")
+    models = dict(models or {})
+    selected_reviewers = _validate_reviewers(host, reviewers, models)
+    if not cli_available(host):
+        raise ReviewLoopError(f"The host {host} CLI is not on PATH.")
+    fallback: list[JsonObject] = []
+    active_reviewers: list[str] = []
+    for reviewer in selected_reviewers:
+        if reviewer == host or cli_available(reviewer):
+            active_reviewers.append(reviewer)
+        else:
+            fallback.append(
+                {
+                    "reviewer": reviewer,
+                    "round": 0,
+                    "reason": f"{reviewer} CLI not found on PATH",
+                }
+            )
+
     root = repository_root(repo)
     selected_scope = select_scope(requested_scope, is_dirty(root))
     base_ref: str | None = None
@@ -357,19 +497,24 @@ def initialize_state(
         base_ref, merge_base = resolve_base(root, explicit_base)
 
     if state_root is None:
-        state_directory = Path(tempfile.mkdtemp(prefix="codex-review-fix-loop-"))
+        state_directory = Path(tempfile.mkdtemp(prefix="review-fix-loop-"))
     else:
         state_directory = state_root.resolve()
         state_directory.mkdir(parents=True, exist_ok=True)
         os.chmod(state_directory, 0o700)
     state_file = state_directory / "state.json"
     state: JsonObject = {
-        "version": 1,
+        "version": STATE_VERSION,
         "repo": str(root),
         "requested_scope": requested_scope,
         "selected_scope": selected_scope,
         "base_ref": base_ref,
         "merge_base": merge_base,
+        "host": host,
+        "reviewers": selected_reviewers,
+        "active_reviewers": active_reviewers,
+        "models": models,
+        "fallback": fallback,
         "max_iterations": max_iterations,
         "completed_iterations": 0,
         "status": "ready",
@@ -384,7 +529,7 @@ def initialize_state(
 def run_process(
     command: list[str], *, cwd: Path, event_log: Path
 ) -> subprocess.CompletedProcess[str]:
-    """Run Codex while preserving its JSONL event stream for diagnosis."""
+    """Run a reviewer while preserving its standard output for diagnosis."""
     completed = subprocess.run(
         command,
         cwd=cwd,
@@ -402,50 +547,114 @@ def _is_transient_failure(detail: str) -> bool:
     return any(marker in normalized for marker in TRANSIENT_ERROR_MARKERS)
 
 
+def extract_claude_payload(stdout: str, label: str) -> tuple[Any, str | None]:
+    """Return the structured payload, or an error detail from a Claude result."""
+    try:
+        envelope = json.loads(stdout)
+    except json.JSONDecodeError as error:
+        raise ReviewLoopError(
+            f"{label} review returned malformed JSON output: {error}"
+        ) from error
+    if not isinstance(envelope, dict):
+        raise ReviewLoopError(f"{label} review returned a non-object result.")
+    result = cast(JsonObject, envelope)
+    if result.get("is_error") or result.get("subtype") not in (None, "success"):
+        detail = result.get("result") or result.get("subtype") or "unknown failure"
+        return None, str(detail)
+    structured = result.get("structured_output")
+    if structured is not None:
+        return structured, None
+    text = result.get("result")
+    if not isinstance(text, str):
+        raise ReviewLoopError(
+            f"{label} review succeeded but did not return structured output."
+        )
+    try:
+        return json.loads(text), None
+    except json.JSONDecodeError as error:
+        raise ReviewLoopError(
+            f"{label} review returned malformed structured output: {error}"
+        ) from error
+
+
+def _read_codex_payload(output_path: Path, label: str) -> Any:
+    if not output_path.is_file():
+        raise ReviewLoopError(
+            f"{label} review succeeded but did not write structured output."
+        )
+    try:
+        return json.loads(output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ReviewLoopError(
+            f"{label} review returned malformed structured output: {error}"
+        ) from error
+
+
+def _claude_failure_detail(reviewer: str, stdout: str) -> str | None:
+    """Return the result message from a failed Claude JSON envelope, if any."""
+    if reviewer != "claude":
+        return None
+    try:
+        _, detail = extract_claude_payload(stdout, reviewer)
+    except ReviewLoopError:
+        return None
+    return detail
+
+
 def run_structured_review(
     *,
     repo: Path,
-    target: ReviewTarget,
+    reviewer: str,
+    target: str,
     base_ref: str | None,
     merge_base: str | None = None,
     round_number: int,
     artifact_dir: Path,
+    model: str | None = None,
 ) -> JsonObject:
     """Run one structured review, retrying one transient process failure."""
+    label = f"{reviewer} {target}"
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    output_path = artifact_dir / f"round-{round_number:03d}-{target}.json"
-    event_log = artifact_dir / f"round-{round_number:03d}-{target}.jsonl"
+    stem = f"round-{round_number:03d}-{reviewer}-{target}"
+    output_path = artifact_dir / f"{stem}.json"
+    event_log = artifact_dir / f"{stem}.log"
     command = build_review_command(
+        reviewer=reviewer,
         target=target,
         schema_path=REVIEW_SCHEMA_PATH,
         output_path=output_path,
         base_ref=base_ref,
         merge_base=merge_base,
+        model=model,
     )
 
     for attempt in range(2):
         output_path.unlink(missing_ok=True)
         completed = run_process(command, cwd=repo, event_log=event_log)
+        detail: str | None
         if completed.returncode == 0:
-            if not output_path.is_file():
-                raise ReviewLoopError(
-                    f"{target} review succeeded but did not write structured output."
-                )
-            try:
-                payload = json.loads(output_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as error:
-                raise ReviewLoopError(
-                    f"{target} review returned malformed structured output: {error}"
-                ) from error
-            return validate_review_payload(payload)
-
-        detail = (
-            completed.stderr.strip() or completed.stdout.strip() or "unknown failure"
-        )
+            if reviewer == "codex":
+                payload, detail = _read_codex_payload(output_path, label), None
+            else:
+                payload, detail = extract_claude_payload(completed.stdout, label)
+                if detail is None:
+                    output_path.write_text(
+                        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+                    )
+                    os.chmod(output_path, 0o600)
+            if detail is None:
+                return validate_review_payload(payload)
+        else:
+            detail = (
+                completed.stderr.strip()
+                or _claude_failure_detail(reviewer, completed.stdout)
+                or completed.stdout.strip()
+                or "unknown failure"
+            )
         if attempt == 0 and _is_transient_failure(detail):
             continue
         qualifier = " after one retry" if attempt else ""
-        raise ReviewLoopError(f"{target} review failed{qualifier}: {detail}")
+        raise ReviewLoopError(f"{label} review failed{qualifier}: {detail}")
 
     raise AssertionError("unreachable")  # pragma: no cover
 
@@ -457,7 +666,7 @@ def _read_state(state_file: Path) -> JsonObject:
         raise ReviewLoopError(
             f"Cannot read loop state {state_file}: {error}"
         ) from error
-    if not isinstance(payload, dict) or payload.get("version") != 1:
+    if not isinstance(payload, dict) or payload.get("version") != STATE_VERSION:
         raise ReviewLoopError(f"Unsupported loop state in {state_file}.")
     return cast(JsonObject, payload)
 
@@ -468,6 +677,9 @@ def _result(state: JsonObject, status: str, targets: list[str]) -> JsonObject:
         "selected_scope": state["selected_scope"],
         "base_ref": state["base_ref"],
         "merge_base": state["merge_base"],
+        "host": state["host"],
+        "active_reviewers": state["active_reviewers"],
+        "fallback": state["fallback"],
         "completed_iterations": state["completed_iterations"],
         "max_iterations": state["max_iterations"],
         "findings": state["last_findings"],
@@ -477,7 +689,12 @@ def _result(state: JsonObject, status: str, targets: list[str]) -> JsonObject:
 
 
 def execute_round(state_file: Path) -> JsonObject:
-    """Execute every reviewer pass required for one logical loop iteration."""
+    """Execute every reviewer pass required for one logical loop iteration.
+
+    Passes run concurrently. A host failure stops the round without consuming
+    an iteration. Another family's failure removes that reviewer for the rest
+    of the loop, and the round continues with the remaining reviewers.
+    """
     state_file = state_file.resolve()
     state = _read_state(state_file)
     completed_iterations = cast(int, state["completed_iterations"])
@@ -502,19 +719,47 @@ def execute_round(state_file: Path) -> JsonObject:
         if dirty:
             targets.append("uncommitted")
 
+    host = cast(str, state["host"])
+    active_reviewers = list(cast(list[str], state["active_reviewers"]))
+    models = cast(dict[str, str], state["models"])
     round_number = completed_iterations + 1
     artifact_dir = state_file.parent / "artifacts"
+    passes = [(reviewer, target) for reviewer in active_reviewers for target in targets]
     results: list[tuple[str, JsonObject]] = []
-    for target in targets:
-        payload = run_structured_review(
-            repo=repo,
-            target=target,
-            base_ref=cast(str | None, state["base_ref"]),
-            merge_base=cast(str | None, state["merge_base"]),
-            round_number=round_number,
-            artifact_dir=artifact_dir,
+    failures: dict[str, ReviewLoopError] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(passes)) as executor:
+        futures = [
+            (
+                reviewer,
+                target,
+                executor.submit(
+                    run_structured_review,
+                    repo=repo,
+                    reviewer=reviewer,
+                    target=target,
+                    base_ref=cast(str | None, state["base_ref"]),
+                    merge_base=cast(str | None, state["merge_base"]),
+                    round_number=round_number,
+                    artifact_dir=artifact_dir,
+                    model=models.get(reviewer),
+                ),
+            )
+            for reviewer, target in passes
+        ]
+        for reviewer, target, future in futures:
+            try:
+                results.append((f"{reviewer}:{target}", future.result()))
+            except ReviewLoopError as error:
+                failures.setdefault(reviewer, error)
+
+    if host in failures:
+        raise failures[host]
+    fallback = cast(list[JsonObject], state["fallback"])
+    for reviewer, error in failures.items():
+        active_reviewers.remove(reviewer)
+        fallback.append(
+            {"reviewer": reviewer, "round": round_number, "reason": str(error)}
         )
-        results.append((target, payload))
 
     merged = merge_results(results)
     completed_iterations += 1
@@ -527,6 +772,8 @@ def execute_round(state_file: Path) -> JsonObject:
         status=status,
         last_findings=findings,
         review_targets=list(targets),
+        active_reviewers=active_reviewers,
+        fallback=fallback,
     )
     _write_json(state_file, state)
     return _result(state, status, list(targets))
@@ -545,6 +792,17 @@ def _parser() -> argparse.ArgumentParser:
     initialize.add_argument(
         "--max-iterations", type=int, default=DEFAULT_MAX_ITERATIONS
     )
+    initialize.add_argument(
+        "--host",
+        choices=REVIEWERS,
+        required=True,
+        help="model family of the calling agent; its reviewer is required",
+    )
+    initialize.add_argument("--reviewers", choices=("both", *REVIEWERS), default="both")
+    initialize.add_argument("--codex-model", help="override the Codex default model")
+    initialize.add_argument(
+        "--claude-model", help=f"override the Claude model ({CLAUDE_DEFAULT_MODEL})"
+    )
     initialize.add_argument("--state-root", type=Path)
 
     review = subparsers.add_parser("review", help="execute one logical review round")
@@ -557,11 +815,22 @@ def main(arguments: list[str] | None = None) -> int:
     args = _parser().parse_args(arguments)
     try:
         if args.command == "init":
+            models = {
+                reviewer: model
+                for reviewer, model in (
+                    ("codex", args.codex_model),
+                    ("claude", args.claude_model),
+                )
+                if model is not None
+            }
             result = initialize_state(
                 repo=args.repo,
                 requested_scope=args.scope,
                 explicit_base=args.base,
                 max_iterations=args.max_iterations,
+                host=args.host,
+                reviewers=REVIEWERS if args.reviewers == "both" else (args.reviewers,),
+                models=models,
                 state_root=args.state_root,
             )
         else:
