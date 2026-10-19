@@ -36,6 +36,11 @@ Review against the intended outcome. Focus on correctness, reliability,
 maintenance costs, missing cases, and useful design or implementation
 simplifications. Skip backward-compatibility review unless requested.
 
+Review every pull request locally with `$review-fix-loop` before you create it.
+Run at least one round. Select the number of rounds yourself unless the user
+specifies the review. Record the rounds in the PR body. Post open findings as a
+PR comment. Do not request `@codex review` unless the user asks for it.
+
 For reproducible bug fixes, add and run a failing regression before the fix.
 Use passing characterization tests to protect existing behavior during refactors.
 Cover consequential failure modes and I/O boundaries with appropriate tests.

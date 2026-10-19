@@ -1,6 +1,6 @@
 interface:
   display_name: "Review Fix Loop"
   short_description: "Cross-family review and fix cycles"
-  default_prompt: "Use $review-fix-loop to review and fix the current changes with Codex and Claude reviewers; it starts Goal Mode automatically when needed and stops after a clean review, a justified early stop, or the iteration limit."
+  default_prompt: "Use $review-fix-loop to review and fix the current changes with Codex and Claude reviewers; it selects the review depth, starts Goal Mode automatically when needed, and stops after a clean review, a justified early stop, or the iteration limit."
 policy:
   allow_implicit_invocation: true

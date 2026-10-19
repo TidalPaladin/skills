@@ -9,7 +9,7 @@
 - Closing-linked issue confirmation
 - Review findings
 - CI diagnosis
-- Codex review
+- Local review
 - Human approval
 - Readiness classification
 - Completion report
@@ -75,6 +75,7 @@ Read the Pull Request Creation section of `$git-github-workflow` and validate th
 - Motivation that states the end-user or runtime problem, not delivery sequencing.
 - Solution and Changes that cover the complete branch diff relative to the target.
 - Test plan entries for the focused and repository-wide validation actually run.
+- A `## Review` section with the local review round count, final state, and reviewed head SHA.
 - `## Test suite changes (Required when test coverage changed)` when tests were removed, significantly altered, or changed in coverage intent.
 - The required generation attribution and any closing keyword already associated with the pull request.
 
@@ -131,29 +132,37 @@ For a failure:
 Do not hide deterministic failures with reruns. Validate CI fixes locally.
 Allow normal push-triggered CI. Do not use skip directives, queue deferrals, or empty commits to manipulate CI.
 
-## Codex Review
+## Local Review
 
-Inspect top-level comments and review submissions for:
+Use `$review-fix-loop` as the review gate. The parent runs it in the local
+worktree with `scope=session` and the PR target branch as `base`. A reporter cannot run it. A reporter reports missing review as a
+blocker for the parent.
 
-- A completed public Codex review covering the current material revision.
-- An `@codex review` trigger posted after the last completed review.
-- Codex findings and the commits or replies that address them.
+The `## Review` section of the PR body and any unresolved-findings comment are
+the review record. A record covers its reviewed head SHA, plus later
+commits that are not significant.
 
 Promote a draft only when implementation and local checks are complete, conflicts are absent, and known findings are addressed.
 No known branch-caused CI failure may remain.
 Being behind is allowed unless repository policy requires an up-to-date branch.
 
-When review is warranted and the PR is ready, post exactly `@codex review` as a top-level comment.
-Do not repeat a pending equivalent trigger.
+Run the loop when no review record exists. Run it again only for significant
+changes since the last recorded review. Behavior, interfaces, architecture,
+security, schemas, or a substantial patch revision qualify. Target-only merges,
+formatting, test-only updates, and narrow finding fixes do not qualify.
+Record the reason for each additional loop.
 
-Request another Codex review only for significant changes since the latest completed public review.
-Behavior, interfaces, architecture, security, schemas, or a substantial patch revision qualify.
-Target-only merges, formatting, test-only updates, and narrow finding fixes do not qualify.
-Record the reason for each additional review.
+After each loop, update the round count, final state, and reviewed head SHA in the PR body.
+When open findings remain, post one top-level comment that lists each finding
+with its priority, location, and disposition.
+
+Post `@codex review` only when the user explicitly asks for a GitHub Codex
+review. Do not repeat a pending equivalent trigger. Handle findings from such a
+review as other review findings.
 
 ## Human Approval
 
-Before human review, require a completed Codex review with all findings addressed and directly addressed Codex threads resolved.
+Before human review, require a local review record that covers the current material revision, with all findings addressed or recorded in the unresolved-findings comment. Directly addressed Codex threads must be resolved.
 Inspect current requests, request history, and submitted reviews.
 
 If the invocation names a reviewer:
@@ -172,7 +181,7 @@ Request a reviewer login or independent approval. Never choose a reviewer.
 
 Count only a current non-bot `APPROVED` review.
 Dismissal or substantial later changes make approval stale.
-Complete any warranted Codex review and follow the human-request rules.
+Complete any warranted local review and follow the human-request rules.
 Staleness alone does not authorize another request.
 
 ## Readiness Classification
@@ -190,10 +199,11 @@ Require all of the following for `merge-ready`:
 - The intended target is correct and no merge conflicts exist.
 - Any repository requirement that the head contain the current target is satisfied. Otherwise, being behind the target is allowed.
 - Required checks pass on the current head.
-- A completed public Codex review covers the current material revision.
-- All findings are addressed and directly addressed Codex threads are resolved.
+- A local review record covers the current material revision.
+- Open findings from the review loop are listed in a PR comment and are not P0 or P1.
+- All findings are addressed or have a recorded disposition, and directly addressed Codex threads are resolved.
 - A current non-bot approval exists and all human findings are addressed.
-- The pull-request body matches the complete current diff, validation, risks, and issue traceability.
+- The pull-request body matches the complete current diff, validation, review record, risks, and issue traceability.
 - The pull-request body follows the required `$git-github-workflow` structure and conditional test-suite disclosure.
 - Branch-protection requirements pass.
 
@@ -204,15 +214,15 @@ If branch protection requires resolution, report a blocker for the reviewer or m
 
 Return:
 
-| PR | Base status | CI | Codex review | Human approval | Issue closure | Ready for merge |
+| PR | Base status | CI | Local review | Human approval | Issue closure | Ready for merge |
 | --- | --- | --- | --- | --- | --- | --- |
 
-Use compact values that identify current SHA coverage and base status, such as `current`, `behind-allowed`, `conflict`, `pass`, `fail`, `running`, `pending`, `approved`, `stale`, `yes`, `no`, `waiting`, `blocked`, or `terminal`. For Issue closure, use only `none`, `pending`, `deferred`, `closed`, `closed-by-lifecycle`, or `blocked`.
+For Local review, give the round count and final state, such as `3 clean`, `2 open-findings`, or `missing`. Use compact values that identify current SHA coverage and base status, such as `current`, `behind-allowed`, `conflict`, `pass`, `fail`, `running`, `pending`, `approved`, `stale`, `yes`, `no`, `waiting`, `blocked`, or `terminal`. For Issue closure, use only `none`, `pending`, `deferred`, `closed`, `closed-by-lifecycle`, or `blocked`.
 
 After the table:
 
 1. List each blocker and the exact user, reviewer, maintainer, permission, or infrastructure action required.
 2. List the next expected lifecycle step for every non-terminal target.
-3. State which conflicts, review findings, and CI failures were addressed during the iteration.
+3. State which conflicts, review findings, and CI failures were addressed during the iteration, and the review-fix-loop rounds run.
 4. Report issue closures, confirmations, and resolved Codex threads.
    Confirm that no PR was merged and no human-authored thread was resolved.

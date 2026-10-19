@@ -794,6 +794,65 @@ def test_iteration_cap_is_reported_without_extra_review(
     assert call_count == 2
 
 
+def test_agent_cap_extension_allows_more_rounds(
+    runner: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = create_repository(tmp_path)
+    (repo / FEATURE_FILE).write_text(DIRTY_CONTENT, encoding="utf-8")
+    state = init_state(
+        runner, repo, tmp_path, requested_scope="uncommitted", max_iterations=1
+    )
+    assert state["cap_source"] == "agent"
+    monkeypatch.setattr(
+        runner, "run_structured_review", lambda **kwargs: review_payload(finding())
+    )
+    state_file = Path(state["state_file"])
+
+    assert runner.execute_round(state_file)["status"] == "limit_reached"
+    extended = runner.extend_cap(state_file, 3)
+    assert extended["max_iterations"] == 3
+    assert extended["status"] == "ready"
+    second = runner.execute_round(state_file)
+    assert second["status"] == "findings"
+    assert second["completed_iterations"] == 2
+
+
+def test_cap_extension_rejects_user_cap_and_non_increase(
+    runner: ModuleType, tmp_path: Path
+) -> None:
+    repo = create_repository(tmp_path)
+    (repo / FEATURE_FILE).write_text(DIRTY_CONTENT, encoding="utf-8")
+    user_state = init_state(
+        runner,
+        repo,
+        tmp_path,
+        requested_scope="uncommitted",
+        max_iterations=2,
+        cap_source="user",
+    )
+    with pytest.raises(runner.ReviewLoopError, match="user"):
+        runner.extend_cap(Path(user_state["state_file"]), 4)
+
+    agent_state = init_state(
+        runner,
+        repo,
+        tmp_path / "agent",
+        requested_scope="uncommitted",
+        max_iterations=2,
+    )
+    for invalid_cap in (2, 1, True):
+        with pytest.raises(runner.ReviewLoopError, match="greater"):
+            runner.extend_cap(Path(agent_state["state_file"]), invalid_cap)
+
+
+def test_initialize_state_rejects_unknown_cap_source(
+    runner: ModuleType, tmp_path: Path
+) -> None:
+    repo = create_repository(tmp_path)
+    with pytest.raises(runner.ReviewLoopError, match="cap-source"):
+        init_state(runner, repo, tmp_path, cap_source="reviewer")
+
+
 def test_clean_uncommitted_scope_completes_without_reviewer(
     runner: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1174,6 +1233,7 @@ def test_main_prints_results_and_errors(
     assert observed["reviewers"] == ("codex", "claude")
     assert observed["max_iterations"] == DEFAULT_MAX_ITERATIONS
     assert observed["models"] == {}
+    assert observed["cap_source"] == "agent"
 
     assert (
         runner.main(
@@ -1205,6 +1265,37 @@ def test_main_prints_results_and_errors(
     assert runner.main(["review", "--state-file", str(tmp_path / "state.json")]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "clean"
 
+    assert (
+        runner.main(
+            ["init", "--repo", str(tmp_path), "--host", "codex", "--cap-source", "user"]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert observed["cap_source"] == "user"
+
+    monkeypatch.setattr(
+        runner,
+        "extend_cap",
+        lambda state_file, max_iterations: {
+            "status": "ready",
+            "max_iterations": max_iterations,
+        },
+    )
+    assert (
+        runner.main(
+            [
+                "extend",
+                "--state-file",
+                str(tmp_path / "state.json"),
+                "--max-iterations",
+                "7",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["max_iterations"] == 7
+
     def fail(**kwargs: Any) -> dict[str, Any]:
         del kwargs
         raise runner.ReviewLoopError("expected failure")
@@ -1226,6 +1317,10 @@ def test_skill_variants_pass_their_own_host_and_allow_invocation() -> None:
 
     assert "--host codex" in codex_text and "--host claude" not in codex_text
     assert "--host claude" in claude_text and "--host codex" not in claude_text
+    for text in (codex_text, claude_text):
+        assert "--cap-source agent" in text and "--cap-source user" in text
+        assert 'run_review.py" extend' in text
+        assert "## Review" in text
     for path in (SKILL_ROOT / "SKILL.md", CLAUDE_SKILL_PATH):
         assert "disable-model-invocation" not in frontmatter(path)
     assert "allow_implicit_invocation: true" in interface

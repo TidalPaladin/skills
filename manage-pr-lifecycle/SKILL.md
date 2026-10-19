@@ -27,14 +27,15 @@ Reporters retain only the remote actions allowed by their agent definition.
 
 Invocation authorizes target synchronization when needed, conflict resolution,
 scoped fixes, tests, new commits, pushes, body corrections, and CI diagnosis.
-It also authorizes the review and post-merge issue actions below under their
-detailed conditions.
+It also authorizes local `$review-fix-loop` runs, PR review records, and the
+review and post-merge issue actions below under their detailed conditions.
 
 Do not merge, enable auto-merge, dismiss reviews, reopen issues, or close PRs.
 Do not resolve human-authored threads or unresolve any thread.
 Resolve Codex threads only after directly addressing their findings.
 Do not rewrite published history, delete unrelated worktrees or branches,
-or choose an unspecified reviewer.
+or choose an unspecified reviewer. Do not post `@codex review` unless the user
+explicitly asks for a GitHub Codex review.
 
 Use `$git-github-workflow` for GitHub authority and connector fallback.
 An invoked reporter must also follow its narrower agent permissions.
@@ -47,7 +48,7 @@ Use the relevant sections of
 - Build the target snapshot, then inspect conflicts and required target updates.
 - Check the complete PR body and correct it using the Git workflow format.
 - Address valid findings and branch-caused CI failures with new commits.
-- Apply Codex review significance rules and named-human request limits.
+- Apply local review significance rules and named-human request limits.
 - Apply readiness classification after refreshing changed state.
 
 Required CI evidence must match the current head. Do not merge the target

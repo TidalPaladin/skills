@@ -34,7 +34,8 @@ Ask before destructive restore, reset, clean, or deletion that risks user work.
 ## Pull Request Creation
 
 Inspect the full branch diff against the intended remote base.
-Create PRs as drafts unless instructed otherwise.
+Before you create a PR, run `$review-fix-loop` with `scope=session` and the PR base.
+Complete at least one round. Create PRs as drafts unless instructed otherwise.
 Use a concise title under 70 characters and this body structure:
 
 ```markdown
@@ -53,8 +54,17 @@ Use a concise title under 70 characters and this body structure:
 ## Test suite changes (Required when test coverage changed)
 <Removed or materially altered tests, rationale, and replacement coverage.>
 
+## Review
+<Local review-fix-loop rounds, reviewers, fallback, final state, and reviewed head SHA.>
+
 Generated with <tool name>
 ```
+
+Write the `## Review` section as one line, for example:
+`3 rounds of local review-fix-loop (Codex, Claude); clean at abc1234.`
+Count the rounds of all loops for the PR. When the loop stopped with open
+findings, post one top-level PR comment that lists each open finding with its
+priority, location, and disposition. Refer to that comment in the section.
 
 Omit the test-suite section when tests and coverage intent did not materially
 change. Cosmetic test edits do not require it. Include only useful examples,
@@ -67,7 +77,10 @@ Preserve issue traceability in subsequent body updates.
 Derive repository, head, and base from current Git or GitHub evidence.
 Use existing labels when appropriate. Create labels only when requested.
 Fetch the published PR to verify its body, base, and draft state.
-Update the body when later commits change the scope or validation evidence.
+Update the body when later commits change the scope, validation, or review evidence.
+
+Do not post `@codex review` or request other GitHub-hosted AI reviews unless
+the user explicitly asks for them.
 
 ## GitHub Actions Validation
 
