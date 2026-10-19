@@ -32,8 +32,9 @@ GitHub-side actions that require no local change:
 - Correct the pull-request body when the complete current diff and validation
   evidence are known. Enforce the `/git-github-workflow` Motivation, Solution,
   Changes, Test plan, `## Test suite changes (Required when test coverage
-  changed)` when applicable, closing-link, and generation-attribution
-  requirements.
+  changed)` when applicable, `## Review`, closing-link, and
+  generation-attribution requirements. Do not change the review round count
+  without evidence from the parent.
 - Rerun only the affected CI job when evidence classifies the failure as
   transient or infrastructure-related.
 - Reply in the original review thread when an existing commit demonstrably
@@ -43,12 +44,12 @@ GitHub-side actions that require no local change:
   shows that an existing commit directly addressed its finding.
 - Promote a draft only when every lifecycle precondition is already satisfied
   by current evidence and no local work remains.
-- Post an `@codex review` trigger only when no equivalent trigger is pending and
-  either no completed public Codex review exists or changes since the latest
-  completed public Codex review are sufficiently significant under the skill's
-  rule.
+- Post an `@codex review` trigger only when the assignment states that the
+  user explicitly asked for a GitHub Codex review and no equivalent trigger is
+  pending. Otherwise never post it. Report a missing or stale local review
+  record as a blocker for the parent, which runs /review-fix-loop.
 - Request only a human reviewer explicitly named in the assignment, and only
-  after the Codex review gate is satisfied and the one-request default and
+  after the local review gate is satisfied and the one-request default and
   addressed-comment exception permit the request.
 - Close a closing-linked issue with state reason `completed` only after current
   evidence confirms that the assigned pull request merged into the repository

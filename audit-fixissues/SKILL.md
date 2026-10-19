@@ -49,6 +49,7 @@ Confirm a failing regression for reproducible bugs.
 Implement the smallest complete solution and run applicable repository gates.
 
 Before publication, inspect the full diff against the intended base.
+Run `$review-fix-loop` for at least one round and record it in the `## Review` section.
 Follow the required body format in `$git-github-workflow`.
 Include the required closing keyword for the issue.
 Use `Closes #N` or `Closes OWNER/REPOSITORY#N` as applicable.

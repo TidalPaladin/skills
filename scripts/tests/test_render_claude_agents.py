@@ -67,7 +67,10 @@ def test_family_terms_are_replaced_without_touching_codex_reviews() -> None:
     assert "If the caller is Fable, decline" in consultant
     for term in ("Luna", "Sol ", "Astra"):
         assert term not in consultant
-    assert "completed public Codex review" in rendered["pr-lifecycle-reporter.md"]
+    assert (
+        "explicitly asked for a GitHub Codex review"
+        in rendered["pr-lifecycle-reporter.md"]
+    )
 
 
 def test_unmapped_model_is_rejected(tmp_path: Path) -> None:

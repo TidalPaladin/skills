@@ -1,6 +1,6 @@
 ---
 name: review-fix-loop
-description: Review and fix local changes with Codex and Claude reviewers until clean, capped, or judged complete. Use for complex or risky changes before handoff or PR, or when the user asks for a review-fix loop.
+description: Review and fix local changes with Codex and Claude reviewers until clean, capped, or judged complete. Use before every pull request, for complex or risky changes before handoff, or when the user asks for a review-fix loop or local review.
 ---
 
 # Review Fix Loop
@@ -9,23 +9,17 @@ Use isolated, read-only reviewers from two model families, Codex and Claude, to 
 
 ## Decide When to Invoke
 
-Invoke this skill when the user asks for a review-fix loop or a local review. Also invoke it on your own judgment before handoff or PR when the change has sufficient complexity or risk, for example:
+This skill is the required review for every pull request. Do not use a GitHub `@codex review` trigger in its place. Request a GitHub Codex review only when the user explicitly asks for it.
 
-- concurrency, ordering, or retry logic.
-- trust boundaries, input validation, authentication, or secrets.
-- data integrity, persistence, or migrations.
-- I/O boundaries and error paths.
-- nontrivial algorithms or numerics.
-- refactors across many files.
-- released or medical device software.
-
-Do not invoke it for trivial edits, documentation-only changes, formatting, mechanical renames, or generated files. Each round runs two reviewers. Compare that cost with the risk of the change.
+- Before you create a pull request, run this loop on the branch changes. Pass `scope=session` and set `base=<ref>` to the pull request target branch, so that the review includes committed and uncommitted changes. Complete at least one round, also for small or documentation-only changes.
+- Before you push material changes to an open pull request, run the loop again on judgment. Behavior, interface, security, schema, or substantial patch changes qualify. Target-only merges, formatting, and narrow finding fixes do not.
+- Without a pull request, invoke the loop when the user asks for it, or before handoff when the change has sufficient complexity or risk. For example: concurrency, trust boundaries, data integrity, I/O error paths, nontrivial numerics, large refactors, or released or medical device software.
 
 ## Enter Goal Mode
 
 Call `get_goal` before inspecting the repository. Track whether this workflow creates the goal.
 
-- When no goal is active, call `create_goal` before initializing the loop. Build the objective from the requested `scope`, optional `base`, and `max-iterations` values. Require a clean review, or a justified early stop, with unchanged passing repository gates, preserve unrelated changes, and include the configured stop conditions. For `scope=auto`, describe the runner-selected pinned scope rather than inspecting Git before creating the goal.
+- When no goal is active, call `create_goal` before initializing the loop. Build the objective from the requested `scope`, optional `base`, and any user-fixed `max-iterations` value. Without a user-fixed cap, state that you select the cap after goal creation and can raise it. Require a clean review, or a justified early stop, with unchanged passing repository gates, preserve unrelated changes, and include the configured stop conditions. For `scope=auto`, describe the runner-selected pinned scope rather than inspecting Git before creating the goal.
 - When a goal is already active, retain it and run the loop under that goal. Do not replace an existing goal.
 - If goal tools are unavailable, report that Goal Mode is inactive.
   Stop before repository inspection and identify the equivalent Goal Mode control or `/goal` action.
@@ -41,7 +35,7 @@ Accept these user-facing inputs:
 - `scope=uncommitted`: Review only staged, unstaged, and untracked changes. A clean working tree completes without falling back to session scope.
 - `scope=session`: Review the current branch relative to a base. Also review current uncommitted changes when the working tree is dirty.
 - `base=<ref>`: Override session base selection. It has no effect on uncommitted scope.
-- `max-iterations=<N>`: Set a positive integer cap. The default is `5`.
+- `max-iterations=<N>`: A user-fixed positive integer cap. Without this input, you select the cap. See [Select the Review Depth](#select-the-review-depth).
 - `reviewers=both`: Default. Use the Codex and Claude reviewers. `reviewers=codex` uses only the same-family reviewer.
 - `codex-model=<model>` and `claude-model=<model>`: Override a reviewer model for this loop.
 
@@ -50,6 +44,14 @@ Initialize once. The runner pins the selected scope for the rest of the loop. Do
 For session scope, the runner resolves the first existing ref in this order without fetching: `origin/main`, `origin/master`, `main`, `master`. It records that ref and the merge-base SHA. If none exists, stop and request `base=<ref>`.
 
 Session scope approximates the current Codex task with all branch changes since the merge base. It can include changes that existed before this task began.
+
+## Select the Review Depth
+
+You decide how many rounds to run. Do not ask the user for a round count or for permission to continue. The minimum is one completed round.
+
+- Select the initial cap from the size and risk of the change. Use `2` for a small, low-risk change, `3` to `5` for typical changes, and more for high-risk or released device software.
+- When the cap stops a round with findings and more rounds have material value, raise the cap with the `extend` command. Stop when you judge that more rounds have no material value. See [Stop Early on Judgment](#stop-early-on-judgment).
+- When the user supplies `max-iterations` or an exact round count, pass that value with `--cap-source user`. Do not extend a user-fixed cap. Apply other user review instructions, such as a focus area, without fixing the cap.
 
 ## Initialize the Loop
 
@@ -60,10 +62,11 @@ uv run --no-project python "$SKILL_DIR/scripts/run_review.py" init \
   --repo "$PWD" \
   --host codex \
   --scope auto \
-  --max-iterations 5
+  --max-iterations <N> \
+  --cap-source agent
 ```
 
-`--host codex` identifies the same-family reviewer. Pass `--base <ref>`, `--reviewers <value>`, `--codex-model <model>`, or `--claude-model <model>` only when the user supplied that value. Read the returned JSON and retain `state_file`, `selected_scope`, `base_ref`, `merge_base`, `active_reviewers`, and `fallback`. The state and reviewer artifacts are private temporary files unless `--state-root` is supplied for testing.
+`--host codex` identifies the same-family reviewer. Set `<N>` to the cap that you selected, or to the user's value with `--cap-source user`. For a pull request review, pass `--scope session` and set `--base` to the verified pull request target branch. Otherwise pass `--base <ref>` only when the user supplied it. Pass `--reviewers <value>`, `--codex-model <model>`, or `--claude-model <model>` only when the user supplied that value. Read the returned JSON and retain `state_file`, `cap_source`, `selected_scope`, `base_ref`, `merge_base`, `active_reviewers`, and `fallback`. The state and reviewer artifacts are private temporary files unless `--state-root` is supplied for testing.
 
 ## Run One Review Round
 
@@ -82,6 +85,16 @@ The runner runs every active reviewer concurrently. Each reviewer is ephemeral, 
 Do not replace the Codex reviewer with `codex exec review` while that command starts a review request without forwarding `--output-schema`. Native review targets and positional prompts are also mutually exclusive.
 
 For session scope, every round includes the base review. A dirty working tree adds an uncommitted review. Each active reviewer runs each target. The runner merges all passes, deduplicates by normalized file path, line range, and title, and records sources such as `codex:base` and `claude:uncommitted`. Each finding's `reviewers` field lists every family that reported it or an overlapping range in the same file. Agreement between families can help you set the order of work. It does not replace verification.
+
+To raise an agent-selected cap, run:
+
+```bash
+uv run --no-project python "$SKILL_DIR/scripts/run_review.py" extend \
+  --state-file <state_file> \
+  --max-iterations <M>
+```
+
+`<M>` must be greater than the current cap. The runner refuses to extend a user-fixed cap.
 
 ## Fall Back to the Same Family
 
@@ -131,7 +144,7 @@ Do not stop early while a verified P0 or P1 finding is still open. An early stop
 
 - `findings`: Fix verified findings in the main task, validate them, and continue.
 - `clean`: Run the full project gates. Review again after any subsequent edit.
-- `limit_reached`: Stop immediately. Do not make another fix that cannot receive a confirming review.
+- `limit_reached`: For an agent-selected cap, extend the cap and continue, or stop. For a user-fixed cap, stop. Do not make another fix that cannot receive a confirming review.
 - Reviewer failure: The runner retries one clearly transient process failure without consuming an iteration. A Claude failure after that falls back to the Codex reviewer. A Codex failure stops the loop.
 - Codex configuration, authentication, unavailable-model, and malformed-output failures: Stop on the first failure. Do not change models or weaken the read-only controls.
 
@@ -141,6 +154,13 @@ Meaningful progress must require user input or an external state change. Otherwi
 
 Do not stage, commit, push, publish, or fetch while using this skill. Repository edits needed to fix verified findings are allowed in the main task.
 
+## Record the Review on the Pull Request
+
+This skill does not write to GitHub. The workflow that creates or updates the pull request uses the result of this skill:
+
+- Write the number of completed rounds, the active reviewers, any fallback, the final state (`clean`, `stopped_early`, or `limit_reached`), and the reviewed head SHA in the `## Review` section of the pull request body. When the loop reviewed uncommitted changes, use the SHA of the commit that contains them. Count the rounds of all loops for the pull request.
+- When the loop stops with open findings, post one top-level comment on the pull request. For each open finding, give the priority, the file and line range, the title, and the disposition: deferred, rejected with a reason, or out of scope.
+
 ## Report the Result
 
 At handoff, report:
@@ -148,7 +168,7 @@ At handoff, report:
 - selected scope.
 - selected base ref and merge-base SHA for session scope.
 - active reviewers and each `fallback` entry with its reason.
-- completed logical iterations and the configured cap.
+- completed logical iterations, the cap, and the cap source.
 - whether the workflow created or reused the goal and its final state.
 - whether a clean review was confirmed, or the reason for an early stop.
 - last findings or their verified dispositions.

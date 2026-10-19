@@ -22,6 +22,7 @@ REVIEW_SCHEMA_PATH: Final = SKILL_ROOT / "references" / "review-result.schema.js
 DEFAULT_MAX_ITERATIONS: Final = 5
 STATE_VERSION: Final = 2
 BASE_CANDIDATES: Final = ("origin/main", "origin/master", "main", "master")
+CAP_SOURCES: Final = ("agent", "user")
 REVIEWERS: Final = ("codex", "claude")
 CODEX_REASONING_EFFORT: Final = "high"
 CODEX_STDIN_NOTICE: Final = "Reading additional input from stdin..."
@@ -461,6 +462,7 @@ def initialize_state(
     explicit_base: str | None,
     max_iterations: int,
     host: str,
+    cap_source: str = "agent",
     reviewers: Sequence[str] = REVIEWERS,
     models: dict[str, str] | None = None,
     state_root: Path | None = None,
@@ -468,10 +470,13 @@ def initialize_state(
     """Pin loop scope, base metadata, and reviewers, then persist loop state.
 
     A missing host CLI is an error. A missing CLI for another family removes
-    that reviewer and records the reason in ``fallback``.
+    that reviewer and records the reason in ``fallback``. An ``agent`` cap
+    can be raised later with ``extend_cap``. A ``user`` cap is fixed.
     """
     if isinstance(max_iterations, bool) or max_iterations < 1:
         raise ReviewLoopError("max-iterations must be a positive integer.")
+    if cap_source not in CAP_SOURCES:
+        raise ReviewLoopError(f"cap-source must be one of {', '.join(CAP_SOURCES)}.")
     models = dict(models or {})
     selected_reviewers = _validate_reviewers(host, reviewers, models)
     if not cli_available(host):
@@ -517,6 +522,7 @@ def initialize_state(
         "models": models,
         "fallback": fallback,
         "max_iterations": max_iterations,
+        "cap_source": cap_source,
         "completed_iterations": 0,
         "status": "ready",
         "last_findings": [],
@@ -729,10 +735,31 @@ def _result(state: JsonObject, status: str, targets: list[str]) -> JsonObject:
         "fallback": state["fallback"],
         "completed_iterations": state["completed_iterations"],
         "max_iterations": state["max_iterations"],
+        "cap_source": state.get("cap_source", "agent"),
         "findings": state["last_findings"],
         "review_targets": targets,
         "state_file": state["state_file"],
     }
+
+
+def extend_cap(state_file: Path, max_iterations: int) -> JsonObject:
+    """Raise an agent-selected iteration cap so the loop can continue."""
+    state_file = state_file.resolve()
+    state = _read_state(state_file)
+    if state.get("cap_source", "agent") != "agent":
+        raise ReviewLoopError("The user fixed the iteration cap. Do not extend it.")
+    current = cast(int, state["max_iterations"])
+    if isinstance(max_iterations, bool) or max_iterations <= current:
+        raise ReviewLoopError(
+            f"max-iterations must be an integer greater than the current cap {current}."
+        )
+    state["max_iterations"] = max_iterations
+    if state["status"] == "limit_reached":
+        state["status"] = "ready"
+    _write_json(state_file, state)
+    return _result(
+        state, cast(str, state["status"]), cast(list[str], state["review_targets"])
+    )
 
 
 def execute_round(state_file: Path) -> JsonObject:
@@ -845,6 +872,12 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         help="model family of the calling agent; its reviewer is required",
     )
+    initialize.add_argument(
+        "--cap-source",
+        choices=CAP_SOURCES,
+        default="agent",
+        help="who set the cap; only an agent cap can be extended",
+    )
     initialize.add_argument("--reviewers", choices=("both", *REVIEWERS), default="both")
     initialize.add_argument("--codex-model", help="override the Codex default model")
     initialize.add_argument(
@@ -854,6 +887,10 @@ def _parser() -> argparse.ArgumentParser:
 
     review = subparsers.add_parser("review", help="execute one logical review round")
     review.add_argument("--state-file", type=Path, required=True)
+
+    extend = subparsers.add_parser("extend", help="raise an agent-selected cap")
+    extend.add_argument("--state-file", type=Path, required=True)
+    extend.add_argument("--max-iterations", type=int, required=True)
     return parser
 
 
@@ -876,10 +913,13 @@ def main(arguments: list[str] | None = None) -> int:
                 explicit_base=args.base,
                 max_iterations=args.max_iterations,
                 host=args.host,
+                cap_source=args.cap_source,
                 reviewers=REVIEWERS if args.reviewers == "both" else (args.reviewers,),
                 models=models,
                 state_root=args.state_root,
             )
+        elif args.command == "extend":
+            result = extend_cap(args.state_file, args.max_iterations)
         else:
             result = execute_round(args.state_file)
     except ReviewLoopError as error:
